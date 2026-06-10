@@ -1,0 +1,19 @@
+# ─── Secrets — NEVER commit these ────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+credentials.json
+token.json
+employees.json
+state.json
+push-channels.json
+gmail-state.json
+
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+package-lock.json
+
+# ─── Runtime / OS ─────────────────────────────────────────────────────────────
+*.log
+.DS_Store
+Thumbs.db
