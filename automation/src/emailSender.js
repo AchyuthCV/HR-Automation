@@ -251,6 +251,11 @@ async function sendVerificationReport(employee, verificationResults) {
   const { name, employeeId, contacts } = employee;
   const recruiterEmail = contacts && contacts.recruiterEmail;
 
+  if (!verificationResults || Object.keys(verificationResults).length === 0) {
+    console.warn(`[Email] sendVerificationReport skipped for ${name} — no verification results yet`);
+    return;
+  }
+
   const rows = Object.entries(verificationResults).map(([docType, res]) => {
     const statusIcon = res.valid ? '&#10003;' : '&#10007;';
     const statusColor = res.valid ? '#2e7d32' : '#c62828';

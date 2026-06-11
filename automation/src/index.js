@@ -143,7 +143,6 @@ function loadEmployees() {
         phase: 'Phase2_BeforeDOJ',
         noResponseTimers: {},
         replyTimers: {},
-        verificationResults: {},
       },
     ];
   }
@@ -436,8 +435,8 @@ async function triggerNextStep(auth, employee, docType) {
   }
 
   // After offer letter saved → send induction confirmation request, calendar invite, project intro
+  // t13 is already marked by DOC_TASK_MAP in handleNewFile when the offer letter passes verification
   if (docType === 'offerLetter') {
-    markAndLog(employee, 't13');
     if (!isTaskDone(checklist, 't33')) {
       await sendHRInductionConfirmation(employee, contacts.recruiterEmail);
     }
@@ -639,6 +638,10 @@ async function handleReply(auth, classified, rawMsg) {
       markAndLog(employee, 't45');
       activityLog.log(employee, '30_day_catchup_complete');
       await mark30DayDone(auth, employee).catch(() => {});
+      if (employee.replyTimers && employee.replyTimers['30dayReview']) {
+        employee.replyTimers['30dayReview'].stop && employee.replyTimers['30dayReview'].stop();
+        delete employee.replyTimers['30dayReview'];
+      }
       break;
 
     case 'review_complete': {

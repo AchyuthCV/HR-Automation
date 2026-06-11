@@ -547,6 +547,14 @@ app.post('/mark-task/:employeeId/:taskId', (req, res) => {
 
   console.log(`[Webhook] Task ${taskId} (${label}) manually marked done for ${employeeId}`);
 
+  // Sync updated checklist back to Drive so the file in the employee's folder stays current
+  if (_auth && emp.driveFolderId) {
+    const { uploadChecklist } = require('./driveWatcher');
+    uploadChecklist(_auth, emp.driveFolderId, emp.checklist).catch(err =>
+      console.warn(`[Webhook] mark-task: Drive checklist sync failed for ${employeeId}:`, err.message)
+    );
+  }
+
   // If the request came from a browser form, redirect back to the status page
   const accept = req.headers['accept'] || '';
   if (accept.includes('text/html')) {

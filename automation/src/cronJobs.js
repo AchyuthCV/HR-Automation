@@ -115,8 +115,11 @@ function schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, 
 
     if (employee._auth) await mark30DayDone(employee._auth, employee).catch(() => {});
 
-    // Schedule 48h no-reply escalation for the 30-day review
-    scheduleReplyDeadline(employee, 'Recruiter / Manager (30-Day Review)', recruiterEmail, 48);
+    // Schedule 48h no-reply escalation for the 30-day review and persist the timer handle
+    employee.replyTimers = employee.replyTimers || {};
+    employee.replyTimers['30dayReview'] = scheduleReplyDeadline(
+      employee, 'Recruiter / Manager (30-Day Review)', recruiterEmail, 48
+    );
   });
 }
 
