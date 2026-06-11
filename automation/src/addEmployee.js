@@ -16,18 +16,46 @@ function ask(question) {
   return new Promise(resolve => rl.question(question, answer => resolve(answer.trim())));
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DOJ_RE   = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+async function askEmail(label, allowBlank = false) {
+  while (true) {
+    const val = await ask(`${label}: `);
+    if (allowBlank && val === '') return val;
+    if (EMAIL_RE.test(val)) return val;
+    console.log('  Invalid email. Please enter a valid address (e.g. name@domain.com).');
+  }
+}
+
+async function askDoj() {
+  while (true) {
+    const val = await ask('Date of Joining (YYYY-MM-DD): ');
+    if (DOJ_RE.test(val) && !isNaN(new Date(val).getTime())) return val;
+    console.log('  Invalid date. Use YYYY-MM-DD format (e.g. 2026-08-01).');
+  }
+}
+
+async function askRequired(label) {
+  while (true) {
+    const val = await ask(`${label}: `);
+    if (val.length > 0) return val;
+    console.log('  This field is required.');
+  }
+}
+
 async function main() {
   console.log('\n=== Add New Employee ===\n');
 
-  const employeeId    = await ask('Employee ID (e.g. EMP002): ');
-  const name          = await ask('Full Name: ');
-  const personalEmail = await ask('Personal Email: ');
-  const officialEmail = await ask('Official Email (leave blank if not yet created): ');
-  const doj           = await ask('Date of Joining (YYYY-MM-DD): ');
-  const driveFolderId = await ask('Google Drive Folder ID: ');
-  const recruiterEmail = await ask('Recruiter Email: ');
-  const managerEmail  = await ask('Manager Email: ');
-  const itEmail       = await ask('IT Email: ');
+  const employeeId    = await askRequired('Employee ID (e.g. EMP002)');
+  const name          = await askRequired('Full Name');
+  const personalEmail = await askEmail('Personal Email');
+  const officialEmail = await askEmail('Official Email (leave blank if not yet created)', true);
+  const doj           = await askDoj();
+  const driveFolderId = await askRequired('Google Drive Folder ID');
+  const recruiterEmail = await askEmail('Recruiter Email');
+  const managerEmail  = await askEmail('Manager Email');
+  const itEmail       = await askEmail('IT Email');
 
   rl.close();
 

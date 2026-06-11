@@ -114,9 +114,24 @@ async function main() {
   });
 }
 
+// ─── Reset WEBHOOK_BASE_URL to placeholder so next `npm start` doesn't use a dead ngrok URL
+function resetEnvWebhookUrl() {
+  try {
+    if (!fs.existsSync(ENV_PATH)) return;
+    let content = fs.readFileSync(ENV_PATH, 'utf8');
+    const placeholder = 'https://your-ngrok-url.ngrok-free.app';
+    content = content.replace(/^WEBHOOK_BASE_URL=.*/m, `WEBHOOK_BASE_URL=${placeholder}`);
+    fs.writeFileSync(ENV_PATH, content, 'utf8');
+    console.log('[Dev] WEBHOOK_BASE_URL reset to placeholder in .env');
+  } catch (e) {
+    console.warn('[Dev] Could not reset WEBHOOK_BASE_URL in .env:', e.message);
+  }
+}
+
 // ─── Graceful shutdown on Ctrl+C ───────────────────────────────────────────────
 process.on('SIGINT', () => {
   console.log('\n[Dev] Shutting down...');
+  resetEnvWebhookUrl();
   if (engineProc) {
     engineProc.kill('SIGINT');
   }

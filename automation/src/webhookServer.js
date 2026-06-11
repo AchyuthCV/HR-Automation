@@ -5,9 +5,13 @@
 //   GET  /health       ← uptime check
 
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { getChangedFiles, loadPushChannels } = require('./driveWatcher');
 const { processGmailPush } = require('./gmailWatcher');
 require('dotenv').config();
+
+const SEEN_FILES_PATH = path.join(__dirname, '..', 'seen-files.json');
 
 // employeeRegistry and handleNewFile are injected by index.js after boot
 let _auth = null;
@@ -24,8 +28,38 @@ function init({ auth, employeeRegistry, handleNewFile, handleReply, onNewEmploye
   _onNewEmployee = onNewEmployee;
 }
 
-// Track last-seen file IDs per folder to avoid double-processing
-const seenFileIds = {};
+// Track last-seen file IDs per employee folder — persisted to seen-files.json
+// so restarting the engine doesn't re-process already-handled files.
+function loadSeenFiles() {
+  if (fs.existsSync(SEEN_FILES_PATH)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(SEEN_FILES_PATH, 'utf8'));
+      // Convert plain arrays back to Sets
+      const result = {};
+      for (const [empId, ids] of Object.entries(raw)) {
+        result[empId] = new Set(ids);
+      }
+      return result;
+    } catch (e) {
+      console.warn('[Webhook] Could not load seen-files.json:', e.message);
+    }
+  }
+  return {};
+}
+
+function saveSeenFiles(seenFileIds) {
+  try {
+    const serialisable = {};
+    for (const [empId, set] of Object.entries(seenFileIds)) {
+      serialisable[empId] = [...set];
+    }
+    fs.writeFileSync(SEEN_FILES_PATH, JSON.stringify(serialisable, null, 2));
+  } catch (e) {
+    console.warn('[Webhook] Could not save seen-files.json:', e.message);
+  }
+}
+
+const seenFileIds = loadSeenFiles();
 
 const app = express();
 app.use(express.json());
@@ -118,6 +152,7 @@ app.post('/drive-push', async (req, res) => {
     for (const file of files) {
       if (!seenFileIds[employeeId].has(file.id)) {
         seenFileIds[employeeId].add(file.id);
+        saveSeenFiles(seenFileIds);
         console.log(`[Webhook] Drive push → new file: ${file.name} for ${employee.name}`);
         await _handleNewFile(_auth, employee, file).catch(err =>
           console.error(`[Webhook] handleNewFile error:`, err.message)

@@ -8,6 +8,7 @@ employees.json
 state.json
 push-channels.json
 gmail-state.json
+seen-files.json
 
 # ─── Dependencies ─────────────────────────────────────────────────────────────
 node_modules/

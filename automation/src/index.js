@@ -68,6 +68,11 @@ function saveState(employeeId, data) {
   fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
 }
 
+function getEmployeeSavedSheetId(employeeId) {
+  const state = loadState();
+  return state[employeeId] ? state[employeeId].statusSheetId || null : null;
+}
+
 function loadEmployees() {
   const registryPath = path.join(__dirname, '..', 'employees.json');
   if (fs.existsSync(registryPath)) {
@@ -96,6 +101,7 @@ function loadEmployees() {
         // Restore checklist from state.json if it exists, otherwise start fresh
         checklist: saved ? saved.checklist : buildDefaultChecklist(),
         milestonesScheduled: saved ? saved.milestonesScheduled : false,
+        statusSheetId: saved ? (saved.statusSheetId || null) : null,
         phase: 'Phase2_BeforeDOJ',
         noResponseTimers: {},
         replyTimers: {},
@@ -288,7 +294,7 @@ async function handleNewFile(auth, employee, file) {
 
   // Save updated checklist to Drive and locally
   await uploadChecklist(auth, employee.driveFolderId, employee.checklist);
-  saveState(employee.employeeId, { checklist: employee.checklist, milestonesScheduled: employee.milestonesScheduled || false });
+  saveState(employee.employeeId, { checklist: employee.checklist, milestonesScheduled: employee.milestonesScheduled || false, statusSheetId: employee.statusSheetId || null });
 
   // Trigger next steps based on which document just passed (only if valid)
   if (result.valid) {
@@ -322,7 +328,7 @@ async function triggerNextStep(auth, employee, docType) {
       markTask(checklist, 't23');
 
       await uploadChecklist(auth, employee.driveFolderId, checklist);
-      saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false });
+      saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false, statusSheetId: employee.statusSheetId || null });
 
       // Schedule 48h reply-deadline timers for each stakeholder
       employee.replyTimers = employee.replyTimers || {};
@@ -361,7 +367,7 @@ async function triggerNextStep(auth, employee, docType) {
     }
 
     await uploadChecklist(auth, employee.driveFolderId, checklist);
-    saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false });
+    saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false, statusSheetId: employee.statusSheetId || null });
   }
 
   // After meeting screenshot → confirm phase 3 DOJ tasks
@@ -382,7 +388,7 @@ async function triggerNextStep(auth, employee, docType) {
       markTask(checklist, 't41');
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       await markOnboardingComplete(auth, employee).catch(() => {});
-      saveState(employee.employeeId, { checklist, milestonesScheduled: true });
+      saveState(employee.employeeId, { checklist, milestonesScheduled: true, statusSheetId: employee.statusSheetId || null });
     }
 
     // t40: Send catchup XLS tracker email to recruiter + manager
@@ -390,7 +396,7 @@ async function triggerNextStep(auth, employee, docType) {
       await sendCatchupXLSEmail(employee);
       markTask(checklist, 't40');
       await uploadChecklist(auth, employee.driveFolderId, checklist);
-      saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || true });
+      saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || true, statusSheetId: employee.statusSheetId || null });
     }
 
     // t35/t36: IT and Admin haven't confirmed yet — schedule 48h escalation timers
@@ -542,7 +548,7 @@ async function handleReply(auth, classified, rawMsg) {
   }
 
   await uploadChecklist(auth, employee.driveFolderId, checklist);
-  saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false });
+  saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false, statusSheetId: employee.statusSheetId || null });
 }
 
 // ─── Employee registry (shared with webhookServer) ────────────────────────────
@@ -631,6 +637,7 @@ async function main() {
         ...data,
         checklist: saved ? saved.checklist : buildDefaultChecklist(),
         milestonesScheduled: saved ? (saved.milestonesScheduled || false) : false,
+        statusSheetId: saved ? (saved.statusSheetId || null) : null,
         noResponseTimers: {},
         replyTimers: {},
         verificationResults: {},
@@ -658,8 +665,12 @@ async function main() {
     console.warn('[Index] No employees loaded. POST to /employee or set EMPLOYEE_* env vars.');
   } else {
     console.log(`[Index] Loaded ${employees.length} employee(s)\n`);
+    const savedState = loadState();
     for (const employee of employees) {
-      if (!employee.checklist) employee.checklist = buildDefaultChecklist();
+      const saved = savedState[employee.employeeId];
+      if (!employee.checklist) employee.checklist = saved ? saved.checklist : buildDefaultChecklist();
+      if (!employee.statusSheetId && saved && saved.statusSheetId) employee.statusSheetId = saved.statusSheetId;
+      if (saved && saved.milestonesScheduled && !employee.milestonesScheduled) employee.milestonesScheduled = true;
       if (!employee.noResponseTimers) employee.noResponseTimers = {};
       if (!employee.replyTimers) employee.replyTimers = {};
       if (!employee.verificationResults) employee.verificationResults = {};
@@ -678,6 +689,7 @@ async function main() {
         saveState(employee.employeeId, {
           checklist: employee.checklist,
           milestonesScheduled: employee.milestonesScheduled || false,
+          statusSheetId: employee.statusSheetId || null,
         });
         console.log(`[Index] State saved for ${employee.name}`);
       } catch (err) {
