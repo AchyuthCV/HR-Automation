@@ -14,7 +14,13 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Lazy — only instantiated when GEMINI_API_KEY is present, so module load never crashes
+let _genAI = null;
+function getGenAI() {
+  if (!process.env.GEMINI_API_KEY) return null;
+  if (!_genAI) _genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  return _genAI;
+}
 const GMAIL_STATE_PATH = path.join(__dirname, '..', 'gmail-state.json');
 
 // ─── State helpers ────────────────────────────────────────────────────────────
@@ -185,6 +191,12 @@ async function callWithRetry(fn, maxRetries = 4) {
 // Returns { replyType, employeeId, data } or null if not an automation reply
 async function classifyReply(message) {
   if (!message.body) return null;
+
+  const genAI = getGenAI();
+  if (!genAI) {
+    console.warn('[Gmail] GEMINI_API_KEY not set — reply classification skipped. Replies must be processed manually.');
+    return null;
+  }
 
   const prompt = `You are an HR automation assistant. Analyse this email and determine if it is a reply to an automated HR onboarding email.
 

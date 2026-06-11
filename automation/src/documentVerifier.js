@@ -4,7 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const config = require('./config');
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// Lazy — only instantiated when GEMINI_API_KEY is present, so module load never crashes
+let _genAI = null;
+function getGenAI() {
+  if (!process.env.GEMINI_API_KEY) return null;
+  if (!_genAI) _genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  return _genAI;
+}
 
 // Document type → verification prompt
 const VERIFICATION_PROMPTS = {
@@ -155,6 +162,18 @@ async function verifyDocument(auth, fileId, filename, mimeType) {
       checks: {},
       failureReasons: [`Could not determine document type from filename: "${filename}". Please rename the file to include: aadhaar, pan, offer, or meeting.`],
       summary: 'Unknown document type.',
+    };
+  }
+
+  const genAI = getGenAI();
+  if (!genAI) {
+    console.warn(`[Verify] GEMINI_API_KEY not set — skipping verification for ${filename}. Mark manually via /mark-task.`);
+    return {
+      valid: false,
+      docType,
+      checks: {},
+      failureReasons: ['Gemini API key not configured — document requires manual review.'],
+      summary: 'Verification skipped: GEMINI_API_KEY not set.',
     };
   }
 

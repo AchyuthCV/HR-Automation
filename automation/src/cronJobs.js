@@ -224,8 +224,11 @@ function scheduleReplyDeadline(employee, recipientType, recipientEmail, delayHou
     await sendNoReplyEscalation(employee, recipientType, recipientEmail);
     console.log(`[Cron] No-reply escalation sent to HR for ${recipientType} re: ${name} (${employeeId})`);
   });
-  // Stamp expiry so state snapshot can persist and restore this timer after restart
-  if (task) task._expiresAt = fireDate.toISOString();
+  // Stamp expiry and recipient so the state snapshot can restore with the correct escalation target
+  if (task) {
+    task._expiresAt = fireDate.toISOString();
+    task._recipientEmail = recipientEmail;
+  }
   return task;
 }
 

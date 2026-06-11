@@ -88,11 +88,17 @@ function saveState(employeeId, data) {
 
 // Serialize all persistable fields from a live employee object into a plain object
 function snapshotEmployee(employee) {
-  // Serialise reply timer expiry timestamps (so they can be rescheduled after restart)
+  // Serialise reply timer expiry timestamps AND recipient emails so they can be
+  // correctly rescheduled after restart with the right escalation target.
   const replyTimerExpiry = {};
   if (employee.replyTimers) {
     for (const [key, task] of Object.entries(employee.replyTimers)) {
-      if (task && task._expiresAt) replyTimerExpiry[key] = task._expiresAt;
+      if (task && task._expiresAt) {
+        replyTimerExpiry[key] = {
+          expiresAt: task._expiresAt,
+          recipientEmail: task._recipientEmail || process.env.HR_EMAIL,
+        };
+      }
     }
   }
   return {
@@ -407,12 +413,10 @@ async function triggerNextStep(auth, employee, docType) {
       await uploadChecklist(auth, employee.driveFolderId, checklist);
 
       // Simultaneously send asset allocation request to manager (t17)
+      // IT asset request (t20) is sent AFTER manager replies with allocation details
+      // so IT receives the full asset type, location, and supervisor info — not an empty request.
       await sendAssetAllocationRequest(employee, contacts.managerEmail);
       markAndLog(employee, 't17');
-
-      // Send IT asset request (t20)
-      await sendITAssetRequest(employee, contacts.itEmail, {});
-      markAndLog(employee, 't20');
 
       // Send BGV request to recruiter (t23 = request sent, t24 = recruiter triggers it)
       await sendBGVRequest(employee, contacts.recruiterEmail);
@@ -422,11 +426,11 @@ async function triggerNextStep(auth, employee, docType) {
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));
 
-      // Schedule 48h reply-deadline timers for each stakeholder
+      // Schedule 48h reply-deadline timers for HR, manager, and BGV.
+      // IT timer is started after the manager replies and the IT email is actually sent.
       employee.replyTimers = employee.replyTimers || {};
       employee.replyTimers.hr = scheduleReplyDeadline(employee, 'HR Team', process.env.HR_EMAIL);
       employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', contacts.managerEmail);
-      employee.replyTimers.it = scheduleReplyDeadline(employee, 'IT Team', contacts.itEmail);
       employee.replyTimers.bgv = scheduleReplyDeadline(employee, 'Recruiter (BGV)', contacts.recruiterEmail);
     }
   }
@@ -564,12 +568,20 @@ async function handleReply(auth, classified, rawMsg) {
         markAndLog(employee, 't19');
         activityLog.log(employee, 'manager_allocation_confirmed', JSON.stringify(data));
         await markManagerConfirmed(auth, employee, data).catch(() => {});
-        await sendITAssetRequest(employee, employee.contacts.itEmail, data);
-        markAndLog(employee, 't20');
         if (employee.replyTimers && employee.replyTimers.manager) {
           employee.replyTimers.manager.stop && employee.replyTimers.manager.stop();
           delete employee.replyTimers.manager;
         }
+        // Send IT asset request with full allocation details (t20) and start its reply timer
+        if (!isTaskDone(employee.checklist, 't20')) {
+          await sendITAssetRequest(employee, employee.contacts.itEmail, data);
+          markAndLog(employee, 't20');
+          employee.replyTimers = employee.replyTimers || {};
+          employee.replyTimers.it = scheduleReplyDeadline(employee, 'IT Team', employee.contacts.itEmail);
+        }
+      } else {
+        console.warn(`[Index] manager_allocation reply for ${employee.name} had no allocation data extracted — checklist not advanced.`);
+        activityLog.log(employee, 'manager_allocation_parse_failed', 'Gemini could not extract allocation details from reply');
       }
       break;
 
@@ -673,18 +685,25 @@ async function onboardEmployee(auth, employee) {
   employee._auth = auth;
   employee._markTask = (taskId) => markAndLog(employee, taskId);
 
-  // Restore reply-deadline timers that were active before restart
+  // Restore reply-deadline timers that were active before restart.
+  // Each entry is { expiresAt, recipientEmail } — use the stored recipient so
+  // escalations go to the right person (manager, IT, recruiter) not just HR.
   if (employee.replyTimerExpiry) {
     const now = Date.now();
-    for (const [key, isoDate] of Object.entries(employee.replyTimerExpiry)) {
+    for (const [key, entry] of Object.entries(employee.replyTimerExpiry)) {
+      // Support both old format (plain ISO string) and new format ({ expiresAt, recipientEmail })
+      const isoDate = typeof entry === 'string' ? entry : entry.expiresAt;
+      const recipientEmail = (typeof entry === 'object' && entry.recipientEmail)
+        ? entry.recipientEmail
+        : process.env.HR_EMAIL;
       const expiresAt = new Date(isoDate);
       if (expiresAt > now) {
         employee.replyTimers = employee.replyTimers || {};
         employee.replyTimers[key] = scheduleReplyDeadline(
-          employee, key, process.env.HR_EMAIL,
+          employee, key, recipientEmail,
           (expiresAt - now) / (60 * 60 * 1000)
         );
-        console.log(`[Index] Restored reply-deadline timer "${key}" for ${employee.name} (fires ${expiresAt.toISOString()})`);
+        console.log(`[Index] Restored reply-deadline timer "${key}" for ${employee.name} → ${recipientEmail} (fires ${expiresAt.toISOString()})`);
       } else {
         console.log(`[Index] Reply-deadline timer "${key}" for ${employee.name} already expired — skipping`);
       }
@@ -701,7 +720,7 @@ async function onboardEmployee(auth, employee) {
         }
       }
     }
-    const markTaskForEmployee = (taskId) => markTask(employee.checklist, taskId);
+    const markTaskForEmployee = (taskId) => markAndLog(employee, taskId);
     restoreMilestonesAfterRestart(employee, employee.contacts, completedTasks, markTaskForEmployee);
   }
 
@@ -722,9 +741,14 @@ async function onboardEmployee(auth, employee) {
     await markPreonboardingInitiated(auth, employee).catch(() => {});
 
     // Step 3: Send pre-onboarding form
-    await sendPreOnboardingForm(employee);
-    markAndLog(employee, 't4');
-    activityLog.log(employee, 'pre_onboarding_email_sent', employee.personalEmail);
+    if (!employee.personalEmail) {
+      console.error(`[Index] Cannot send pre-onboarding form to ${employee.name} — personalEmail is empty. Add it to employees.json and restart.`);
+      activityLog.log(employee, 'pre_onboarding_skipped', 'personalEmail missing');
+    } else {
+      await sendPreOnboardingForm(employee);
+      markAndLog(employee, 't4');
+      activityLog.log(employee, 'pre_onboarding_email_sent', employee.personalEmail);
+    }
 
     // Step 5: Save checklist to Drive and locally
     await uploadChecklist(auth, employee.driveFolderId, employee.checklist);

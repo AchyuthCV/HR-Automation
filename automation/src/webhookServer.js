@@ -249,6 +249,15 @@ app.post('/employee', async (req, res) => {
     return res.status(400).json({ error: `Missing fields: ${missing.join(', ')}` });
   }
 
+  // Validate contacts sub-object — all three are required for escalation emails to reach the right people
+  const contacts = req.body.contacts || {};
+  const missingContacts = ['recruiterEmail', 'managerEmail', 'itEmail'].filter(f => !contacts[f]);
+  if (missingContacts.length) {
+    return res.status(400).json({
+      error: `Missing contacts fields: ${missingContacts.map(f => `contacts.${f}`).join(', ')}`,
+    });
+  }
+
   const { employeeId } = req.body;
   if (_employeeRegistry[employeeId]) {
     return res.status(409).json({ error: `Employee ${employeeId} already registered` });
