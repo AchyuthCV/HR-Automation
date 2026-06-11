@@ -307,11 +307,14 @@ app.get('/status/:employeeId', (req, res) => {
   // Activity log (last 20 events)
   const events = allEvents.slice(-20).reverse();
 
+  const markTaskEnabled = !!process.env.MARK_TASK_SECRET;
+
   const phaseRows = phases.map(p => {
     const taskRows = p.tasks.map(t => {
       const isStuck = !t.done && stuckMap[t._id] && (now - stuckMap[t._id]) > STUCK_MS;
       const stuckBadge = isStuck ? ' <span style="background:#fff3cd;color:#856404;font-size:11px;padding:1px 6px;border-radius:3px;border:1px solid #ffc107;">stuck &gt;48h</span>' : '';
-      const icon = t.done ? '✅' : (isStuck ? '⚠️' : '⬜');
+      const icon = t.done ? '&#10003;' : (isStuck ? '&#9888;' : '&#9633;');
+      const iconColor = t.done ? '#2e7d32' : (isStuck ? '#856404' : '#aaa');
 
       // Verification result for this task (if any doc is linked to this task)
       let verHtml = '';
@@ -324,8 +327,18 @@ app.get('/status/:employeeId', (req, res) => {
         }
       }
 
-      return `<tr><td style="padding:4px 12px;vertical-align:top;">${icon}</td>
-        <td style="padding:4px 8px;color:${t.done ? '#2e7d32' : '#555'}">${t.label}${stuckBadge}${verHtml}</td></tr>`;
+      // Mark-done button for incomplete tasks (only when MARK_TASK_SECRET is configured)
+      const markBtn = (!t.done && markTaskEnabled)
+        ? `<form method="POST" action="/mark-task/${emp.employeeId}/${t._id}" style="display:inline;margin-left:8px;">
+            <input type="hidden" name="secret" value="${process.env.MARK_TASK_SECRET}"/>
+            <button type="submit" style="font-size:11px;padding:2px 8px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:3px;cursor:pointer;">Mark done</button>
+           </form>`
+        : '';
+
+      return `<tr>
+        <td style="padding:4px 12px;vertical-align:top;color:${iconColor};font-size:16px;">${icon}</td>
+        <td style="padding:4px 8px;color:${t.done ? '#2e7d32' : '#555'}">${t.label}${stuckBadge}${verHtml}${markBtn}</td>
+      </tr>`;
     }).join('');
 
     return `
@@ -458,6 +471,78 @@ app.get('/state/:employeeId', (req, res) => {
   }
   // Fall back to in-memory checklist if no persisted state file yet
   res.json({ checklist: emp.checklist, milestonesScheduled: emp.milestonesScheduled || false });
+});
+
+// ─── Manual task mark endpoint ─────────────────────────────────────────────────
+// POST /mark-task/:employeeId/:taskId
+// Header: x-mark-task-secret: <MARK_TASK_SECRET>
+// Allows recruiters to mark manual tasks (t53, t54, etc.) done from a browser or curl.
+// Disabled if MARK_TASK_SECRET is not set in .env.
+app.post('/mark-task/:employeeId/:taskId', (req, res) => {
+  const secret = process.env.MARK_TASK_SECRET;
+  if (!secret) {
+    return res.status(503).json({ error: 'Task marking is disabled — set MARK_TASK_SECRET in .env to enable.' });
+  }
+
+  const provided = req.headers['x-mark-task-secret'] || req.body.secret;
+  if (provided !== secret) {
+    return res.status(401).json({ error: 'Invalid or missing secret token.' });
+  }
+
+  const { employeeId, taskId } = req.params;
+  const emp = _employeeRegistry[employeeId];
+  if (!emp) return res.status(404).json({ error: `Employee ${employeeId} not found.` });
+
+  // Find task across all phases
+  let found = false;
+  let label = '';
+  for (const phase of Object.values(emp.checklist || {})) {
+    if (phase.tasks && phase.tasks[taskId] !== undefined) {
+      if (phase.tasks[taskId].done) {
+        return res.json({ ok: true, message: `Task ${taskId} was already marked done.` });
+      }
+      phase.tasks[taskId].done = true;
+      label = phase.tasks[taskId].label;
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    return res.status(404).json({ error: `Task ${taskId} not found in checklist for ${employeeId}.` });
+  }
+
+  // Persist state
+  try {
+    const { log } = require('./activityLog');
+    log(emp, `task_done:${taskId}`, `${label} (manually marked via /mark-task)`);
+  } catch { /* activityLog is best-effort */ }
+
+  try {
+    const stateFile = path.join(__dirname, '..', `state-${employeeId}.json`);
+    if (fs.existsSync(stateFile)) {
+      const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      if (state.checklist) {
+        for (const phase of Object.values(state.checklist)) {
+          if (phase.tasks && phase.tasks[taskId]) {
+            phase.tasks[taskId].done = true;
+          }
+        }
+        fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+      }
+    }
+  } catch (e) {
+    console.warn(`[Webhook] mark-task: state write failed for ${employeeId}:`, e.message);
+  }
+
+  console.log(`[Webhook] Task ${taskId} (${label}) manually marked done for ${employeeId}`);
+
+  // If the request came from a browser form, redirect back to the status page
+  const accept = req.headers['accept'] || '';
+  if (accept.includes('text/html')) {
+    return res.redirect(`/status/${employeeId}`);
+  }
+  res.json({ ok: true, message: `Task ${taskId} marked done for ${emp.name}.`, label });
 });
 
 // ─── Start the server ──────────────────────────────────────────────────────────

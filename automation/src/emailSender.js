@@ -244,7 +244,7 @@ async function sendPreProbationReminder(employee, managerEmail) {
         <li>Decision: confirm or extend probation</li>
         <li>Communicate decision to employee</li>
       </ul>
-      <p>Reply once the verification is complete.</p>
+      <p>Reply to this email with <strong>"Pre-probation verification complete for [Employee ID]"</strong> once done. The system will automatically close this milestone.</p>
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
     `,
   });

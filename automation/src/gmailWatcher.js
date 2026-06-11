@@ -195,7 +195,7 @@ ${message.body}
 Respond ONLY with a JSON object in this exact format:
 {
   "isOnboardingReply": true/false,
-  "replyType": one of ["official_email_created", "manager_allocation", "it_allocation", "bgv_report", "induction_confirmed", "admin_allocation", "catchup_complete", "review_complete", "unknown"],
+  "replyType": one of ["official_email_created", "manager_allocation", "it_allocation", "bgv_report", "induction_confirmed", "admin_allocation", "catchup_complete", "review_complete", "pre_probation_result", "unknown"],
   "employeeId": "extracted employee ID from subject/body or null",
   "data": {
     "officialEmail": "extracted official email address or null",

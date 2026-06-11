@@ -4,6 +4,7 @@
 const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const EMPLOYEES_PATH = path.join(__dirname, '..', 'employees.json');
 
@@ -44,6 +45,44 @@ async function askRequired(label) {
   }
 }
 
+async function validateDriveFolderId(folderId) {
+  try {
+    const { getAuthClient } = require('./driveWatcher');
+    const { google } = require('googleapis');
+    const auth = getAuthClient();
+    const drive = google.drive({ version: 'v3', auth });
+    await drive.files.get({ fileId: folderId, fields: 'id, name, mimeType' });
+    return true;
+  } catch (err) {
+    if (err.message && err.message.includes('token.json not found')) {
+      // Auth not set up yet — skip validation silently
+      return true;
+    }
+    return false;
+  }
+}
+
+async function askDriveFolderId() {
+  while (true) {
+    const val = await ask('Google Drive Folder ID: ');
+    if (!val) { console.log('  This field is required.'); continue; }
+
+    process.stdout.write('  Validating folder access... ');
+    const ok = await validateDriveFolderId(val);
+    if (ok) {
+      console.log('OK');
+      return val;
+    }
+    console.log('FAILED');
+    console.log('  Cannot access that Drive folder. Check:');
+    console.log('  1. The ID is correct (from the folder URL: /folders/<ID>)');
+    console.log('  2. The folder is shared with your Google account');
+    console.log('  3. Run "npm run auth" first if you have not authenticated yet');
+    const retry = await ask('  Try a different ID? (yes/no): ');
+    if (retry.toLowerCase() !== 'yes') return val; // allow override
+  }
+}
+
 async function main() {
   console.log('\n=== Add New Employee ===\n');
 
@@ -52,7 +91,7 @@ async function main() {
   const personalEmail = await askEmail('Personal Email');
   const officialEmail = await askEmail('Official Email (leave blank if not yet created)', true);
   const doj           = await askDoj();
-  const driveFolderId = await askRequired('Google Drive Folder ID');
+  const driveFolderId = await askDriveFolderId();
   const recruiterEmail = await askEmail('Recruiter Email');
   const managerEmail  = await askEmail('Manager Email');
   const itEmail       = await askEmail('IT Email');

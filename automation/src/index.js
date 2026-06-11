@@ -174,7 +174,7 @@ function buildDefaultChecklist() {
       label: 'Phase 2 — Before DOJ (Automation)',
       tasks: {
         t4:  { label: 'Pre-onboarding form sent to new joinee', done: false },
-        t5:  { label: 'Automation reads attachments from form response', done: false },
+        t5:  { label: 'Employee uploads documents to Drive folder', done: false },
         t6:  { label: 'Employee folder created with joinee name and employee ID', done: false },
         t7:  { label: 'Checklist1 created in folder', done: false },
         t8:  { label: 'Sub-folders created and documents organised', done: false },
@@ -310,6 +310,11 @@ async function handleNewFile(auth, employee, file) {
   if (!docType) {
     console.log(`[Index] Skipping unrecognised file: ${file.name}`);
     return;
+  }
+
+  // t5: employee has uploaded at least one document to the Drive folder
+  if (!isTaskDone(employee.checklist, 't5')) {
+    markAndLog(employee, 't5');
   }
 
   console.log(`[Index] Verifying ${file.name} for ${employee.name}`);
@@ -631,6 +636,14 @@ async function handleReply(auth, classified, rawMsg) {
       break;
     }
 
+    case 'pre_probation_result':
+      markAndLog(employee, 't52');
+      markAndLog(employee, 't55');
+      activityLog.log(employee, 'pre_probation_verified', data.notes || '');
+      await markPreprobationDone(auth, employee).catch(() => {});
+      console.log(`[Index] Pre-probation result received for ${employee.name}`);
+      break;
+
     default:
       console.log(`[Index] Unhandled reply type: ${replyType}`);
       return;
@@ -732,7 +745,32 @@ async function main() {
   console.log(`  ${process.env.COMPANY_NAME} HR Automation Engine`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-  // ─── Startup configuration warnings ──────────────────────────────────────
+  // ─── Critical env var check — fail fast before any API calls ────────────────
+  const REQUIRED_VARS = [
+    ['GMAIL_USER',         'Gmail address used to send all automated emails'],
+    ['GMAIL_APP_PASSWORD', 'Gmail App Password for nodemailer (Settings → Security → App passwords)'],
+    ['COMPANY_NAME',       'Company name shown in every email subject and body'],
+    ['HR_EMAIL',           'HR team email — receives escalations and reports'],
+  ];
+  const missing = REQUIRED_VARS.filter(([k]) => !process.env[k]);
+  if (missing.length > 0) {
+    console.error('\n[Config] FATAL — Missing required environment variables:\n');
+    for (const [k, desc] of missing) {
+      console.error(`  ✖  ${k.padEnd(22)} ${desc}`);
+    }
+    console.error('\n[Config] Set these in your .env file and restart.\n');
+    process.exit(1);
+  }
+
+  // GEMINI_API_KEY is required for document verification and reply classification.
+  // Warn (not fatal) so the engine can still run without it during initial testing.
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn('[Config] WARNING: GEMINI_API_KEY is not set.');
+    console.warn('[Config]   Document verification and Gmail reply classification are DISABLED.');
+    console.warn('[Config]   All documents will be marked as unverified until the key is added.\n');
+  }
+
+  // ─── Optional config warnings ────────────────────────────────────────────
   const surveyLink = process.env.ONBOARDING_SURVEY_LINK || '';
   if (!surveyLink || surveyLink === '#survey-link' || surveyLink.startsWith('#')) {
     console.warn('[Config] WARNING: ONBOARDING_SURVEY_LINK is not set or is a placeholder.');
@@ -744,6 +782,11 @@ async function main() {
   if (!webhookUrl || webhookUrl.includes('your-ngrok-url') || webhookUrl.includes('localhost')) {
     console.warn('[Config] WARNING: WEBHOOK_BASE_URL is not set to a public URL.');
     console.warn('[Config]   Drive push notifications will not work — falling back to polling.\n');
+  }
+
+  if (!process.env.PREONBOARDING_FORM_LINK) {
+    console.warn('[Config] WARNING: PREONBOARDING_FORM_LINK is not set.');
+    console.warn('[Config]   Welcome email will show a warning instead of a form link.\n');
   }
 
   const auth = getAuthClient();
