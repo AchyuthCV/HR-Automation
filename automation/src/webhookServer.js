@@ -384,7 +384,7 @@ app.get('/status/:employeeId', (req, res) => {
     .pct{font-size:13px;color:#555;margin-bottom:24px;}
     table{width:100%;}
     h2{margin-top:32px;font-size:18px;border-bottom:1px solid #eee;padding-bottom:6px;}
-    .back{font-size:13px;margin-bottom:16px;}<br/>
+    .back{font-size:13px;margin-bottom:16px;}
   </style>
 </head>
 <body>

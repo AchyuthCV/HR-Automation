@@ -186,28 +186,6 @@ async function sendHRInductionConfirmation(employee, recruiterEmail) {
   });
 }
 
-// Template 9: 30-day catchup reminder
-async function send30DayCatchupReminder(employee, recruiterEmail, managerEmail) {
-  const { name, employeeId } = employee;
-  return sendEmail({
-    to: `${recruiterEmail}, ${managerEmail}`,
-    subject: `Reminder — 30-Day Catchup Call for ${name} (${employeeId})`,
-    html: `
-      <p>Hi,</p>
-      <p>The <strong>30-day catchup call</strong> for <strong>${name}</strong> (ID: ${employeeId}) is due.</p>
-      <p>Please conduct the call and fill in the catchup XLS shared earlier. Key areas to cover:</p>
-      <ul>
-        <li>Onboarding experience</li>
-        <li>Understanding of role and responsibilities</li>
-        <li>Challenges or concerns</li>
-        <li>Initial performance feedback</li>
-      </ul>
-      <p>Reply with the filled XLS or a brief summary once done.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
-    `,
-  });
-}
-
 // Template 10: 60/90-day review reminder
 async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, dayMark) {
   const { name, employeeId } = employee;
@@ -515,7 +493,6 @@ module.exports = {
   sendITAssetRequest,
   sendBGVRequest,
   sendHRInductionConfirmation,
-  send30DayCatchupReminder,
   sendPeriodicReviewReminder,
   sendPreProbationReminder,
   sendPhaseCompletionSummary,
