@@ -196,6 +196,22 @@ async function getOrCreateStatusSheet(auth, employee) {
 
   employee.statusSheetId = spreadsheetId;
   console.log(`[Status] Created status sheet for ${employee.name} → https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+
+  // Grant employee view-only access so they can track their own onboarding progress
+  const emailToShare = employee.personalEmail || employee.officialEmail;
+  if (emailToShare) {
+    try {
+      await drive.permissions.create({
+        fileId: spreadsheetId,
+        requestBody: { type: 'user', role: 'reader', emailAddress: emailToShare },
+        sendNotificationEmail: false,
+      });
+      console.log(`[Status] Shared status sheet with ${emailToShare} (view only)`);
+    } catch (err) {
+      console.warn(`[Status] Could not share sheet with ${emailToShare}: ${err.message}`);
+    }
+  }
+
   return spreadsheetId;
 }
 
@@ -282,6 +298,44 @@ async function mark90DayDone(auth, employee) {
 
 async function markPreprobationDone(auth, employee) {
   await updateMilestone(auth, employee, 14, STATUS.DONE);
+  await revokeEmployeeSheetAccess(auth, employee);
+}
+
+// Revoke the employee's view access to their status sheet once onboarding is fully complete
+async function revokeEmployeeSheetAccess(auth, employee) {
+  const spreadsheetId = employee.statusSheetId;
+  if (!spreadsheetId) return;
+
+  const emailToRevoke = employee.personalEmail || employee.officialEmail;
+  if (!emailToRevoke) return;
+
+  try {
+    const drive = google.drive({ version: 'v3', auth });
+
+    // List all permissions on the sheet to find the employee's permission ID
+    const perms = await drive.permissions.list({
+      fileId: spreadsheetId,
+      fields: 'permissions(id, emailAddress, role)',
+    });
+
+    const empPerm = (perms.data.permissions || []).find(
+      p => p.emailAddress && p.emailAddress.toLowerCase() === emailToRevoke.toLowerCase()
+    );
+
+    if (!empPerm) {
+      console.log(`[Status] No active permission found for ${emailToRevoke} on status sheet — nothing to revoke`);
+      return;
+    }
+
+    await drive.permissions.delete({
+      fileId: spreadsheetId,
+      permissionId: empPerm.id,
+    });
+
+    console.log(`[Status] Revoked sheet access for ${emailToRevoke} — onboarding complete`);
+  } catch (err) {
+    console.warn(`[Status] Could not revoke sheet access for ${emailToRevoke}: ${err.message}`);
+  }
 }
 
 module.exports = {
@@ -304,4 +358,5 @@ module.exports = {
   mark60DayDone,
   mark90DayDone,
   markPreprobationDone,
+  revokeEmployeeSheetAccess,
 };
