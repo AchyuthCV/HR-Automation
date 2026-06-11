@@ -50,7 +50,7 @@ const STATUS = {
 const MILESTONES = [
   'Pre-onboarding initiated',
   'Documents received',
-  'Document issue — re-upload requested',
+  'Documents not ok — re-upload requested',
   'Documents verified OK',
   'Official email & greythr login confirmed',
   'Manager confirmed seat and work location',

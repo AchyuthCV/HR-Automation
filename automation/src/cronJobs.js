@@ -187,6 +187,10 @@ function schedule5MonthProbation(employee, managerEmail) {
   return scheduleOnce(fireDate, `Pre-Probation — ${name}`, async () => {
     await sendPreProbationReminder(employee, managerEmail);
     console.log(`[Cron] Pre-probation reminder sent for ${name} (${employeeId})`);
+    if (employee._markTask) {
+      employee._markTask('t52');
+      employee._markTask('t55');
+    }
     if (employee._auth) await markPreprobationDone(employee._auth, employee).catch(() => {});
   });
 }

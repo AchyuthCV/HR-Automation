@@ -145,94 +145,118 @@ function loadEmployees() {
   return [];
 }
 
-// ─── Default checklist (52 tasks, 7 phases) ───────────────────────────────────
+// ─── Default checklist (55 tasks, 7 phases) ───────────────────────────────────
+// Matches the full workflow exactly:
+//   Phase 1 — Recruiter manual checklist (Before DOJ)
+//   Phase 2 — Automation checklist (Before DOJ)
+//   Phase 3 — Day of Joining
+//   Phase 4 — 30 Days After DOJ
+//   Phase 5 — 60 Days After DOJ
+//   Phase 6 — 90 Days After DOJ
+//   Phase 7 — 5 Months After DOJ
 function buildDefaultChecklist() {
   return {
+    // ── Phase 1: Recruiter manual tasks (Before DOJ) ──────────────────────────
+    // From recruiter checklist image
     phase1: {
       label: 'Phase 1 — Before DOJ (Recruiter)',
       tasks: {
-        t1: { label: 'Candidate accepts offer', done: false },
-        t2: { label: 'Recruiter creates Drive folder', done: false },
-        t3: { label: 'Recruiter submits details via form/sheet', done: false },
+        t1:  { label: 'Candidate accepts offer', done: false },
+        t2:  { label: 'Recruiter creates Drive folder with joinee name (as per Aadhaar)', done: false },
+        t3:  { label: 'Recruiter triggers automation via form/sheet with joinee details', done: false },
+        t13: { label: 'Recruiter uploads signed offer letter into the created folder', done: false },
+        t53: { label: 'Recruiter checks documents are saved in the folder', done: false },
       },
     },
+    // ── Phase 2: Automation tasks (Before DOJ) ────────────────────────────────
+    // From automation checklist image (steps 2–9)
     phase2: {
       label: 'Phase 2 — Before DOJ (Automation)',
       tasks: {
         t4:  { label: 'Pre-onboarding form sent to new joinee', done: false },
-        t5:  { label: 'Attachments from form read by automation', done: false },
-        t6:  { label: 'Employee folder created', done: false },
-        t7:  { label: 'Checklist1 created', done: false },
-        t8:  { label: 'Sub-folders and documents organised', done: false },
-        t9:  { label: 'Recruiter verification report generated', done: false },
-        t10: { label: 'Reminder sent if document incorrect/illegible', done: false },
-        t11: { label: 'Alert sent to recruiter if no response > 24h', done: false },
-        t12: { label: 'Document verification completed', done: false },
-        t13: { label: 'Signed offer letter saved by recruiter', done: false },
-        t14: { label: 'Mail to HR to create official email + greythr', done: false },
-        t15: { label: 'HR responds with official email + greythr confirmation', done: false },
-        t16: { label: 'Official email creation marked complete', done: false },
-        t17: { label: 'Mail to manager for asset/office/supervisor allocation', done: false },
+        t5:  { label: 'Automation reads attachments from form response', done: false },
+        t6:  { label: 'Employee folder created with joinee name and employee ID', done: false },
+        t7:  { label: 'Checklist1 created in folder', done: false },
+        t8:  { label: 'Sub-folders created and documents organised', done: false },
+        t9:  { label: 'Document verification report generated for recruiter', done: false },
+        t10: { label: 'Reminder sent to joinee if document incorrect/illegible', done: false },
+        t11: { label: 'Alert sent to recruiter — no response from joinee > 24h', done: false },
+        t12: { label: 'Document verification marked complete in Checklist1', done: false },
+        t14: { label: 'Mail sent to HR to create official email ID and greythr login', done: false },
+        t15: { label: 'HR responds with official email ID and greythr confirmation', done: false },
+        t16: { label: 'Official email and greythr login marked complete in Checklist1', done: false },
+        t17: { label: 'Mail sent to manager for asset/office location/supervisor allocation', done: false },
         t18: { label: 'Manager responds with allocation details', done: false },
-        t19: { label: 'Manager allocation marked complete', done: false },
-        t20: { label: 'Mail to IT for asset allocation', done: false },
-        t21: { label: 'IT responds with asset confirmation', done: false },
-        t22: { label: 'IT allocation marked complete', done: false },
-        t23: { label: 'Mail to recruiter to initiate BGV', done: false },
+        t19: { label: 'Manager allocation marked complete in Checklist1', done: false },
+        t20: { label: 'Mail sent to IT team for asset allocation/office location', done: false },
+        t21: { label: 'IT team responds with asset and access details', done: false },
+        t22: { label: 'IT allocation marked complete in Checklist1', done: false },
+        t23: { label: 'Mail sent to recruiter to initiate BGV', done: false },
         t24: { label: 'Recruiter triggers BGV', done: false },
-        t25: { label: 'Recruiter shares BGV report', done: false },
-        t26: { label: 'BGV marked complete', done: false },
-        t27: { label: 'HR induction scheduled on calendars', done: false },
-        t28: { label: 'Induction scheduling marked complete', done: false },
-        t29: { label: 'Project intro meeting scheduled with manager', done: false },
-        t30: { label: 'Meeting schedule change option provided', done: false },
+        t25: { label: 'Recruiter responds with BGV report', done: false },
+        t26: { label: 'BGV marked complete in Checklist1', done: false },
+        t27: { label: 'HR induction scheduled on employee and recruiter calendars', done: false },
+        t28: { label: 'HR induction scheduling marked complete in Checklist1', done: false },
+        t29: { label: 'Project intro meeting scheduled with manager (post-lunch on DOJ)', done: false },
+        t30: { label: 'Meeting reschedule option sent to participants', done: false },
         t31: { label: 'Project intro sheets created and populated', done: false },
-        t32: { label: 'Project intro marked complete', done: false },
+        t32: { label: 'Project intro scheduling marked complete in Checklist1', done: false },
       },
     },
+    // ── Phase 3: Day of Joining ───────────────────────────────────────────────
+    // From DOJ image (steps 1–10)
     phase3: {
       label: 'Phase 3 — Day of Joining',
       tasks: {
         t33: { label: 'Recruiter conducts HR induction', done: false },
-        t34: { label: 'HR induction attendance confirmed', done: false },
-        t35: { label: 'IT confirms asset and access card allocation', done: false },
-        t36: { label: 'Admin confirms seat allocation', done: false },
+        t34: { label: 'Automation confirms HR induction attendance', done: false },
+        t35: { label: 'IT team confirms asset and access card allocation', done: false },
+        t36: { label: 'General Admin confirms seat allocation', done: false },
         t37: { label: 'Project intro meeting attendance confirmed', done: false },
-        t38: { label: 'Onboarding survey scheduled for day 25', done: false },
+        t54: { label: 'Recruiter checks asset and seat allocation physically', done: false },
+        t38: { label: 'Onboarding survey scheduled for day 25 (working day)', done: false },
         t39: { label: '30-day catchup call scheduled', done: false },
-        t40: { label: 'Catchup XLS created and shared', done: false },
-        t41: { label: '30/60/90-day reviews scheduled with manager and recruiter', done: false },
-        t42: { label: 'DOJ checklist updated', done: false },
+        t40: { label: 'Catchup XLS created, shared with recruiter, saved in joinee folder', done: false },
+        t41: { label: '30/60/90-day project reviews scheduled with manager and recruiter', done: false },
+        t42: { label: 'Checklist1 updated — DOJ phase complete', done: false },
       },
     },
+    // ── Phase 4: 30 Days After DOJ ────────────────────────────────────────────
+    // From 30-day image (steps 1–3)
     phase4: {
       label: 'Phase 4 — 30 Days After DOJ',
       tasks: {
-        t43: { label: 'Call transcribed and mailed to HR and manager', done: false },
+        t43: { label: 'Catchup call transcribed and mailed to HR and manager', done: false },
         t44: { label: 'Recruiter catchup XLS verified as filled', done: false },
-        t45: { label: '30-day milestone marked complete', done: false },
+        t45: { label: '30-day milestone marked complete in Checklist1', done: false },
       },
     },
+    // ── Phase 5: 60 Days After DOJ ────────────────────────────────────────────
+    // From 60-day image — transcribe call; if didn't happen, mark pending + remind
     phase5: {
       label: 'Phase 5 — 60 Days After DOJ',
       tasks: {
-        t46: { label: 'Call between recruiter and manager transcribed', done: false },
-        t47: { label: 'Reminder sent if call did not happen', done: false },
-        t48: { label: '60-day milestone closed', done: false },
+        t46: { label: 'Call between recruiter and manager transcribed and project intro sheet updated', done: false },
+        t47: { label: 'Call did not happen — reminder sent to reschedule; marked pending', done: false },
+        t48: { label: '60-day milestone marked complete in Checklist1', done: false },
       },
     },
+    // ── Phase 6: 90 Days After DOJ ────────────────────────────────────────────
+    // Same pattern as 60-day
     phase6: {
       label: 'Phase 6 — 90 Days After DOJ',
       tasks: {
-        t49: { label: 'Call between recruiter and manager transcribed', done: false },
-        t50: { label: 'Reminder sent if call did not happen', done: false },
-        t51: { label: '90-day milestone closed', done: false },
+        t49: { label: 'Call between recruiter and manager transcribed and project intro sheet updated', done: false },
+        t50: { label: 'Call did not happen — reminder sent to reschedule; marked pending', done: false },
+        t51: { label: '90-day milestone marked complete in Checklist1', done: false },
       },
     },
+    // ── Phase 7: 5 Months After DOJ ───────────────────────────────────────────
     phase7: {
-      label: 'Phase 7 — 5 Months After DOJ',
+      label: 'Phase 7 — 5 Months After DOJ (Pre-Probation)',
       tasks: {
         t52: { label: 'Pre-probation verification completed', done: false },
+        t55: { label: 'Pre-probation result communicated to manager and HR', done: false },
       },
     },
   };

@@ -12,7 +12,7 @@ Standalone Node.js engine that automates the full employee onboarding lifecycle 
 - Parses email replies via Gmail Watch + Pub/Sub to advance the checklist automatically
 - Persists all state locally so restarts never repeat completed steps
 
-## 7 Phases — 52 Tasks
+## 7 Phases — 55 Tasks
 
 | Phase | Description |
 |-------|-------------|
