@@ -9,15 +9,27 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-async function sendEmail({ to, subject, html }) {
-  const info = await transporter.sendMail({
-    from: `"${process.env.COMPANY_NAME} HR Automation" <${process.env.GMAIL_USER}>`,
-    to,
-    subject,
-    html,
-  });
-  console.log(`[Email] Sent to ${to} — ${subject} (${info.messageId})`);
-  return info;
+async function sendEmail({ to, subject, html }, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const info = await transporter.sendMail({
+        from: `"${process.env.COMPANY_NAME} HR Automation" <${process.env.GMAIL_USER}>`,
+        to,
+        subject,
+        html,
+      });
+      console.log(`[Email] Sent to ${to} — ${subject} (${info.messageId})`);
+      return info;
+    } catch (err) {
+      if (attempt === retries) {
+        console.error(`[Email] Failed after ${retries} attempts — ${subject} to ${to}: ${err.message}`);
+        throw err;
+      }
+      const delay = attempt * 5000;
+      console.warn(`[Email] Attempt ${attempt} failed, retrying in ${delay / 1000}s — ${err.message}`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
 }
 
 // Template 1: Pre-onboarding form sent to new joinee

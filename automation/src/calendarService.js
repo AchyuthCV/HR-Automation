@@ -2,6 +2,7 @@
 // All times are in IST (Asia/Kolkata, UTC+05:30)
 
 const { google } = require('googleapis');
+const config = require('./config');
 
 // ─── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -28,9 +29,10 @@ function toGoogleDateTime(date, hour, minute) {
   const d = String(date.getDate()).padStart(2, '0');
   const h = String(hour).padStart(2, '0');
   const mi = String(minute).padStart(2, '0');
+  const tzOffset = config.timezone === 'Asia/Kolkata' ? '+05:30' : '+00:00';
   return {
-    dateTime: `${y}-${mo}-${d}T${h}:${mi}:00+05:30`,
-    timeZone: 'Asia/Kolkata',
+    dateTime: `${y}-${mo}-${d}T${h}:${mi}:00${tzOffset}`,
+    timeZone: config.timezone,
   };
 }
 
@@ -52,12 +54,14 @@ async function createHRInductionEvent(auth, employee) {
       .filter(Boolean)
       .map(email => ({ email }));
 
+    const cfg = config.calendarEvents.hrInduction;
+    const endMins = cfg.minute + cfg.durationMins;
     const event = {
       summary: `HR Induction — ${employee.name}`,
       description: `HR Induction session for ${employee.name} (${employee.employeeId}). Covers company policies, tools, culture, and greythr walkthrough.`,
       location: 'Office / As communicated by HR',
-      start: toGoogleDateTime(dojDate, 9, 30),
-      end: toGoogleDateTime(dojDate, 11, 0),
+      start: toGoogleDateTime(dojDate, cfg.hour, cfg.minute),
+      end: toGoogleDateTime(dojDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
       attendees,
     };
 
@@ -83,7 +87,7 @@ async function createProjectIntroEvent(auth, employee) {
   try {
     const calendar = google.calendar({ version: 'v3', auth });
     const dojDate = new Date(employee.doj);
-    const eventDate = ensureWorkingDay(addDays(dojDate, 3));
+    const eventDate = ensureWorkingDay(addDays(dojDate, config.calendarEvents.projectIntroDayOffset));
 
     const attendees = [
       employee.officialEmail || employee.personalEmail,
@@ -92,11 +96,13 @@ async function createProjectIntroEvent(auth, employee) {
       .filter(Boolean)
       .map(email => ({ email }));
 
+    const cfg = config.calendarEvents.projectIntro;
+    const endMins = cfg.minute + cfg.durationMins;
     const event = {
       summary: `Project Intro Meeting — ${employee.name}`,
       description: `Project introduction meeting for ${employee.name} with their reporting manager. Agenda: role overview, key projects, initial goals, buddy introduction.`,
-      start: toGoogleDateTime(eventDate, 14, 0),
-      end: toGoogleDateTime(eventDate, 15, 0),
+      start: toGoogleDateTime(eventDate, cfg.hour, cfg.minute),
+      end: toGoogleDateTime(eventDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
       attendees,
     };
 
@@ -122,7 +128,7 @@ async function create30DayCatchupEvent(auth, employee) {
   try {
     const calendar = google.calendar({ version: 'v3', auth });
     const dojDate = new Date(employee.doj);
-    const eventDate = ensureWorkingDay(addDays(dojDate, 30));
+    const eventDate = ensureWorkingDay(addDays(dojDate, config.milestones.catchup30day));
 
     const attendees = [
       employee.officialEmail || employee.personalEmail,
@@ -132,11 +138,13 @@ async function create30DayCatchupEvent(auth, employee) {
       .filter(Boolean)
       .map(email => ({ email }));
 
+    const cfg = config.calendarEvents.catchup30day;
+    const endMins = cfg.minute + cfg.durationMins;
     const event = {
       summary: `30-Day Catchup — ${employee.name}`,
       description: `30-day catchup call for ${employee.name} (${employee.employeeId}). Covers onboarding experience, role clarity, challenges, and initial performance feedback.`,
-      start: toGoogleDateTime(eventDate, 11, 0),
-      end: toGoogleDateTime(eventDate, 11, 30),
+      start: toGoogleDateTime(eventDate, cfg.hour, cfg.minute),
+      end: toGoogleDateTime(eventDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
       attendees,
     };
 
@@ -173,11 +181,13 @@ async function createReviewEvent(auth, employee, dayMark) {
       .filter(Boolean)
       .map(email => ({ email }));
 
+    const cfg = config.calendarEvents.reviewMeeting;
+    const endMins = cfg.minute + cfg.durationMins;
     const event = {
       summary: `${dayMark}-Day Review — ${employee.name}`,
       description: `${dayMark}-day performance review for ${employee.name} (${employee.employeeId}). Covers performance assessment, key achievements, areas of improvement, and next goals.`,
-      start: toGoogleDateTime(eventDate, 15, 0),
-      end: toGoogleDateTime(eventDate, 16, 0),
+      start: toGoogleDateTime(eventDate, cfg.hour, cfg.minute),
+      end: toGoogleDateTime(eventDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
       attendees,
     };
 

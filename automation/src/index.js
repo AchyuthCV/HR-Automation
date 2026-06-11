@@ -27,6 +27,7 @@ const {
 const { createHRInductionEvent, createProjectIntroEvent, create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
 const webhookServer = require('./webhookServer');
 const { registerGmailWatch } = require('./gmailWatcher');
+const activityLog = require('./activityLog');
 const {
   getOrCreateStatusSheet,
   markPreonboardingInitiated,
@@ -241,7 +242,14 @@ async function handleNewFile(auth, employee, file) {
   }
 
   console.log(`[Index] Verifying ${file.name} for ${employee.name}`);
-  const result = await verifyDocument(auth, file.id, file.name, file.mimeType);
+  let result;
+  try {
+    result = await verifyDocument(auth, file.id, file.name, file.mimeType);
+  } catch (err) {
+    console.error(`[Index] verifyDocument failed for ${file.name}:`, err.message);
+    activityLog.log(employee, 'verification_error', `${file.name} — ${err.message}`);
+    return;
+  }
 
   // Always accumulate verification results for the report (pass or fail)
   employee.verificationResults = employee.verificationResults || {};
@@ -257,6 +265,7 @@ async function handleNewFile(auth, employee, file) {
 
   if (result.valid) {
     console.log(`[Index] ✓ ${file.name} passed verification`);
+    activityLog.log(employee, 'document_verified', `${docType} — ${file.name}`);
 
     // Mark corresponding checklist task
     const taskId = DOC_TASK_MAP[docType];
@@ -270,9 +279,15 @@ async function handleNewFile(auth, employee, file) {
   } else {
     const reason = result.failureReasons ? result.failureReasons.join('; ') : 'Verification failed';
     console.log(`[Index] ✗ ${file.name} failed: ${reason}`);
+    activityLog.log(employee, 'document_rejected', `${docType} — ${file.name} — ${reason}`);
 
     await sendDocumentRejection(employee, result.docType || docType, reason);
     await markDocumentIssue(auth, employee, result.docType || docType, reason).catch(() => {});
+
+    // t10: reminder sent for incorrect document
+    if (!isTaskDone(employee.checklist, 't10')) {
+      markTask(employee.checklist, 't10');
+    }
 
     // Schedule a no-response alert to recruiter if employee doesn't re-upload in 24h
     if (employee.noResponseTimers[docType]) employee.noResponseTimers[docType].stop();
@@ -323,9 +338,10 @@ async function triggerNextStep(auth, employee, docType) {
       await sendITAssetRequest(employee, contacts.itEmail, {});
       markTask(checklist, 't20');
 
-      // Send BGV request to recruiter (t23)
+      // Send BGV request to recruiter (t23 = request sent, t24 = recruiter triggers it)
       await sendBGVRequest(employee, contacts.recruiterEmail);
       markTask(checklist, 't23');
+      markTask(checklist, 't24');
 
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false, statusSheetId: employee.statusSheetId || null });
@@ -438,6 +454,7 @@ async function handleReply(auth, classified, rawMsg) {
   const { checklist } = employee;
 
   console.log(`[Index] Processing reply: ${replyType} for ${employee.name}`);
+  activityLog.log(employee, 'reply_received', replyType);
 
   switch (replyType) {
     case 'official_email_created':
@@ -446,8 +463,8 @@ async function handleReply(auth, classified, rawMsg) {
         markTask(checklist, 't15');
         markTask(checklist, 't16');
         console.log(`[Index] Official email recorded: ${data.officialEmail}`);
+        activityLog.log(employee, 'official_email_confirmed', data.officialEmail);
         await markOfficialEmailConfirmed(auth, employee, data.officialEmail).catch(() => {});
-        // Cancel 48h HR reply-deadline timer
         if (employee.replyTimers && employee.replyTimers.hr) {
           employee.replyTimers.hr.stop && employee.replyTimers.hr.stop();
           delete employee.replyTimers.hr;
@@ -460,10 +477,10 @@ async function handleReply(auth, classified, rawMsg) {
         employee.assetDetails = data;
         markTask(checklist, 't18');
         markTask(checklist, 't19');
+        activityLog.log(employee, 'manager_allocation_confirmed', JSON.stringify(data));
         await markManagerConfirmed(auth, employee, data).catch(() => {});
         await sendITAssetRequest(employee, employee.contacts.itEmail, data);
         markTask(checklist, 't20');
-        // Cancel 48h manager reply-deadline timer
         if (employee.replyTimers && employee.replyTimers.manager) {
           employee.replyTimers.manager.stop && employee.replyTimers.manager.stop();
           delete employee.replyTimers.manager;
@@ -475,8 +492,8 @@ async function handleReply(auth, classified, rawMsg) {
       markTask(checklist, 't21');
       markTask(checklist, 't22');
       markTask(checklist, 't35');
+      activityLog.log(employee, 'it_allocation_confirmed');
       await markITConfirmed(auth, employee).catch(() => {});
-      // Cancel 48h IT reply-deadline timers
       if (employee.replyTimers) {
         if (employee.replyTimers.it) {
           employee.replyTimers.it.stop && employee.replyTimers.it.stop();
@@ -492,8 +509,8 @@ async function handleReply(auth, classified, rawMsg) {
     case 'bgv_report':
       markTask(checklist, 't25');
       markTask(checklist, 't26');
+      activityLog.log(employee, 'bgv_report_received');
       await markBGVDone(auth, employee).catch(() => {});
-      // Cancel 48h BGV/recruiter reply-deadline timer
       if (employee.replyTimers && employee.replyTimers.bgv) {
         employee.replyTimers.bgv.stop && employee.replyTimers.bgv.stop();
         delete employee.replyTimers.bgv;
@@ -503,7 +520,7 @@ async function handleReply(auth, classified, rawMsg) {
     case 'induction_confirmed':
       markTask(checklist, 't33');
       markTask(checklist, 't34');
-      // Cancel any induction reply timer if one exists
+      activityLog.log(employee, 'induction_confirmed');
       if (employee.replyTimers && employee.replyTimers.induction) {
         employee.replyTimers.induction.stop && employee.replyTimers.induction.stop();
         delete employee.replyTimers.induction;
@@ -511,9 +528,8 @@ async function handleReply(auth, classified, rawMsg) {
       break;
 
     case 'admin_allocation':
-      // t36: Admin confirms seat allocation
       markTask(checklist, 't36');
-      // Cancel 48h admin reply-deadline timer
+      activityLog.log(employee, 'admin_seat_allocation_confirmed');
       if (employee.replyTimers && employee.replyTimers.admin) {
         employee.replyTimers.admin.stop && employee.replyTimers.admin.stop();
         delete employee.replyTimers.admin;
@@ -524,19 +540,21 @@ async function handleReply(auth, classified, rawMsg) {
       markTask(checklist, 't43');
       markTask(checklist, 't44');
       markTask(checklist, 't45');
+      activityLog.log(employee, '30_day_catchup_complete');
       await mark30DayDone(auth, employee).catch(() => {});
       break;
 
     case 'review_complete': {
-      // Determine which review based on days since DOJ
       const daysSinceDoj = Math.floor(
         (Date.now() - new Date(employee.doj).getTime()) / (1000 * 60 * 60 * 24)
       );
       if (daysSinceDoj < 75) {
         markTask(checklist, 't46'); markTask(checklist, 't48');
+        activityLog.log(employee, '60_day_review_complete');
         await mark60DayDone(auth, employee).catch(() => {});
       } else if (daysSinceDoj < 120) {
         markTask(checklist, 't49'); markTask(checklist, 't51');
+        activityLog.log(employee, '90_day_review_complete');
         await mark90DayDone(auth, employee).catch(() => {});
       }
       break;
@@ -558,8 +576,9 @@ const employeeRegistry = {};
 async function onboardEmployee(auth, employee) {
   // Register in shared registry so webhookServer can look them up
   employeeRegistry[employee.employeeId] = employee;
-  // Store auth on employee so cron callbacks can call statusTracker
+  // Store auth and markTask helper on employee so cron callbacks can update checklist/sheet
   employee._auth = auth;
+  employee._markTask = (taskId) => markTask(employee.checklist, taskId);
 
   // If milestones were scheduled in a previous run, re-register them after restart
   if (employee.milestonesScheduled && employee.contacts) {
@@ -579,6 +598,7 @@ async function onboardEmployee(auth, employee) {
 
   if (!alreadyStarted) {
     console.log(`\n[Index] Starting onboarding for ${employee.name} (${employee.employeeId})`);
+    activityLog.log(employee, 'onboarding_started', `DOJ: ${employee.doj}`);
 
     // Step 1: Scaffold Drive folder structure
     await scaffoldEmployeeFolder(auth, employee.driveFolderId, employee.name, employee.employeeId);
@@ -593,6 +613,7 @@ async function onboardEmployee(auth, employee) {
     // Step 3: Send pre-onboarding form
     await sendPreOnboardingForm(employee);
     markTask(employee.checklist, 't4');
+    activityLog.log(employee, 'pre_onboarding_email_sent', employee.personalEmail);
 
     // Step 5: Save checklist to Drive and locally
     await uploadChecklist(auth, employee.driveFolderId, employee.checklist);
@@ -621,6 +642,20 @@ async function main() {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`  ${process.env.COMPANY_NAME} HR Automation Engine`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+  // ─── Startup configuration warnings ──────────────────────────────────────
+  const surveyLink = process.env.ONBOARDING_SURVEY_LINK || '';
+  if (!surveyLink || surveyLink === '#survey-link' || surveyLink.startsWith('#')) {
+    console.warn('[Config] WARNING: ONBOARDING_SURVEY_LINK is not set or is a placeholder.');
+    console.warn('[Config]   Employees on day 25 will receive an email with a broken survey link.');
+    console.warn('[Config]   Set a real Google Form URL in .env to fix this.\n');
+  }
+
+  const webhookUrl = process.env.WEBHOOK_BASE_URL || '';
+  if (!webhookUrl || webhookUrl.includes('your-ngrok-url') || webhookUrl.includes('localhost')) {
+    console.warn('[Config] WARNING: WEBHOOK_BASE_URL is not set to a public URL.');
+    console.warn('[Config]   Drive push notifications will not work — falling back to polling.\n');
+  }
 
   const auth = getAuthClient();
 

@@ -1,4 +1,5 @@
 const cron = require('node-cron');
+const config = require('./config');
 const { create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
 const {
   send30DayCatchupReminder,
@@ -15,6 +16,14 @@ const {
   markPreprobationDone,
 } = require('./statusTracker');
 require('dotenv').config();
+
+function isTaskDone(checklist, taskId) {
+  if (!checklist) return false;
+  for (const phase of Object.values(checklist)) {
+    if (phase.tasks && phase.tasks[taskId]) return phase.tasks[taskId].done;
+  }
+  return false;
+}
 
 // In-memory store of scheduled jobs, keyed by employeeId
 // Structure: { [employeeId]: { tasks: cron.ScheduledTask[], employee: {}, milestones: {} } }
@@ -68,7 +77,7 @@ function scheduleOnce(targetDate, label, fn) {
 function scheduleOnboardingSurvey(employee) {
   const { name, employeeId, officialEmail, doj } = employee;
   const dojDate = new Date(doj);
-  const surveyDate = ensureWorkingDay(addDays(dojDate, 25));
+  const surveyDate = ensureWorkingDay(addDays(dojDate, config.milestones.surveyday));
 
   return scheduleOnce(surveyDate, `Onboarding Survey — ${name}`, async () => {
     const { sendEmail } = require('./emailSender');
@@ -95,7 +104,7 @@ function scheduleOnboardingSurvey(employee) {
 // markTaskFn (optional): function(taskId) to mark checklist tasks from within the callback
 function schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, markTaskFn) {
   const { name, employeeId, doj } = employee;
-  const fireDate = ensureWorkingDay(addDays(new Date(doj), 30));
+  const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.catchup30day));
 
   return scheduleOnce(fireDate, `30-Day Catchup — ${name}`, async () => {
     await send30DayCatchupReminder(employee, recruiterEmail, managerEmail);
@@ -118,7 +127,7 @@ function schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, 
 // contacts: { recruiterEmail, managerEmail, itEmail }
 function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, markTaskFn) {
   const { name, employeeId, doj } = employee;
-  const fireDate = ensureWorkingDay(addDays(new Date(doj), 60));
+  const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.review60day));
 
   return scheduleOnce(fireDate, `60-Day Review — ${name}`, async () => {
     await sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, 60);
@@ -132,9 +141,14 @@ function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, m
 
     if (employee._auth) await mark60DayDone(employee._auth, employee).catch(() => {});
 
-    // t47: schedule 48h no-reply escalation — fires if no reply comes in
-    scheduleReplyDeadline(employee, 'Recruiter / Manager (60-Day Review)', recruiterEmail, 48);
-    if (markTaskFn) markTaskFn('t47');
+    // t47: mark only if review_complete reply hasn't arrived within 48h
+    scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `60-Day No-Reply Check — ${name}`, async () => {
+      if (!isTaskDone(employee.checklist, 't48')) {
+        await sendNoReplyEscalation(employee, 'Recruiter / Manager (60-Day Review)', recruiterEmail);
+        if (markTaskFn) markTaskFn('t47');
+        console.log(`[Cron] 60-day no-reply escalation sent for ${name}`);
+      }
+    });
   });
 }
 
@@ -142,7 +156,7 @@ function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, m
 // contacts: { recruiterEmail, managerEmail, itEmail }
 function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, markTaskFn) {
   const { name, employeeId, doj } = employee;
-  const fireDate = ensureWorkingDay(addDays(new Date(doj), 90));
+  const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.review90day));
 
   return scheduleOnce(fireDate, `90-Day Review — ${name}`, async () => {
     await sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, 90);
@@ -156,16 +170,21 @@ function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, m
 
     if (employee._auth) await mark90DayDone(employee._auth, employee).catch(() => {});
 
-    // t50: schedule 48h no-reply escalation — fires if no reply comes in
-    scheduleReplyDeadline(employee, 'Recruiter / Manager (90-Day Review)', recruiterEmail, 48);
-    if (markTaskFn) markTaskFn('t50');
+    // t50: mark only if review_complete reply hasn't arrived within 48h
+    scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `90-Day No-Reply Check — ${name}`, async () => {
+      if (!isTaskDone(employee.checklist, 't51')) {
+        await sendNoReplyEscalation(employee, 'Recruiter / Manager (90-Day Review)', recruiterEmail);
+        if (markTaskFn) markTaskFn('t50');
+        console.log(`[Cron] 90-day no-reply escalation sent for ${name}`);
+      }
+    });
   });
 }
 
 // Schedule 5-month pre-probation reminder (approx 150 days)
 function schedule5MonthProbation(employee, managerEmail) {
   const { name, employeeId, doj } = employee;
-  const fireDate = ensureWorkingDay(addDays(new Date(doj), 150));
+  const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.probation150day));
 
   return scheduleOnce(fireDate, `Pre-Probation — ${name}`, async () => {
     await sendPreProbationReminder(employee, managerEmail);
@@ -176,20 +195,24 @@ function schedule5MonthProbation(employee, managerEmail) {
 
 // Schedule a no-response follow-up 24 hours after a document request
 function scheduleNoResponseAlert(employee, recruiterEmail, delayHours = 24) {
-  const fireDate = new Date(Date.now() + delayHours * 60 * 60 * 1000);
+  const hours = delayHours || config.replyDeadlines.noResponseAlertHours;
+  const fireDate = new Date(Date.now() + hours * 60 * 60 * 1000);
   const { name, employeeId } = employee;
 
   return scheduleOnce(fireDate, `No-Response Alert — ${name}`, async () => {
     const { sendNoResponseAlert } = require('./emailSender');
     await sendNoResponseAlert(employee, recruiterEmail);
     console.log(`[Cron] No-response alert sent to recruiter for ${name} (${employeeId})`);
+    // t11: alert sent to recruiter because employee didn't respond > 24h
+    if (employee._markTask) employee._markTask('t11');
   });
 }
 
 // Schedule a 48h reply-deadline escalation for any stakeholder who hasn't replied
 // Returns a task handle with .stop() — same pattern as scheduleNoResponseAlert
-function scheduleReplyDeadline(employee, recipientType, recipientEmail, delayHours = 48) {
-  const fireDate = new Date(Date.now() + delayHours * 60 * 60 * 1000);
+function scheduleReplyDeadline(employee, recipientType, recipientEmail, delayHours) {
+  const hours = delayHours || config.replyDeadlines.stakeholderReplyHours;
+  const fireDate = new Date(Date.now() + hours * 60 * 60 * 1000);
   const { name, employeeId } = employee;
 
   return scheduleOnce(fireDate, `Reply Deadline — ${recipientType} — ${name}`, async () => {
@@ -290,7 +313,7 @@ function cancelAllJobs(employeeId) {
 
 // Daily health-check cron — runs at 9 AM every day, logs active jobs
 function startDailyHealthCheck() {
-  cron.schedule('0 9 * * 1-5', () => {
+  cron.schedule(config.healthCheckCron, () => {
     const count = Object.keys(activeJobs).length;
     console.log(`[Cron] Daily health check — ${count} employee(s) with active scheduled jobs`);
     Object.entries(activeJobs).forEach(([id, entry]) => {

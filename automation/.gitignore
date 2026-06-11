@@ -16,5 +16,6 @@ package-lock.json
 
 # ─── Runtime / OS ─────────────────────────────────────────────────────────────
 *.log
+logs/
 .DS_Store
 Thumbs.db

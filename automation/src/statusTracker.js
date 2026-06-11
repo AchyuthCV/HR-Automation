@@ -21,14 +21,15 @@
 //  Row 15: Pre-probation verification completed
 
 const { google } = require('googleapis');
+const config = require('./config');
 require('dotenv').config();
 
 const STATUS = {
-  PENDING:     '⏳ Pending',
-  IN_PROGRESS: '🔄 In Progress',
-  DONE:        '✅ Done',
-  ACTION_REQ:  '⚠️ Action Required',
-  NOT_OK:      '❌ Not OK',
+  PENDING:     config.statusSymbols.pending,
+  IN_PROGRESS: config.statusSymbols.inProgress,
+  DONE:        config.statusSymbols.done,
+  ACTION_REQ:  config.statusSymbols.actionReq,
+  NOT_OK:      config.statusSymbols.notOk,
 };
 
 const MILESTONES = [
@@ -50,7 +51,7 @@ const MILESTONES = [
 ];
 
 function nowIST() {
-  return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+  return new Date().toLocaleString('en-IN', { timeZone: config.timezone });
 }
 
 // ─── Get or create the status sheet for an employee ──────────────────────────
@@ -92,9 +93,12 @@ async function getOrCreateStatusSheet(auth, employee) {
 
   // Write header + all 15 milestones + progress bar row at top
   const now = nowIST();
+  const doneLabel = STATUS.DONE;
+  const countifFormula = '=COUNTIF(B3:B17,"' + doneLabel + '")/15';
+  const pctFormula = '=TEXT(COUNTIF(B3:B17,"' + doneLabel + '")/15,"0%")&" Complete ("&COUNTIF(B3:B17,"' + doneLabel + '")&")/15)"';
   // Row 1: progress bar  Row 2: column headers  Rows 3-17: milestones
   const rows = [
-    ['Onboarding Progress', '=COUNTIF(B3:B17,"✅ Done")/15', '', '=TEXT(COUNTIF(B3:B17,"✅ Done")/15,"0%")&" Complete ("&COUNTIF(B3:B17,"✅ Done")&"/15)"],
+    ['Onboarding Progress', countifFormula, '', pctFormula],
     ['Milestone', 'Status', 'Last Updated', 'Notes'],
     ...MILESTONES.map((m, i) => [
       m,

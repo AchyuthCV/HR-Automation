@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
+const config = require('./config');
 require('dotenv').config();
 
 const CREDENTIALS_PATH = path.join(__dirname, '..', 'credentials.json');
@@ -108,7 +109,7 @@ async function scaffoldEmployeeFolder(auth, rootFolderId, employeeName, employee
   const folderName = `${employeeName}_${employeeId}`;
   const employeeFolderId = await createSubFolder(auth, rootFolderId, folderName);
 
-  const subFolders = ['Documents', 'Offer_Letter', 'BGV', 'Meeting_Screenshots', 'Reports'];
+  const subFolders = config.driveSubfolders;
   const folderMap = { root: employeeFolderId };
   for (const sf of subFolders) {
     folderMap[sf] = await createSubFolder(auth, employeeFolderId, sf);
