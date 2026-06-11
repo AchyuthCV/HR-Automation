@@ -24,6 +24,7 @@ const {
   restoreMilestonesAfterRestart,
   startDailyHealthCheck,
 } = require('./cronJobs');
+const { createHRInductionEvent, createProjectIntroEvent, create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
 const webhookServer = require('./webhookServer');
 const { registerGmailWatch } = require('./gmailWatcher');
 const {
@@ -342,6 +343,7 @@ async function triggerNextStep(auth, employee, docType) {
     // t27/t28: Send HR induction calendar invite to employee + recruiter
     if (!isTaskDone(checklist, 't27')) {
       await sendInductionCalendarInvite(employee);
+      await createHRInductionEvent(auth, employee).catch(() => {});
       markTask(checklist, 't27');
       markTask(checklist, 't28');
       await markHRInductionScheduled(auth, employee).catch(() => {});
@@ -350,6 +352,7 @@ async function triggerNextStep(auth, employee, docType) {
     // t29/t30/t31/t32: Send project intro meeting invite + sheet to manager + employee
     if (!isTaskDone(checklist, 't29')) {
       await sendProjectIntroInvite(employee);
+      await createProjectIntroEvent(auth, employee).catch(() => {});
       markTask(checklist, 't29');
       markTask(checklist, 't30');
       markTask(checklist, 't31');
@@ -666,6 +669,24 @@ async function main() {
 
   // Start daily health-check cron
   startDailyHealthCheck();
+
+  process.on('SIGINT', () => {
+    console.log('\n[Index] Shutting down gracefully...');
+    // Save state for all employees
+    for (const employee of Object.values(employeeRegistry)) {
+      try {
+        saveState(employee.employeeId, {
+          checklist: employee.checklist,
+          milestonesScheduled: employee.milestonesScheduled || false,
+        });
+        console.log(`[Index] State saved for ${employee.name}`);
+      } catch (err) {
+        console.error(`[Index] Failed to save state for ${employee.name}:`, err.message);
+      }
+    }
+    console.log('[Index] All states saved. Goodbye.');
+    process.exit(0);
+  });
 
   console.log('[Index] Engine running. Press Ctrl+C to stop.\n');
 }

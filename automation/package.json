@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
+    "dev": "node src/dev.js",
     "auth": "node src/auth.js",
+    "add-employee": "node src/addEmployee.js",
+    "test-emails": "node src/testEmails.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

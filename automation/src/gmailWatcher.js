@@ -156,6 +156,31 @@ async function fetchMessageBody(auth, messageId) {
   };
 }
 
+// Retry helper for Gemini quota / rate-limit errors (429 / RESOURCE_EXHAUSTED)
+async function callWithRetry(fn, maxRetries = 4) {
+  let delay = 10000; // start at 10s
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 = err.message && (
+        err.message.includes('429') ||
+        err.message.includes('quota') ||
+        err.message.includes('RESOURCE_EXHAUSTED')
+      );
+      if (is429 && attempt < maxRetries) {
+        const retryMatch = err.message.match(/"retryDelay":"(\d+)s"/);
+        const waitMs = retryMatch ? parseInt(retryMatch[1]) * 1000 + 2000 : delay;
+        console.warn(`[Gemini] Quota hit — waiting ${Math.round(waitMs / 1000)}s before retry ${attempt}/${maxRetries}`);
+        await new Promise(r => setTimeout(r, waitMs));
+        delay *= 2;
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // ─── Classify reply with Gemini ───────────────────────────────────────────────
 // Returns { replyType, employeeId, data } or null if not an automation reply
 async function classifyReply(message) {
@@ -187,7 +212,7 @@ Respond ONLY with a JSON object in this exact format:
 If this is not related to onboarding, set isOnboardingReply=false and use null for all other fields.`;
 
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
-  const response = await model.generateContent(prompt);
+  const response = await callWithRetry(() => model.generateContent(prompt));
   const raw = response.response.text().trim();
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;

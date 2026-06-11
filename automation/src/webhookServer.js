@@ -34,7 +34,56 @@ app.use(express.raw({ type: 'application/json' }));
 
 // ─── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', employees: Object.keys(_employeeRegistry).length });
+  const employees = Object.values(_employeeRegistry).map(emp => {
+    // Count done tasks
+    let totalTasks = 0, doneTasks = 0;
+    for (const phase of Object.values(emp.checklist || {})) {
+      if (phase.tasks) {
+        for (const task of Object.values(phase.tasks)) {
+          totalTasks++;
+          if (task.done) doneTasks++;
+        }
+      }
+    }
+    // Find current phase (first phase with incomplete tasks)
+    let currentPhase = 'Complete';
+    for (const [key, phase] of Object.entries(emp.checklist || {})) {
+      if (phase.tasks && Object.values(phase.tasks).some(t => !t.done)) {
+        currentPhase = phase.label;
+        break;
+      }
+    }
+    return {
+      employeeId: emp.employeeId,
+      name: emp.name,
+      doj: emp.doj,
+      currentPhase,
+      progress: `${doneTasks}/${totalTasks} tasks`,
+      milestonesScheduled: emp.milestonesScheduled || false,
+      activeTimers: Object.keys(emp.replyTimers || {}).length + Object.keys(emp.noResponseTimers || {}).length,
+    };
+  });
+
+  res.json({
+    status: 'ok',
+    uptime: Math.floor(process.uptime()) + 's',
+    employees,
+  });
+});
+
+// ─── Employees list ─────────────────────────────────────────────────────────────
+app.get('/employees', (_req, res) => {
+  const list = Object.values(_employeeRegistry).map(emp => ({
+    employeeId: emp.employeeId,
+    name: emp.name,
+    personalEmail: emp.personalEmail,
+    officialEmail: emp.officialEmail || null,
+    doj: emp.doj,
+    driveFolderId: emp.driveFolderId,
+    milestonesScheduled: emp.milestonesScheduled || false,
+    checklist: emp.checklist,
+  }));
+  res.json({ count: list.length, employees: list });
 });
 
 // ─── Drive push handler ────────────────────────────────────────────────────────

@@ -120,6 +120,32 @@ function fileToBase64(filePath, mimeType) {
   return { base64, mediaType };
 }
 
+// Retry helper for Gemini quota / rate-limit errors (429 / RESOURCE_EXHAUSTED)
+async function callWithRetry(fn, maxRetries = 4) {
+  let delay = 10000; // start at 10s
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 = err.message && (
+        err.message.includes('429') ||
+        err.message.includes('quota') ||
+        err.message.includes('RESOURCE_EXHAUSTED')
+      );
+      if (is429 && attempt < maxRetries) {
+        // Try to parse retryDelay from error message
+        const retryMatch = err.message.match(/"retryDelay":"(\d+)s"/);
+        const waitMs = retryMatch ? parseInt(retryMatch[1]) * 1000 + 2000 : delay;
+        console.warn(`[Gemini] Quota hit — waiting ${Math.round(waitMs / 1000)}s before retry ${attempt}/${maxRetries}`);
+        await new Promise(r => setTimeout(r, waitMs));
+        delay *= 2;
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // Core verification function — returns { valid, docType, checks, failureReasons, summary }
 async function verifyDocument(auth, fileId, filename, mimeType) {
   const docType = detectDocType(filename);
@@ -140,10 +166,10 @@ async function verifyDocument(auth, fileId, filename, mimeType) {
     const { base64, mediaType } = fileToBase64(tp, downloadMime);
 
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
-    const result_raw = await model.generateContent([
+    const result_raw = await callWithRetry(() => model.generateContent([
       VERIFICATION_PROMPTS[docType],
       { inlineData: { data: base64, mimeType: mediaType } },
-    ]);
+    ]));
 
     const raw = result_raw.response.text().trim();
     // Extract JSON from the response (model may wrap it in markdown)
