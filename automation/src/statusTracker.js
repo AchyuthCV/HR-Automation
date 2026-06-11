@@ -81,6 +81,7 @@ async function getOrCreateStatusSheet(auth, employee) {
   });
 
   const spreadsheetId = spreadsheet.data.spreadsheetId;
+  const sheetId = spreadsheet.data.sheets[0].properties.sheetId;
 
   // Move it into the employee's Drive folder
   await drive.files.update({
@@ -89,9 +90,11 @@ async function getOrCreateStatusSheet(auth, employee) {
     fields: 'id, parents',
   });
 
-  // Write header + all 15 milestones
+  // Write header + all 15 milestones + progress bar row at top
   const now = nowIST();
+  // Row 1: progress bar  Row 2: column headers  Rows 3-17: milestones
   const rows = [
+    ['Onboarding Progress', '=COUNTIF(B3:B17,"✅ Done")/15', '', '=TEXT(COUNTIF(B3:B17,"✅ Done")/15,"0%")&" Complete ("&COUNTIF(B3:B17,"✅ Done")&"/15)"],
     ['Milestone', 'Status', 'Last Updated', 'Notes'],
     ...MILESTONES.map((m, i) => [
       m,
@@ -104,18 +107,33 @@ async function getOrCreateStatusSheet(auth, employee) {
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: 'Status!A1',
-    valueInputOption: 'RAW',
+    valueInputOption: 'USER_ENTERED',
     requestBody: { values: rows },
   });
 
-  // Format: bold header with dark background
+  // Format the sheet
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
       requests: [
+        // Progress bar row (row 1) — green background
         {
           repeatCell: {
-            range: { sheetId: 0, startRowIndex: 0, endRowIndex: 1 },
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: { red: 0.13, green: 0.55, blue: 0.13 },
+                textFormat: { bold: true, fontSize: 12, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                horizontalAlignment: 'CENTER',
+              },
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)',
+          },
+        },
+        // Header row (row 2) — dark background
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 1, endRowIndex: 2 },
             cell: {
               userEnteredFormat: {
                 backgroundColor: { red: 0.15, green: 0.15, blue: 0.15 },
@@ -125,9 +143,32 @@ async function getOrCreateStatusSheet(auth, employee) {
             fields: 'userEnteredFormat(backgroundColor,textFormat)',
           },
         },
+        // Merge A1:E1 for the progress bar label
+        {
+          mergeCells: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 },
+            mergeType: 'MERGE_ALL',
+          },
+        },
+        // Format B1 as percentage
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 1, endColumnIndex: 2 },
+            cell: {
+              userEnteredFormat: {
+                numberFormat: { type: 'PERCENT', pattern: '0%' },
+                backgroundColor: { red: 0.13, green: 0.55, blue: 0.13 },
+                textFormat: { bold: true, fontSize: 14, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                horizontalAlignment: 'CENTER',
+              },
+            },
+            fields: 'userEnteredFormat(numberFormat,backgroundColor,textFormat,horizontalAlignment)',
+          },
+        },
+        // Auto resize columns
         {
           autoResizeDimensions: {
-            dimensions: { sheetId: 0, dimension: 'COLUMNS', startIndex: 0, endIndex: 4 },
+            dimensions: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 5 },
           },
         },
       ],
@@ -145,8 +186,8 @@ async function updateMilestone(auth, employee, milestoneIndex, status, notes = '
     const spreadsheetId = await getOrCreateStatusSheet(auth, employee);
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Row 1 = header, milestones start at row 2 → index + 2
-    const rowNum = milestoneIndex + 2;
+    // Row 1 = progress bar, Row 2 = header, milestones start at row 3 → index + 3
+    const rowNum = milestoneIndex + 3;
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `Status!B${rowNum}:D${rowNum}`,
