@@ -8,6 +8,11 @@
     "dev": "node src/dev.js",
     "auth": "node src/auth.js",
     "add-employee": "node src/addEmployee.js",
+    "list-employees": "node src/listEmployees.js",
+    "remove-employee": "node src/removeEmployee.js",
+    "reset-employee": "node src/resetEmployee.js",
+    "view-state": "node src/viewState.js",
+    "mark-task": "node src/markTask.js",
     "test-emails": "node src/testEmails.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

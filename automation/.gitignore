@@ -6,9 +6,11 @@ credentials.json
 token.json
 employees.json
 state.json
+state-*.json
 push-channels.json
 gmail-state.json
 seen-files.json
+seen-files-meta.json
 
 # ─── Dependencies ─────────────────────────────────────────────────────────────
 node_modules/

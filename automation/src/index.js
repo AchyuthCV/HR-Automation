@@ -54,24 +54,54 @@ const {
 const fs = require('fs');
 const path = require('path');
 
-const STATE_PATH = path.join(__dirname, '..', 'state.json');
+const STATE_DIR = path.join(__dirname, '..');
 
-function loadState() {
-  if (fs.existsSync(STATE_PATH)) {
-    return JSON.parse(fs.readFileSync(STATE_PATH, 'utf8'));
+function statePathFor(employeeId) {
+  return path.join(STATE_DIR, `state-${employeeId}.json`);
+}
+
+function loadState(employeeId) {
+  // Per-employee file takes priority
+  const perFile = statePathFor(employeeId);
+  if (fs.existsSync(perFile)) {
+    try { return JSON.parse(fs.readFileSync(perFile, 'utf8')); } catch { return null; }
   }
-  return {};
+  // One-time migration: check legacy shared state.json
+  const legacyPath = path.join(STATE_DIR, 'state.json');
+  if (fs.existsSync(legacyPath)) {
+    try {
+      const all = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+      if (all[employeeId]) {
+        // Migrate this employee out of the legacy file
+        fs.writeFileSync(perFile, JSON.stringify(all[employeeId], null, 2));
+        console.log(`[State] Migrated ${employeeId} from state.json → state-${employeeId}.json`);
+        return all[employeeId];
+      }
+    } catch { /* ignore */ }
+  }
+  return null;
 }
 
 function saveState(employeeId, data) {
-  const state = loadState();
-  state[employeeId] = data;
-  fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+  fs.writeFileSync(statePathFor(employeeId), JSON.stringify(data, null, 2));
 }
 
-function getEmployeeSavedSheetId(employeeId) {
-  const state = loadState();
-  return state[employeeId] ? state[employeeId].statusSheetId || null : null;
+// Serialize all persistable fields from a live employee object into a plain object
+function snapshotEmployee(employee) {
+  // Serialise reply timer expiry timestamps (so they can be rescheduled after restart)
+  const replyTimerExpiry = {};
+  if (employee.replyTimers) {
+    for (const [key, task] of Object.entries(employee.replyTimers)) {
+      if (task && task._expiresAt) replyTimerExpiry[key] = task._expiresAt;
+    }
+  }
+  return {
+    checklist: employee.checklist,
+    milestonesScheduled: employee.milestonesScheduled || false,
+    statusSheetId: employee.statusSheetId || null,
+    verificationResults: employee.verificationResults || {},
+    replyTimerExpiry,
+  };
 }
 
 function loadEmployees() {
@@ -83,8 +113,7 @@ function loadEmployees() {
   // Single-employee fallback from .env — useful for initial testing
   if (process.env.EMPLOYEE_DRIVE_FOLDER_ID) {
     const employeeId = process.env.EMPLOYEE_ID || 'EMP001';
-    const savedState = loadState();
-    const saved = savedState[employeeId];
+    const saved = loadState(employeeId);
 
     return [
       {
@@ -103,6 +132,8 @@ function loadEmployees() {
         checklist: saved ? saved.checklist : buildDefaultChecklist(),
         milestonesScheduled: saved ? saved.milestonesScheduled : false,
         statusSheetId: saved ? (saved.statusSheetId || null) : null,
+        verificationResults: saved ? (saved.verificationResults || {}) : {},
+        replyTimerExpiry: saved ? (saved.replyTimerExpiry || {}) : {},
         phase: 'Phase2_BeforeDOJ',
         noResponseTimers: {},
         replyTimers: {},
@@ -309,7 +340,7 @@ async function handleNewFile(auth, employee, file) {
 
   // Save updated checklist to Drive and locally
   await uploadChecklist(auth, employee.driveFolderId, employee.checklist);
-  saveState(employee.employeeId, { checklist: employee.checklist, milestonesScheduled: employee.milestonesScheduled || false, statusSheetId: employee.statusSheetId || null });
+  saveState(employee.employeeId, snapshotEmployee(employee));
 
   // Trigger next steps based on which document just passed (only if valid)
   if (result.valid) {
@@ -344,7 +375,7 @@ async function triggerNextStep(auth, employee, docType) {
       markTask(checklist, 't24');
 
       await uploadChecklist(auth, employee.driveFolderId, checklist);
-      saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false, statusSheetId: employee.statusSheetId || null });
+      saveState(employee.employeeId, snapshotEmployee(employee));
 
       // Schedule 48h reply-deadline timers for each stakeholder
       employee.replyTimers = employee.replyTimers || {};
@@ -383,7 +414,7 @@ async function triggerNextStep(auth, employee, docType) {
     }
 
     await uploadChecklist(auth, employee.driveFolderId, checklist);
-    saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false, statusSheetId: employee.statusSheetId || null });
+    saveState(employee.employeeId, snapshotEmployee(employee));
   }
 
   // After meeting screenshot → confirm phase 3 DOJ tasks
@@ -404,7 +435,7 @@ async function triggerNextStep(auth, employee, docType) {
       markTask(checklist, 't41');
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       await markOnboardingComplete(auth, employee).catch(() => {});
-      saveState(employee.employeeId, { checklist, milestonesScheduled: true, statusSheetId: employee.statusSheetId || null });
+      saveState(employee.employeeId, snapshotEmployee(employee));
     }
 
     // t40: Send catchup XLS tracker email to recruiter + manager
@@ -412,7 +443,7 @@ async function triggerNextStep(auth, employee, docType) {
       await sendCatchupXLSEmail(employee);
       markTask(checklist, 't40');
       await uploadChecklist(auth, employee.driveFolderId, checklist);
-      saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || true, statusSheetId: employee.statusSheetId || null });
+      saveState(employee.employeeId, snapshotEmployee(employee));
     }
 
     // t35/t36: IT and Admin haven't confirmed yet — schedule 48h escalation timers
@@ -566,7 +597,7 @@ async function handleReply(auth, classified, rawMsg) {
   }
 
   await uploadChecklist(auth, employee.driveFolderId, checklist);
-  saveState(employee.employeeId, { checklist, milestonesScheduled: employee.milestonesScheduled || false, statusSheetId: employee.statusSheetId || null });
+  saveState(employee.employeeId, snapshotEmployee(employee));
 }
 
 // ─── Employee registry (shared with webhookServer) ────────────────────────────
@@ -579,6 +610,24 @@ async function onboardEmployee(auth, employee) {
   // Store auth and markTask helper on employee so cron callbacks can update checklist/sheet
   employee._auth = auth;
   employee._markTask = (taskId) => markTask(employee.checklist, taskId);
+
+  // Restore reply-deadline timers that were active before restart
+  if (employee.replyTimerExpiry) {
+    const now = Date.now();
+    for (const [key, isoDate] of Object.entries(employee.replyTimerExpiry)) {
+      const expiresAt = new Date(isoDate);
+      if (expiresAt > now) {
+        employee.replyTimers = employee.replyTimers || {};
+        employee.replyTimers[key] = scheduleReplyDeadline(
+          employee, key, process.env.HR_EMAIL,
+          (expiresAt - now) / (60 * 60 * 1000)
+        );
+        console.log(`[Index] Restored reply-deadline timer "${key}" for ${employee.name} (fires ${expiresAt.toISOString()})`);
+      } else {
+        console.log(`[Index] Reply-deadline timer "${key}" for ${employee.name} already expired — skipping`);
+      }
+    }
+  }
 
   // If milestones were scheduled in a previous run, re-register them after restart
   if (employee.milestonesScheduled && employee.contacts) {
@@ -617,7 +666,7 @@ async function onboardEmployee(auth, employee) {
 
     // Step 5: Save checklist to Drive and locally
     await uploadChecklist(auth, employee.driveFolderId, employee.checklist);
-    saveState(employee.employeeId, { checklist: employee.checklist, milestonesScheduled: employee.milestonesScheduled || false });
+    saveState(employee.employeeId, snapshotEmployee(employee));
 
     // Step 6: Schedule 24h no-response alert
     employee.noResponseTimers['preOnboarding'] = scheduleNoResponseAlert(
@@ -666,16 +715,16 @@ async function main() {
     handleNewFile: (a, emp, file) => handleNewFile(a, emp, file),
     handleReply: (classified, rawMsg) => handleReply(auth, classified, rawMsg),
     onNewEmployee: async (data) => {
-      const savedState = loadState();
-      const saved = savedState[data.employeeId];
+      const saved = loadState(data.employeeId);
       const employee = {
         ...data,
         checklist: saved ? saved.checklist : buildDefaultChecklist(),
         milestonesScheduled: saved ? (saved.milestonesScheduled || false) : false,
         statusSheetId: saved ? (saved.statusSheetId || null) : null,
+        verificationResults: saved ? (saved.verificationResults || {}) : {},
+        replyTimerExpiry: saved ? (saved.replyTimerExpiry || {}) : {},
         noResponseTimers: {},
         replyTimers: {},
-        verificationResults: {},
       };
       await onboardEmployee(auth, employee);
     },
@@ -700,12 +749,13 @@ async function main() {
     console.warn('[Index] No employees loaded. POST to /employee or set EMPLOYEE_* env vars.');
   } else {
     console.log(`[Index] Loaded ${employees.length} employee(s)\n`);
-    const savedState = loadState();
     for (const employee of employees) {
-      const saved = savedState[employee.employeeId];
+      const saved = loadState(employee.employeeId);
       if (!employee.checklist) employee.checklist = saved ? saved.checklist : buildDefaultChecklist();
       if (!employee.statusSheetId && saved && saved.statusSheetId) employee.statusSheetId = saved.statusSheetId;
       if (saved && saved.milestonesScheduled && !employee.milestonesScheduled) employee.milestonesScheduled = true;
+      if (saved && saved.verificationResults) employee.verificationResults = saved.verificationResults;
+      if (saved && saved.replyTimerExpiry) employee.replyTimerExpiry = saved.replyTimerExpiry;
       if (!employee.noResponseTimers) employee.noResponseTimers = {};
       if (!employee.replyTimers) employee.replyTimers = {};
       if (!employee.verificationResults) employee.verificationResults = {};
@@ -721,11 +771,7 @@ async function main() {
     // Save state for all employees
     for (const employee of Object.values(employeeRegistry)) {
       try {
-        saveState(employee.employeeId, {
-          checklist: employee.checklist,
-          milestonesScheduled: employee.milestonesScheduled || false,
-          statusSheetId: employee.statusSheetId || null,
-        });
+        saveState(employee.employeeId, snapshotEmployee(employee));
         console.log(`[Index] State saved for ${employee.name}`);
       } catch (err) {
         console.error(`[Index] Failed to save state for ${employee.name}:`, err.message);

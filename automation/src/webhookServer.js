@@ -59,7 +59,56 @@ function saveSeenFiles(seenFileIds) {
   }
 }
 
+// Prune seen file IDs that were first observed more than 30 days ago.
+// Since we only store IDs (not timestamps), we keep a parallel age map in
+// seen-files-meta.json: { [empId]: { [fileId]: isoTimestamp } }
+const SEEN_META_PATH = path.join(__dirname, '..', 'seen-files-meta.json');
+const TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function loadSeenMeta() {
+  if (fs.existsSync(SEEN_META_PATH)) {
+    try { return JSON.parse(fs.readFileSync(SEEN_META_PATH, 'utf8')); } catch { /* ignore */ }
+  }
+  return {};
+}
+
+function pruneSeenFiles(seenFileIds) {
+  const meta = loadSeenMeta();
+  const now = Date.now();
+  let pruned = 0;
+
+  for (const [empId, set] of Object.entries(seenFileIds)) {
+    if (!meta[empId]) meta[empId] = {};
+    // Stamp any new IDs
+    for (const id of set) {
+      if (!meta[empId][id]) meta[empId][id] = new Date().toISOString();
+    }
+    // Remove IDs older than TTL
+    for (const [id, ts] of Object.entries(meta[empId])) {
+      if (now - new Date(ts).getTime() > TTL_MS) {
+        set.delete(id);
+        delete meta[empId][id];
+        pruned++;
+      }
+    }
+  }
+
+  if (pruned > 0) {
+    console.log(`[Webhook] Pruned ${pruned} expired file ID(s) from seen-files cache`);
+    saveSeenFiles(seenFileIds);
+  }
+
+  try {
+    fs.writeFileSync(SEEN_META_PATH, JSON.stringify(meta, null, 2));
+  } catch (e) {
+    console.warn('[Webhook] Could not save seen-files-meta.json:', e.message);
+  }
+}
+
 const seenFileIds = loadSeenFiles();
+// Prune on load, then every 24 hours
+pruneSeenFiles(seenFileIds);
+setInterval(() => pruneSeenFiles(seenFileIds), 24 * 60 * 60 * 1000);
 
 const app = express();
 app.use(express.json());
@@ -220,11 +269,34 @@ app.get('/status/:employeeId', (req, res) => {
   const emp = _employeeRegistry[req.params.employeeId];
   if (!emp) return res.status(404).send('<h2>Employee not found</h2>');
 
+  const now = Date.now();
+  const STUCK_MS = 48 * 60 * 60 * 1000; // 48 hours
+
+  // Build task-level metadata: stuckAt timestamps from activity log
+  // Map event "task_started:<taskId>" → timestamp
+  const stuckMap = {};
+  const allEvents = readLog(emp.employeeId);
+  for (const ev of allEvents) {
+    if (ev.event && ev.event.startsWith('task_started:')) {
+      const tid = ev.event.split(':')[1];
+      stuckMap[tid] = new Date(ev.ts).getTime();
+    }
+  }
+
+  // Check if t16 (official email created) is done
+  let t16Done = false;
+  for (const phase of Object.values(emp.checklist || {})) {
+    if (phase.tasks && phase.tasks['t16'] && phase.tasks['t16'].done) { t16Done = true; break; }
+  }
+
+  const verResults = emp.verificationResults || {};
+
   // Count tasks
   let total = 0, done = 0;
   const phases = [];
   for (const [key, phase] of Object.entries(emp.checklist || {})) {
-    const tasks = Object.values(phase.tasks || {});
+    const taskEntries = Object.entries(phase.tasks || {});
+    const tasks = taskEntries.map(([tid, t]) => ({ ...t, _id: tid }));
     const phaseDone = tasks.filter(t => t.done).length;
     total += tasks.length;
     done += phaseDone;
@@ -233,12 +305,29 @@ app.get('/status/:employeeId', (req, res) => {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
   // Activity log (last 20 events)
-  const events = readLog(emp.employeeId).slice(-20).reverse();
+  const events = allEvents.slice(-20).reverse();
 
   const phaseRows = phases.map(p => {
-    const taskRows = p.tasks.map(t =>
-      `<tr><td style="padding:4px 12px;">${t.done ? '✅' : '⬜'}</td><td style="padding:4px 8px;color:${t.done ? '#2e7d32' : '#555'}">${t.label}</td></tr>`
-    ).join('');
+    const taskRows = p.tasks.map(t => {
+      const isStuck = !t.done && stuckMap[t._id] && (now - stuckMap[t._id]) > STUCK_MS;
+      const stuckBadge = isStuck ? ' <span style="background:#fff3cd;color:#856404;font-size:11px;padding:1px 6px;border-radius:3px;border:1px solid #ffc107;">stuck &gt;48h</span>' : '';
+      const icon = t.done ? '✅' : (isStuck ? '⚠️' : '⬜');
+
+      // Verification result for this task (if any doc is linked to this task)
+      let verHtml = '';
+      for (const [docKey, vr] of Object.entries(verResults)) {
+        if (vr && vr.taskId === t._id) {
+          const ok = vr.passed;
+          verHtml = `<div style="font-size:12px;margin-top:2px;padding:2px 8px;background:${ok ? '#e8f5e9' : '#fce4ec'};border-radius:3px;color:${ok ? '#2e7d32' : '#c62828'};">
+            ${ok ? 'PASS' : 'FAIL'}: ${vr.reason || ''}
+          </div>`;
+        }
+      }
+
+      return `<tr><td style="padding:4px 12px;vertical-align:top;">${icon}</td>
+        <td style="padding:4px 8px;color:${t.done ? '#2e7d32' : '#555'}">${t.label}${stuckBadge}${verHtml}</td></tr>`;
+    }).join('');
+
     return `
       <details style="margin-bottom:12px;">
         <summary style="cursor:pointer;font-weight:600;padding:8px;background:#f5f5f5;border-radius:4px;">
@@ -252,6 +341,10 @@ app.get('/status/:employeeId', (req, res) => {
     ? events.map(e => `<tr><td style="padding:4px 8px;color:#888;white-space:nowrap;">${e.ts.replace('T', ' ').replace('Z', '')}</td><td style="padding:4px 12px;font-family:monospace;">${e.event}</td><td style="padding:4px 8px;color:#555;">${e.detail || ''}</td></tr>`).join('')
     : '<tr><td colspan="3" style="padding:8px;color:#888;">No activity logged yet</td></tr>';
 
+  const officialEmailBadge = t16Done && emp.officialEmail
+    ? `&nbsp;|&nbsp; Official email: <strong>${emp.officialEmail}</strong>`
+    : '';
+
   res.setHeader('Content-Type', 'text/html');
   res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -263,16 +356,18 @@ app.get('/status/:employeeId', (req, res) => {
     body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;color:#333;}
     h1{margin-bottom:4px;}
     .meta{color:#666;margin-bottom:24px;font-size:14px;}
-    .progress-bar{background:#e0e0e0;border-radius:8px;height:20px;margin-bottom:24px;}
+    .progress-bar{background:#e0e0e0;border-radius:8px;height:20px;margin-bottom:8px;}
     .progress-fill{background:#2e7d32;border-radius:8px;height:100%;transition:width .3s;}
-    .pct{font-size:13px;color:#555;margin-top:4px;}
+    .pct{font-size:13px;color:#555;margin-bottom:24px;}
     table{width:100%;}
     h2{margin-top:32px;font-size:18px;border-bottom:1px solid #eee;padding-bottom:6px;}
+    .back{font-size:13px;margin-bottom:16px;}<br/>
   </style>
 </head>
 <body>
+  <div class="back"><a href="/status" style="color:#1a73e8;">&larr; All Employees</a></div>
   <h1>${emp.name}</h1>
-  <div class="meta">ID: ${emp.employeeId} &nbsp;|&nbsp; DOJ: ${emp.doj} &nbsp;|&nbsp; ${emp.officialEmail || emp.personalEmail}</div>
+  <div class="meta">ID: ${emp.employeeId} &nbsp;|&nbsp; DOJ: ${emp.doj} &nbsp;|&nbsp; ${emp.personalEmail}${officialEmailBadge}</div>
   <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
   <div class="pct">${pct}% complete &mdash; ${done} of ${total} tasks done</div>
   <h2>Checklist</h2>
@@ -284,6 +379,85 @@ app.get('/status/:employeeId', (req, res) => {
   </table>
 </body>
 </html>`);
+});
+
+// ─── All-employees dashboard ───────────────────────────────────────────────────
+app.get('/status', (_req, res) => {
+  const employees = Object.values(_employeeRegistry);
+
+  const rows = employees.map(emp => {
+    let total = 0, done = 0;
+    for (const phase of Object.values(emp.checklist || {})) {
+      const tasks = Object.values(phase.tasks || {});
+      total += tasks.length;
+      done += tasks.filter(t => t.done).length;
+    }
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    let currentPhase = 'Complete';
+    for (const phase of Object.values(emp.checklist || {})) {
+      if (phase.tasks && Object.values(phase.tasks).some(t => !t.done)) {
+        currentPhase = phase.label;
+        break;
+      }
+    }
+    const bar = `<div style="background:#e0e0e0;border-radius:6px;height:10px;width:120px;display:inline-block;vertical-align:middle;"><div style="background:#2e7d32;border-radius:6px;height:100%;width:${pct}%;"></div></div>`;
+    return `<tr>
+      <td style="padding:8px 12px;"><a href="/status/${emp.employeeId}" style="color:#1a73e8;text-decoration:none;">${emp.employeeId}</a></td>
+      <td style="padding:8px 12px;">${emp.name}</td>
+      <td style="padding:8px 12px;">${emp.doj}</td>
+      <td style="padding:8px 12px;">${bar} <span style="font-size:13px;color:#555;margin-left:6px;">${pct}% (${done}/${total})</span></td>
+      <td style="padding:8px 12px;color:#555;font-size:13px;">${currentPhase}</td>
+    </tr>`;
+  }).join('');
+
+  const empty = employees.length === 0
+    ? '<tr><td colspan="5" style="padding:16px;color:#888;text-align:center;">No employees registered yet.</td></tr>'
+    : '';
+
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>HR Automation — All Employees</title>
+  <style>
+    body{font-family:sans-serif;max-width:960px;margin:40px auto;padding:0 20px;color:#333;}
+    h1{margin-bottom:4px;}
+    .sub{color:#888;font-size:13px;margin-bottom:24px;}
+    table{width:100%;border-collapse:collapse;}
+    th{background:#f5f5f5;padding:8px 12px;text-align:left;font-size:13px;border-bottom:2px solid #ddd;}
+    tr:hover td{background:#fafafa;}
+    td{border-bottom:1px solid #eee;}
+  </style>
+</head>
+<body>
+  <h1>Onboarding Dashboard</h1>
+  <div class="sub">${employees.length} employee(s) registered &nbsp;&mdash;&nbsp; Uptime: ${Math.floor(process.uptime())}s</div>
+  <table>
+    <thead><tr><th>ID</th><th>Name</th><th>DOJ</th><th>Progress</th><th>Current Phase</th></tr></thead>
+    <tbody>${rows}${empty}</tbody>
+  </table>
+</body>
+</html>`);
+});
+
+// ─── Raw state endpoint (debugging) ───────────────────────────────────────────
+app.get('/state/:employeeId', (req, res) => {
+  const emp = _employeeRegistry[req.params.employeeId];
+  if (!emp) return res.status(404).json({ error: 'Employee not found' });
+
+  const stateFile = path.join(__dirname, '..', `state-${emp.employeeId}.json`);
+  if (fs.existsSync(stateFile)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      return res.json(raw);
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to parse state file', detail: e.message });
+    }
+  }
+  // Fall back to in-memory checklist if no persisted state file yet
+  res.json({ checklist: emp.checklist, milestonesScheduled: emp.milestonesScheduled || false });
 });
 
 // ─── Start the server ──────────────────────────────────────────────────────────

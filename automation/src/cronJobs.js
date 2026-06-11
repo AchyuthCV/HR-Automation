@@ -215,10 +215,13 @@ function scheduleReplyDeadline(employee, recipientType, recipientEmail, delayHou
   const fireDate = new Date(Date.now() + hours * 60 * 60 * 1000);
   const { name, employeeId } = employee;
 
-  return scheduleOnce(fireDate, `Reply Deadline — ${recipientType} — ${name}`, async () => {
+  const task = scheduleOnce(fireDate, `Reply Deadline — ${recipientType} — ${name}`, async () => {
     await sendNoReplyEscalation(employee, recipientType, recipientEmail);
     console.log(`[Cron] No-reply escalation sent to HR for ${recipientType} re: ${name} (${employeeId})`);
   });
+  // Stamp expiry so state snapshot can persist and restore this timer after restart
+  if (task) task._expiresAt = fireDate.toISOString();
+  return task;
 }
 
 // Register ALL milestones for a new employee and store their job handles
