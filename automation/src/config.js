@@ -61,4 +61,10 @@ module.exports = {
 
   // ─── Daily health check cron (runs on weekdays) ────────────────────────────
   healthCheckCron: '0 9 * * 1-5', // 9 AM Mon–Fri
+
+  // ─── Drive folder polling interval (ms) ────────────────────────────────────
+  drivePollIntervalMs: 60 * 1000, // 60 seconds
+
+  // ─── Stuck-task detection threshold (hours) ────────────────────────────────
+  stuckTaskThresholdHours: 48,
 };

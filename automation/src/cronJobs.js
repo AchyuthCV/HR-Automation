@@ -15,8 +15,6 @@ const {
   mark90DayDone,
   markPreprobationDone,
 } = require('./statusTracker');
-require('dotenv').config();
-
 function isTaskDone(checklist, taskId) {
   if (!checklist) return false;
   for (const phase of Object.values(checklist)) {
@@ -194,7 +192,7 @@ function schedule5MonthProbation(employee, managerEmail) {
 }
 
 // Schedule a no-response follow-up 24 hours after a document request
-function scheduleNoResponseAlert(employee, recruiterEmail, delayHours = 24) {
+function scheduleNoResponseAlert(employee, recruiterEmail, delayHours) {
   const hours = delayHours || config.replyDeadlines.noResponseAlertHours;
   const fireDate = new Date(Date.now() + hours * 60 * 60 * 1000);
   const { name, employeeId } = employee;

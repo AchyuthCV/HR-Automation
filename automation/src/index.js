@@ -145,7 +145,7 @@ function loadEmployees() {
   return [];
 }
 
-// ─── Default checklist (71 tasks, 8 phases) ───────────────────────────────────
+// ─── Default checklist (52 tasks, 7 phases) ───────────────────────────────────
 function buildDefaultChecklist() {
   return {
     phase1: {
@@ -242,8 +242,24 @@ function buildDefaultChecklist() {
 function markTask(checklist, taskId) {
   for (const phase of Object.values(checklist)) {
     if (phase.tasks && phase.tasks[taskId]) {
+      if (phase.tasks[taskId].done) return; // already done — no-op
       phase.tasks[taskId].done = true;
       console.log(`[Checklist] ✓ ${phase.tasks[taskId].label}`);
+      return;
+    }
+  }
+  console.warn(`[Checklist] Task "${taskId}" not found`);
+}
+
+// Mark task done AND write an activity log entry
+function markAndLog(employee, taskId) {
+  const checklist = employee.checklist;
+  for (const phase of Object.values(checklist)) {
+    if (phase.tasks && phase.tasks[taskId]) {
+      if (phase.tasks[taskId].done) return;
+      phase.tasks[taskId].done = true;
+      console.log(`[Checklist] ✓ ${phase.tasks[taskId].label}`);
+      activityLog.log(employee, `task_done:${taskId}`, phase.tasks[taskId].label);
       return;
     }
   }
@@ -300,7 +316,7 @@ async function handleNewFile(auth, employee, file) {
 
     // Mark corresponding checklist task
     const taskId = DOC_TASK_MAP[docType];
-    if (taskId) markTask(employee.checklist, taskId);
+    if (taskId) markAndLog(employee, taskId);
 
     // Cancel any pending no-response timer for this doc type
     if (employee.noResponseTimers[docType]) {
@@ -317,7 +333,7 @@ async function handleNewFile(auth, employee, file) {
 
     // t10: reminder sent for incorrect document
     if (!isTaskDone(employee.checklist, 't10')) {
-      markTask(employee.checklist, 't10');
+      markAndLog(employee, 't10');
     }
 
     // Schedule a no-response alert to recruiter if employee doesn't re-upload in 24h
@@ -332,7 +348,7 @@ async function handleNewFile(auth, employee, file) {
   try {
     await sendVerificationReport(employee, employee.verificationResults);
     if (!isTaskDone(employee.checklist, 't9')) {
-      markTask(employee.checklist, 't9');
+      markAndLog(employee, 't9');
     }
   } catch (err) {
     console.warn('[Index] Could not send verification report:', err.message);
@@ -358,21 +374,21 @@ async function triggerNextStep(auth, employee, docType) {
     if (aadhaarDone && !isTaskDone(checklist, 't14')) {
       await markDocumentsVerifiedOk(auth, employee).catch(() => {});
       await sendOfficialEmailCreationRequest(employee);
-      markTask(checklist, 't14');
+      markAndLog(employee, 't14');
       await uploadChecklist(auth, employee.driveFolderId, checklist);
 
       // Simultaneously send asset allocation request to manager (t17)
       await sendAssetAllocationRequest(employee, contacts.managerEmail);
-      markTask(checklist, 't17');
+      markAndLog(employee, 't17');
 
       // Send IT asset request (t20)
       await sendITAssetRequest(employee, contacts.itEmail, {});
-      markTask(checklist, 't20');
+      markAndLog(employee, 't20');
 
       // Send BGV request to recruiter (t23 = request sent, t24 = recruiter triggers it)
       await sendBGVRequest(employee, contacts.recruiterEmail);
-      markTask(checklist, 't23');
-      markTask(checklist, 't24');
+      markAndLog(employee, 't23');
+      markAndLog(employee, 't24');
 
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));
@@ -388,7 +404,7 @@ async function triggerNextStep(auth, employee, docType) {
 
   // After offer letter saved → send induction confirmation request, calendar invite, project intro
   if (docType === 'offerLetter') {
-    markTask(checklist, 't13');
+    markAndLog(employee, 't13');
     if (!isTaskDone(checklist, 't33')) {
       await sendHRInductionConfirmation(employee, contacts.recruiterEmail);
     }
@@ -397,8 +413,8 @@ async function triggerNextStep(auth, employee, docType) {
     if (!isTaskDone(checklist, 't27')) {
       await sendInductionCalendarInvite(employee);
       await createHRInductionEvent(auth, employee).catch(() => {});
-      markTask(checklist, 't27');
-      markTask(checklist, 't28');
+      markAndLog(employee, 't27');
+      markAndLog(employee, 't28');
       await markHRInductionScheduled(auth, employee).catch(() => {});
     }
 
@@ -406,10 +422,10 @@ async function triggerNextStep(auth, employee, docType) {
     if (!isTaskDone(checklist, 't29')) {
       await sendProjectIntroInvite(employee);
       await createProjectIntroEvent(auth, employee).catch(() => {});
-      markTask(checklist, 't29');
-      markTask(checklist, 't30');
-      markTask(checklist, 't31');
-      markTask(checklist, 't32');
+      markAndLog(employee, 't29');
+      markAndLog(employee, 't30');
+      markAndLog(employee, 't31');
+      markAndLog(employee, 't32');
       await markProjectIntroScheduled(auth, employee).catch(() => {});
     }
 
@@ -419,20 +435,20 @@ async function triggerNextStep(auth, employee, docType) {
 
   // After meeting screenshot → confirm phase 3 DOJ tasks
   if (docType === 'meetingScreenshot') {
-    markTask(checklist, 't34');
-    markTask(checklist, 't37');
-    markTask(checklist, 't42');
+    markAndLog(employee, 't34');
+    markAndLog(employee, 't37');
+    markAndLog(employee, 't42');
     await uploadChecklist(auth, employee.driveFolderId, checklist);
 
     // Schedule all timed milestones if not already done
     if (!employee.milestonesScheduled) {
       // Pass markTask wrapper so cron callbacks can update the checklist
-      const markTaskForEmployee = (taskId) => markTask(checklist, taskId);
+      const markTaskForEmployee = (taskId) => markAndLog(employee, taskId);
       scheduleAllMilestones(employee, contacts, markTaskForEmployee);
       employee.milestonesScheduled = true;
-      markTask(checklist, 't38');
-      markTask(checklist, 't39');
-      markTask(checklist, 't41');
+      markAndLog(employee, 't38');
+      markAndLog(employee, 't39');
+      markAndLog(employee, 't41');
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       await markOnboardingComplete(auth, employee).catch(() => {});
       saveState(employee.employeeId, snapshotEmployee(employee));
@@ -441,7 +457,7 @@ async function triggerNextStep(auth, employee, docType) {
     // t40: Send catchup XLS tracker email to recruiter + manager
     if (!isTaskDone(checklist, 't40')) {
       await sendCatchupXLSEmail(employee);
-      markTask(checklist, 't40');
+      markAndLog(employee, 't40');
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));
     }
@@ -491,8 +507,8 @@ async function handleReply(auth, classified, rawMsg) {
     case 'official_email_created':
       if (data.officialEmail) {
         employee.officialEmail = data.officialEmail;
-        markTask(checklist, 't15');
-        markTask(checklist, 't16');
+        markAndLog(employee, 't15');
+        markAndLog(employee, 't16');
         console.log(`[Index] Official email recorded: ${data.officialEmail}`);
         activityLog.log(employee, 'official_email_confirmed', data.officialEmail);
         await markOfficialEmailConfirmed(auth, employee, data.officialEmail).catch(() => {});
@@ -506,12 +522,12 @@ async function handleReply(auth, classified, rawMsg) {
     case 'manager_allocation':
       if (data.assetType || data.officeLocation || data.supervisorName) {
         employee.assetDetails = data;
-        markTask(checklist, 't18');
-        markTask(checklist, 't19');
+        markAndLog(employee, 't18');
+        markAndLog(employee, 't19');
         activityLog.log(employee, 'manager_allocation_confirmed', JSON.stringify(data));
         await markManagerConfirmed(auth, employee, data).catch(() => {});
         await sendITAssetRequest(employee, employee.contacts.itEmail, data);
-        markTask(checklist, 't20');
+        markAndLog(employee, 't20');
         if (employee.replyTimers && employee.replyTimers.manager) {
           employee.replyTimers.manager.stop && employee.replyTimers.manager.stop();
           delete employee.replyTimers.manager;
@@ -520,9 +536,9 @@ async function handleReply(auth, classified, rawMsg) {
       break;
 
     case 'it_allocation':
-      markTask(checklist, 't21');
-      markTask(checklist, 't22');
-      markTask(checklist, 't35');
+      markAndLog(employee, 't21');
+      markAndLog(employee, 't22');
+      markAndLog(employee, 't35');
       activityLog.log(employee, 'it_allocation_confirmed');
       await markITConfirmed(auth, employee).catch(() => {});
       if (employee.replyTimers) {
@@ -538,8 +554,8 @@ async function handleReply(auth, classified, rawMsg) {
       break;
 
     case 'bgv_report':
-      markTask(checklist, 't25');
-      markTask(checklist, 't26');
+      markAndLog(employee, 't25');
+      markAndLog(employee, 't26');
       activityLog.log(employee, 'bgv_report_received');
       await markBGVDone(auth, employee).catch(() => {});
       if (employee.replyTimers && employee.replyTimers.bgv) {
@@ -549,8 +565,8 @@ async function handleReply(auth, classified, rawMsg) {
       break;
 
     case 'induction_confirmed':
-      markTask(checklist, 't33');
-      markTask(checklist, 't34');
+      markAndLog(employee, 't33');
+      markAndLog(employee, 't34');
       activityLog.log(employee, 'induction_confirmed');
       if (employee.replyTimers && employee.replyTimers.induction) {
         employee.replyTimers.induction.stop && employee.replyTimers.induction.stop();
@@ -559,7 +575,7 @@ async function handleReply(auth, classified, rawMsg) {
       break;
 
     case 'admin_allocation':
-      markTask(checklist, 't36');
+      markAndLog(employee, 't36');
       activityLog.log(employee, 'admin_seat_allocation_confirmed');
       if (employee.replyTimers && employee.replyTimers.admin) {
         employee.replyTimers.admin.stop && employee.replyTimers.admin.stop();
@@ -568,9 +584,9 @@ async function handleReply(auth, classified, rawMsg) {
       break;
 
     case 'catchup_complete':
-      markTask(checklist, 't43');
-      markTask(checklist, 't44');
-      markTask(checklist, 't45');
+      markAndLog(employee, 't43');
+      markAndLog(employee, 't44');
+      markAndLog(employee, 't45');
       activityLog.log(employee, '30_day_catchup_complete');
       await mark30DayDone(auth, employee).catch(() => {});
       break;
@@ -580,11 +596,11 @@ async function handleReply(auth, classified, rawMsg) {
         (Date.now() - new Date(employee.doj).getTime()) / (1000 * 60 * 60 * 24)
       );
       if (daysSinceDoj < 75) {
-        markTask(checklist, 't46'); markTask(checklist, 't48');
+        markAndLog(employee, 't46'); markAndLog(employee, 't48');
         activityLog.log(employee, '60_day_review_complete');
         await mark60DayDone(auth, employee).catch(() => {});
       } else if (daysSinceDoj < 120) {
-        markTask(checklist, 't49'); markTask(checklist, 't51');
+        markAndLog(employee, 't49'); markAndLog(employee, 't51');
         activityLog.log(employee, '90_day_review_complete');
         await mark90DayDone(auth, employee).catch(() => {});
       }
@@ -609,7 +625,7 @@ async function onboardEmployee(auth, employee) {
   employeeRegistry[employee.employeeId] = employee;
   // Store auth and markTask helper on employee so cron callbacks can update checklist/sheet
   employee._auth = auth;
-  employee._markTask = (taskId) => markTask(employee.checklist, taskId);
+  employee._markTask = (taskId) => markAndLog(employee, taskId);
 
   // Restore reply-deadline timers that were active before restart
   if (employee.replyTimerExpiry) {
@@ -651,9 +667,9 @@ async function onboardEmployee(auth, employee) {
 
     // Step 1: Scaffold Drive folder structure
     await scaffoldEmployeeFolder(auth, employee.driveFolderId, employee.name, employee.employeeId);
-    markTask(employee.checklist, 't6');
-    markTask(employee.checklist, 't7');
-    markTask(employee.checklist, 't8');
+    markAndLog(employee, 't6');
+    markAndLog(employee, 't7');
+    markAndLog(employee, 't8');
 
     // Step 2: Create status sheet and mark preonboarding initiated
     await getOrCreateStatusSheet(auth, employee).catch(() => {});
@@ -661,7 +677,7 @@ async function onboardEmployee(auth, employee) {
 
     // Step 3: Send pre-onboarding form
     await sendPreOnboardingForm(employee);
-    markTask(employee.checklist, 't4');
+    markAndLog(employee, 't4');
     activityLog.log(employee, 'pre_onboarding_email_sent', employee.personalEmail);
 
     // Step 5: Save checklist to Drive and locally
@@ -785,6 +801,18 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('[Index] Fatal error:', err.message);
+  const isAuthError =
+    err.message && (
+      err.message.includes('invalid_grant') ||
+      err.message.includes('Token has been expired') ||
+      err.message.includes('token.json not found') ||
+      (err.code === 401)
+    );
+  if (isAuthError) {
+    console.error('\n[Auth] ✖ OAuth token is expired or invalid.');
+    console.error('[Auth]   Delete token.json and re-run:  npm run auth\n');
+  } else {
+    console.error('[Index] Fatal error:', err.message);
+  }
   process.exit(1);
 });

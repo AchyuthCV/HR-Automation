@@ -3,8 +3,6 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-require('dotenv').config();
-
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Document type → verification prompt

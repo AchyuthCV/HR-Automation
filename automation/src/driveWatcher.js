@@ -14,31 +14,64 @@ const SCOPES = [
   'https://www.googleapis.com/auth/calendar',
 ];
 
+// Retry an async API call up to maxAttempts times with exponential backoff.
+// Retries on network errors and Google 429/500/503 responses.
+async function apiWithRetry(fn, label, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err.code || (err.response && err.response.status);
+      const retryable = !status || status === 429 || status >= 500;
+      if (attempt === maxAttempts || !retryable) throw err;
+      const delay = attempt * 3000;
+      console.warn(`[Drive] "${label}" attempt ${attempt} failed (${err.message}) — retrying in ${delay / 1000}s`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
+
 // Build and return an authorised OAuth2 client
 function getAuthClient() {
+  if (!fs.existsSync(CREDENTIALS_PATH)) {
+    throw new Error(
+      'credentials.json not found.\n' +
+      'Download it from Google Cloud Console (OAuth 2.0 → Desktop app) and place it in automation/.'
+    );
+  }
+
   const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
   const { client_secret, client_id, redirect_uris } = credentials.installed || credentials.web;
   const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 
-  if (fs.existsSync(TOKEN_PATH)) {
-    const token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
-    oAuth2Client.setCredentials(token);
-  } else {
+  if (!fs.existsSync(TOKEN_PATH)) {
     throw new Error(
-      'No token.json found. Run the one-time auth script first:\n  node src/auth.js'
+      'token.json not found. Run the one-time auth script first:\n  npm run auth'
     );
   }
+
+  const token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
+  oAuth2Client.setCredentials(token);
+
+  // Auto-refresh tokens and persist the updated token.json on refresh
+  oAuth2Client.on('tokens', (newTokens) => {
+    const current = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
+    const merged = { ...current, ...newTokens };
+    fs.writeFileSync(TOKEN_PATH, JSON.stringify(merged, null, 2));
+    console.log('[Auth] Token refreshed and saved to token.json');
+  });
+
   return oAuth2Client;
 }
 
 // List all files inside a Drive folder
 async function listFolderFiles(auth, folderId) {
   const drive = google.drive({ version: 'v3', auth });
-  const res = await drive.files.list({
+  const res = await apiWithRetry(() => drive.files.list({
     q: `'${folderId}' in parents and trashed = false`,
     fields: 'files(id, name, mimeType, modifiedTime, createdTime)',
     orderBy: 'createdTime desc',
-  });
+  }), 'listFolderFiles');
   return res.data.files || [];
 }
 
@@ -82,24 +115,23 @@ async function uploadChecklist(auth, folderId, checklistData, filename = 'Checkl
   const content = JSON.stringify(checklistData, null, 2);
   const media = { mimeType: 'application/json', body: content };
 
-  // Check if file already exists
-  const existing = await drive.files.list({
+  const existing = await apiWithRetry(() => drive.files.list({
     q: `name='${filename}' and '${folderId}' in parents and trashed=false`,
     fields: 'files(id)',
-  });
+  }), 'uploadChecklist:list');
 
   if (existing.data.files.length > 0) {
     const fileId = existing.data.files[0].id;
-    await drive.files.update({ fileId, media, fields: 'id' });
+    await apiWithRetry(() => drive.files.update({ fileId, media, fields: 'id' }), 'uploadChecklist:update');
     console.log(`[Drive] Checklist updated (${fileId})`);
     return fileId;
   }
 
-  const res = await drive.files.create({
+  const res = await apiWithRetry(() => drive.files.create({
     requestBody: { name: filename, parents: [folderId] },
     media,
     fields: 'id',
-  });
+  }), 'uploadChecklist:create');
   console.log(`[Drive] Checklist created (${res.data.id})`);
   return res.data.id;
 }
@@ -125,8 +157,8 @@ async function scaffoldEmployeeFolder(auth, rootFolderId, employeeName, employee
 // Channel state is persisted to push-channels.json so restarts don't lose track.
 
 const PUSH_CHANNELS_PATH = path.join(__dirname, '..', 'push-channels.json');
-const PUSH_TTL_MS = 6 * 24 * 60 * 60 * 1000; // 6 days (Drive max is 7 days)
-const RENEW_BEFORE_MS = 60 * 60 * 1000;        // renew 1 hour before expiry
+const PUSH_TTL_MS      = config.drivePushChannelTtlDays * 24 * 60 * 60 * 1000;
+const RENEW_BEFORE_MS  = config.drivePushRenewBeforeExpirySecs * 1000;
 
 function loadPushChannels() {
   if (fs.existsSync(PUSH_CHANNELS_PATH)) {
@@ -198,16 +230,16 @@ async function renewDrivePushChannel(auth, employeeId) {
 async function getChangedFiles(auth, folderId, sinceMs) {
   const drive = google.drive({ version: 'v3', auth });
   const sinceISO = new Date(sinceMs).toISOString();
-  const res = await drive.files.list({
+  const res = await apiWithRetry(() => drive.files.list({
     q: `'${folderId}' in parents and trashed = false and modifiedTime > '${sinceISO}'`,
     fields: 'files(id, name, mimeType, modifiedTime, createdTime)',
     orderBy: 'createdTime desc',
-  });
+  }), 'getChangedFiles');
   return res.data.files || [];
 }
 
 // Fallback polling — kept as a safety net when WEBHOOK_BASE_URL is not set
-function watchFolderPolling(auth, folderId, onNewFile, intervalMs = 60000) {
+function watchFolderPolling(auth, folderId, onNewFile, intervalMs = config.drivePollIntervalMs) {
   const seenFileIds = new Set();
 
   async function poll() {
@@ -235,7 +267,7 @@ function watchFolderPolling(auth, folderId, onNewFile, intervalMs = 60000) {
 
 // Primary watch function — always polls, and also registers push channel if
 // WEBHOOK_BASE_URL is a real URL (not the placeholder).
-async function watchFolder(auth, folderId, employeeId, onNewFile, intervalMs = 60000) {
+async function watchFolder(auth, folderId, employeeId, onNewFile, intervalMs = config.drivePollIntervalMs) {
   const webhookUrl = process.env.WEBHOOK_BASE_URL || '';
   const isRealWebhook = webhookUrl && !webhookUrl.includes('your-ngrok-url');
 

@@ -9,7 +9,6 @@ const fs = require('fs');
 const path = require('path');
 const { getChangedFiles, loadPushChannels } = require('./driveWatcher');
 const { processGmailPush } = require('./gmailWatcher');
-require('dotenv').config();
 
 const SEEN_FILES_PATH = path.join(__dirname, '..', 'seen-files.json');
 
@@ -269,8 +268,9 @@ app.get('/status/:employeeId', (req, res) => {
   const emp = _employeeRegistry[req.params.employeeId];
   if (!emp) return res.status(404).send('<h2>Employee not found</h2>');
 
+  const config = require('./config');
   const now = Date.now();
-  const STUCK_MS = 48 * 60 * 60 * 1000; // 48 hours
+  const STUCK_MS = config.stuckTaskThresholdHours * 60 * 60 * 1000;
 
   // Build task-level metadata: stuckAt timestamps from activity log
   // Map event "task_started:<taskId>" → timestamp

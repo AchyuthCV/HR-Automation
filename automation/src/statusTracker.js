@@ -22,7 +22,22 @@
 
 const { google } = require('googleapis');
 const config = require('./config');
-require('dotenv').config();
+
+// Retry async Google API calls on transient errors (429, 5xx, network)
+async function apiWithRetry(fn, label, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err.code || (err.response && err.response.status);
+      const retryable = !status || status === 429 || status >= 500;
+      if (attempt === maxAttempts || !retryable) throw err;
+      const delay = attempt * 3000;
+      console.warn(`[Status] "${label}" attempt ${attempt} failed (${err.message}) — retrying in ${delay / 1000}s`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
 
 const STATUS = {
   PENDING:     config.statusSymbols.pending,
@@ -62,10 +77,10 @@ async function getOrCreateStatusSheet(auth, employee) {
   const sheets = google.sheets({ version: 'v4', auth });
 
   // Check if sheet already exists in employee's Drive folder
-  const existing = await drive.files.list({
+  const existing = await apiWithRetry(() => drive.files.list({
     q: `name='Onboarding_Status_${employee.employeeId}' and '${employee.driveFolderId}' in parents and trashed=false`,
     fields: 'files(id)',
-  });
+  }), 'getOrCreateStatusSheet:list');
 
   if (existing.data.files.length > 0) {
     employee.statusSheetId = existing.data.files[0].id;
@@ -74,12 +89,12 @@ async function getOrCreateStatusSheet(auth, employee) {
   }
 
   // Create new spreadsheet
-  const spreadsheet = await sheets.spreadsheets.create({
+  const spreadsheet = await apiWithRetry(() => sheets.spreadsheets.create({
     requestBody: {
       properties: { title: `Onboarding Status — ${employee.name} (${employee.employeeId})` },
       sheets: [{ properties: { title: 'Status' } }],
     },
-  });
+  }), 'getOrCreateStatusSheet:create');
 
   const spreadsheetId = spreadsheet.data.spreadsheetId;
   const sheetId = spreadsheet.data.sheets[0].properties.sheetId;
@@ -190,14 +205,13 @@ async function updateMilestone(auth, employee, milestoneIndex, status, notes = '
     const spreadsheetId = await getOrCreateStatusSheet(auth, employee);
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Row 1 = progress bar, Row 2 = header, milestones start at row 3 → index + 3
     const rowNum = milestoneIndex + 3;
-    await sheets.spreadsheets.values.update({
+    await apiWithRetry(() => sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `Status!B${rowNum}:D${rowNum}`,
       valueInputOption: 'RAW',
       requestBody: { values: [[status, nowIST(), notes]] },
-    });
+    }), `updateMilestone:${milestoneIndex}`);
 
     console.log(`[Status] "${MILESTONES[milestoneIndex]}" → ${status}${notes ? ' | ' + notes : ''}`);
   } catch (err) {
