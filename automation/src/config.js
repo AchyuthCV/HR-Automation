@@ -67,4 +67,8 @@ module.exports = {
 
   // ─── Stuck-task detection threshold (hours) ────────────────────────────────
   stuckTaskThresholdHours: 48,
+
+  // ─── Gemini model ──────────────────────────────────────────────────────────
+  // Used by documentVerifier.js and gmailWatcher.js
+  geminiModel: 'gemini-2.0-flash-lite',
 };

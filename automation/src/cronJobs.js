@@ -2,7 +2,6 @@ const cron = require('node-cron');
 const config = require('./config');
 const { create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
 const {
-  send30DayCatchupReminder,
   sendPeriodicReviewReminder,
   sendPreProbationReminder,
   sendPhaseCompletionSummary,
@@ -105,11 +104,11 @@ function schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, 
   const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.catchup30day));
 
   return scheduleOnce(fireDate, `30-Day Catchup — ${name}`, async () => {
-    await send30DayCatchupReminder(employee, recruiterEmail, managerEmail);
-    console.log(`[Cron] 30-day catchup reminder sent for ${name} (${employeeId})`);
-    if (employee._auth) await create30DayCatchupEvent(employee._auth, employee).catch(() => {});
+    if (employee._auth) await create30DayCatchupEvent(employee._auth, employee).catch(err =>
+      console.warn(`[Cron] 30-day calendar event failed for ${name} — email still sent. (${err.message})`)
+    );
 
-    // t43: send review summary request (replaces "call transcribed")
+    // t43: send review summary request to recruiter + manager asking them to confirm catchup
     await sendReviewSummaryRequest(employee, 30);
     console.log(`[Cron] 30-day review summary request sent for ${name} (${employeeId})`);
     if (markTaskFn) markTaskFn('t43');
@@ -130,7 +129,9 @@ function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, m
   return scheduleOnce(fireDate, `60-Day Review — ${name}`, async () => {
     await sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, 60);
     console.log(`[Cron] 60-day review reminder sent for ${name} (${employeeId})`);
-    if (employee._auth) await createReviewEvent(employee._auth, employee, 60).catch(() => {});
+    if (employee._auth) await createReviewEvent(employee._auth, employee, 60).catch(err =>
+      console.warn(`[Cron] 60-day calendar event failed for ${name} — email still sent. (${err.message})`)
+    );
 
     // t46: send review summary request (replaces "call transcribed")
     await sendReviewSummaryRequest(employee, 60);
@@ -159,7 +160,9 @@ function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, m
   return scheduleOnce(fireDate, `90-Day Review — ${name}`, async () => {
     await sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, 90);
     console.log(`[Cron] 90-day review reminder sent for ${name} (${employeeId})`);
-    if (employee._auth) await createReviewEvent(employee._auth, employee, 90).catch(() => {});
+    if (employee._auth) await createReviewEvent(employee._auth, employee, 90).catch(err =>
+      console.warn(`[Cron] 90-day calendar event failed for ${name} — email still sent. (${err.message})`)
+    );
 
     // t49: send review summary request (replaces "call transcribed")
     await sendReviewSummaryRequest(employee, 90);

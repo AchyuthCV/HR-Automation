@@ -441,7 +441,10 @@ async function triggerNextStep(auth, employee, docType) {
     // t27/t28: Send HR induction calendar invite to employee + recruiter
     if (!isTaskDone(checklist, 't27')) {
       await sendInductionCalendarInvite(employee);
-      await createHRInductionEvent(auth, employee).catch(() => {});
+      await createHRInductionEvent(auth, employee).catch(err => {
+        console.warn(`[Index] HR induction calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
+        activityLog.log(employee, 'calendar_event_failed', `HR induction: ${err.message}`);
+      });
       markAndLog(employee, 't27');
       markAndLog(employee, 't28');
       await markHRInductionScheduled(auth, employee).catch(() => {});
@@ -450,7 +453,10 @@ async function triggerNextStep(auth, employee, docType) {
     // t29/t30/t31/t32: Send project intro meeting invite + sheet to manager + employee
     if (!isTaskDone(checklist, 't29')) {
       await sendProjectIntroInvite(employee);
-      await createProjectIntroEvent(auth, employee).catch(() => {});
+      await createProjectIntroEvent(auth, employee).catch(err => {
+        console.warn(`[Index] Project intro calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
+        activityLog.log(employee, 'calendar_event_failed', `Project intro: ${err.message}`);
+      });
       markAndLog(employee, 't29');
       markAndLog(employee, 't30');
       markAndLog(employee, 't31');
@@ -545,6 +551,9 @@ async function handleReply(auth, classified, rawMsg) {
           employee.replyTimers.hr.stop && employee.replyTimers.hr.stop();
           delete employee.replyTimers.hr;
         }
+      } else {
+        console.warn(`[Index] official_email_created reply for ${employee.name} had no email address extracted — reply was consumed but checklist not advanced.`);
+        activityLog.log(employee, 'official_email_parse_failed', 'Gemini could not extract email from reply');
       }
       break;
 
@@ -798,6 +807,11 @@ async function main() {
     handleNewFile: (a, emp, file) => handleNewFile(a, emp, file),
     handleReply: (classified, rawMsg) => handleReply(auth, classified, rawMsg),
     onNewEmployee: async (data) => {
+      const dojDate = new Date(data.doj);
+      if (!data.doj || isNaN(dojDate.getTime())) {
+        console.error(`[Index] onNewEmployee rejected — invalid DOJ "${data.doj}" for ${data.name}. Use YYYY-MM-DD format.`);
+        return;
+      }
       const saved = loadState(data.employeeId);
       const employee = {
         ...data,
@@ -833,6 +847,13 @@ async function main() {
   } else {
     console.log(`[Index] Loaded ${employees.length} employee(s)\n`);
     for (const employee of employees) {
+      // Validate DOJ before doing anything — an invalid date breaks all milestone math
+      const dojDate = new Date(employee.doj);
+      if (!employee.doj || isNaN(dojDate.getTime())) {
+        console.error(`[Index] Skipping ${employee.name} (${employee.employeeId}) — invalid or missing DOJ: "${employee.doj}". Fix employees.json and restart.`);
+        continue;
+      }
+
       const saved = loadState(employee.employeeId);
       if (!employee.checklist) employee.checklist = saved ? saved.checklist : buildDefaultChecklist();
       if (!employee.statusSheetId && saved && saved.statusSheetId) employee.statusSheetId = saved.statusSheetId;

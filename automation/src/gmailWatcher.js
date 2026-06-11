@@ -12,6 +12,7 @@ const { google } = require('googleapis');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
+const config = require('./config');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const GMAIL_STATE_PATH = path.join(__dirname, '..', 'gmail-state.json');
@@ -210,7 +211,7 @@ Respond ONLY with a JSON object in this exact format:
 
 If this is not related to onboarding, set isOnboardingReply=false and use null for all other fields.`;
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+  const model = genAI.getGenerativeModel({ model: config.geminiModel });
   const response = await callWithRetry(() => model.generateContent(prompt));
   const raw = response.response.text().trim();
   const jsonMatch = raw.match(/\{[\s\S]*\}/);

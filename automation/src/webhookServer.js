@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { getChangedFiles, loadPushChannels } = require('./driveWatcher');
 const { processGmailPush } = require('./gmailWatcher');
+const config = require('./config');
 
 const SEEN_FILES_PATH = path.join(__dirname, '..', 'seen-files.json');
 
@@ -193,8 +194,8 @@ app.post('/drive-push', async (req, res) => {
   if (!seenFileIds[employeeId]) seenFileIds[employeeId] = new Set();
 
   try {
-    // Fetch files modified in the last 5 minutes (push doesn't tell us which file)
-    const sinceMs = Date.now() - 5 * 60 * 1000;
+    // Fetch files modified within the configured lookback window (push doesn't tell us which file)
+    const sinceMs = Date.now() - config.driveChangeLookbackMs;
     const files = await getChangedFiles(_auth, employee.driveFolderId, sinceMs);
 
     for (const file of files) {

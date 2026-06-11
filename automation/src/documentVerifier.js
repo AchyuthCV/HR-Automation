@@ -3,6 +3,7 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const config = require('./config');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Document type → verification prompt
@@ -163,7 +164,7 @@ async function verifyDocument(auth, fileId, filename, mimeType) {
     tempPath = tp;
     const { base64, mediaType } = fileToBase64(tp, downloadMime);
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const model = genAI.getGenerativeModel({ model: config.geminiModel });
     const result_raw = await callWithRetry(() => model.generateContent([
       VERIFICATION_PROMPTS[docType],
       { inlineData: { data: base64, mimeType: mediaType } },
