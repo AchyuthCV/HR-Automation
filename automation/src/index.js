@@ -520,7 +520,7 @@ async function triggerNextStep(auth, employee, docType) {
     // t35/t36: Send seat allocation request to Admin and IT, schedule 48h escalation timers
     employee.replyTimers = employee.replyTimers || {};
     if (!isTaskDone(checklist, 't35')) {
-      await sendITAssetRequest(employee, contacts.itEmail, { type: 'doj_allocation' }).catch(err =>
+      await sendITAssetRequest(employee, contacts.itEmail, {}).catch(err =>
         console.warn(`[Index] IT asset request email failed for ${employee.name}: ${err.message}`)
       );
       employee.replyTimers.itDoj = scheduleReplyDeadline(
@@ -649,6 +649,7 @@ async function handleReply(auth, classified, rawMsg) {
       markAndLog(employee, 't33');
       markAndLog(employee, 't34');
       activityLog.log(employee, 'induction_confirmed');
+      await markHRInductionScheduled(auth, employee).catch(() => {});
       if (employee.replyTimers && employee.replyTimers.induction) {
         employee.replyTimers.induction.stop && employee.replyTimers.induction.stop();
         delete employee.replyTimers.induction;
@@ -727,6 +728,7 @@ async function onboardEmployee(auth, employee) {
   // Store auth and markTask helper on employee so cron callbacks can update checklist/sheet
   employee._auth = auth;
   employee._markTask = (taskId) => markAndLog(employee, taskId);
+  employee._saveState = () => saveState(employee.employeeId, snapshotEmployee(employee));
 
   // Restore reply-deadline timers that were active before restart.
   // Each entry is { expiresAt, recipientEmail } — use the stored recipient so

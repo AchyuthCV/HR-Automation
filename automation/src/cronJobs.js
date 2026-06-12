@@ -122,6 +122,7 @@ function schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, 
     employee.replyTimers['30dayReview'] = scheduleReplyDeadline(
       employee, 'Recruiter / Manager (30-Day Review)', recruiterEmail, 48
     );
+    if (employee._saveState) employee._saveState();
   });
 }
 
@@ -151,6 +152,7 @@ function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, m
     employee.replyTimers['60dayNoReply'] = scheduleReplyDeadline(
       employee, 'Recruiter / Manager (60-Day Review)', recruiterEmail, 48
     );
+    if (employee._saveState) employee._saveState();
     // Also mark t47 when the 48h window expires (best-effort, same fire time)
     scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `60-Day No-Reply Mark — ${name}`, async () => {
       if (!isTaskDone(employee.checklist, 't48')) {
@@ -187,6 +189,7 @@ function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, m
     employee.replyTimers['90dayNoReply'] = scheduleReplyDeadline(
       employee, 'Recruiter / Manager (90-Day Review)', recruiterEmail, 48
     );
+    if (employee._saveState) employee._saveState();
     // Also mark t50 when the 48h window expires (best-effort, same fire time)
     scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `90-Day No-Reply Mark — ${name}`, async () => {
       if (!isTaskDone(employee.checklist, 't51')) {

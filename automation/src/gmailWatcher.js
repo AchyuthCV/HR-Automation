@@ -259,6 +259,10 @@ async function processGmailPush(auth, pushData, onReplyClassified) {
   }
 
   const { historyId } = decoded;
+  if (!historyId) {
+    console.warn('[Gmail] Push payload missing historyId — skipping');
+    return;
+  }
   console.log(`[Gmail] Push received — historyId: ${historyId}`);
 
   const messages = await getNewMessages(auth, historyId);
