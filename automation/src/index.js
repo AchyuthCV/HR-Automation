@@ -448,6 +448,8 @@ async function triggerNextStep(auth, employee, docType) {
       employee.replyTimers.hr = scheduleReplyDeadline(employee, 'HR Team', process.env.HR_EMAIL);
       employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', contacts.managerEmail);
       employee.replyTimers.bgv = scheduleReplyDeadline(employee, 'Recruiter (BGV)', contacts.recruiterEmail);
+      // Persist immediately so these escalation timers survive a restart
+      saveState(employee.employeeId, snapshotEmployee(employee));
     }
   }
 
