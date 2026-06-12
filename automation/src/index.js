@@ -442,6 +442,11 @@ async function triggerNextStep(auth, employee, docType) {
   if (docType === 'offerLetter') {
     if (!isTaskDone(checklist, 't33')) {
       await sendHRInductionConfirmation(employee, contacts.recruiterEmail);
+      // Schedule 48h escalation if recruiter never confirms induction attendance
+      employee.replyTimers = employee.replyTimers || {};
+      employee.replyTimers.induction = scheduleReplyDeadline(
+        employee, 'Recruiter (HR Induction)', contacts.recruiterEmail, 48
+      );
     }
 
     // t27/t28: Send HR induction calendar invite to employee + recruiter
@@ -659,10 +664,18 @@ async function handleReply(auth, classified, rawMsg) {
         markAndLog(employee, 't46'); markAndLog(employee, 't48');
         activityLog.log(employee, '60_day_review_complete');
         await mark60DayDone(auth, employee).catch(() => {});
+        if (employee.replyTimers && employee.replyTimers['60dayNoReply']) {
+          employee.replyTimers['60dayNoReply'].stop && employee.replyTimers['60dayNoReply'].stop();
+          delete employee.replyTimers['60dayNoReply'];
+        }
       } else if (daysSinceDoj < 120) {
         markAndLog(employee, 't49'); markAndLog(employee, 't51');
         activityLog.log(employee, '90_day_review_complete');
         await mark90DayDone(auth, employee).catch(() => {});
+        if (employee.replyTimers && employee.replyTimers['90dayNoReply']) {
+          employee.replyTimers['90dayNoReply'].stop && employee.replyTimers['90dayNoReply'].stop();
+          delete employee.replyTimers['90dayNoReply'];
+        }
       }
       break;
     }
