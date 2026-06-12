@@ -1,6 +1,16 @@
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 
+// Escape user-controlled strings before embedding in HTML email bodies
+function esc(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -38,17 +48,17 @@ async function sendPreOnboardingForm(employee) {
   const formLink = process.env.PREONBOARDING_FORM_LINK || employee.formLink || '#';
   const formSection = formLink === '#'
     ? `<p style="color:#c62828;">⚠️ The pre-onboarding form link has not been configured. Please contact HR directly.</p>`
-    : `<p><a href="${formLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Complete Pre-Onboarding Form</a></p>`;
+    : `<p><a href="${esc(formLink)}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Complete Pre-Onboarding Form</a></p>`;
   return sendEmail({
     to: personalEmail,
     subject: `Welcome to ${process.env.COMPANY_NAME}! Action Required — Pre-Onboarding Form`,
     html: `
-      <p>Dear ${name},</p>
-      <p>We are delighted to welcome you to <strong>${process.env.COMPANY_NAME}</strong>!</p>
-      <p>Your Date of Joining is <strong>${doj}</strong>. To ensure a smooth onboarding, please complete the pre-onboarding form and upload your documents (Aadhaar card, PAN card, signed offer letter, passport-size photo).</p>
+      <p>Dear ${esc(name)},</p>
+      <p>We are delighted to welcome you to <strong>${esc(process.env.COMPANY_NAME)}</strong>!</p>
+      <p>Your Date of Joining is <strong>${esc(doj)}</strong>. To ensure a smooth onboarding, please complete the pre-onboarding form and upload your documents (Aadhaar card, PAN card, signed offer letter, passport-size photo).</p>
       ${formSection}
       <p>Please submit within <strong>24 hours</strong> of receiving this email.</p>
-      <p>Looking forward to having you on board!<br/>HR Team, ${process.env.COMPANY_NAME}</p>
+      <p>Looking forward to having you on board!<br/>HR Team, ${esc(process.env.COMPANY_NAME)}</p>
     `,
   });
 }
@@ -58,11 +68,11 @@ async function sendDocumentRejection(employee, docType, reason) {
   const { name, personalEmail } = employee;
   return sendEmail({
     to: personalEmail,
-    subject: `Action Required — Please Re-upload Your ${docType}`,
+    subject: `Action Required — Please Re-upload Your ${esc(docType)}`,
     html: `
-      <p>Dear ${name},</p>
-      <p>Thank you for submitting your documents. Unfortunately we could not verify your <strong>${docType}</strong>:</p>
-      <blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${reason}</blockquote>
+      <p>Dear ${esc(name)},</p>
+      <p>Thank you for submitting your documents. Unfortunately we could not verify your <strong>${esc(docType)}</strong>:</p>
+      <blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${esc(reason)}</blockquote>
       <p>Please upload a clear, legible copy to the designated Google Drive folder within <strong>24 hours</strong>.</p>
       <ul>
         <li>File must be clearly legible (not blurry or cropped)</li>
@@ -79,11 +89,11 @@ async function sendNoResponseAlert(employee, recruiterEmail) {
   const { name, employeeId, personalEmail } = employee;
   return sendEmail({
     to: recruiterEmail,
-    subject: `ALERT — ${name} (${employeeId}) Has Not Responded in 24 Hours`,
+    subject: `ALERT — ${esc(name)} (${esc(employeeId)}) Has Not Responded in 24 Hours`,
     html: `
       <p>Hi,</p>
-      <p>This is an automated alert. <strong>${name}</strong> (ID: ${employeeId}) has not responded to the pre-onboarding request for more than <strong>24 hours</strong>.</p>
-      <p><strong>Personal Email:</strong> ${personalEmail}</p>
+      <p>This is an automated alert. <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) has not responded to the pre-onboarding request for more than <strong>24 hours</strong>.</p>
+      <p><strong>Personal Email:</strong> ${esc(personalEmail)}</p>
       <p>Please follow up directly with the candidate to ensure they complete the required steps before their Date of Joining.</p>
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
     `,
@@ -268,9 +278,9 @@ async function sendVerificationReport(employee, verificationResults) {
     const summary = res.summary || (res.valid ? 'Verification successful' : 'Verification failed');
     return `
       <tr>
-        <td style="padding:8px 12px;border:1px solid #ddd;">${docType}</td>
-        <td style="padding:8px 12px;border:1px solid #ddd;color:${statusColor};font-weight:bold;">${statusIcon} ${statusLabel}</td>
-        <td style="padding:8px 12px;border:1px solid #ddd;color:#555;">${summary}</td>
+        <td style="padding:8px 12px;border:1px solid #ddd;">${esc(docType)}</td>
+        <td style="padding:8px 12px;border:1px solid #ddd;color:${statusColor};font-weight:bold;">${statusIcon} ${esc(statusLabel)}</td>
+        <td style="padding:8px 12px;border:1px solid #ddd;color:#555;">${esc(summary)}</td>
       </tr>`;
   }).join('');
 
@@ -502,13 +512,13 @@ async function sendNoReplyEscalation(employee, recipientType, originalRecipient)
   const { name, employeeId } = employee;
   return sendEmail({
     to: process.env.HR_EMAIL,
-    subject: `ESCALATION — No Reply from ${recipientType} for ${name} (${employeeId})`,
+    subject: `ESCALATION — No Reply from ${esc(recipientType)} for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi HR Team,</p>
       <p>This is an automated escalation notice.</p>
-      <p><strong>${recipientType}</strong> (<code>${originalRecipient}</code>) has <strong>not replied</strong> to the automated onboarding request sent <strong>48 hours ago</strong> for <strong>${name}</strong> (ID: ${employeeId}).</p>
-      <p>Please follow up manually with <strong>${recipientType}</strong> to ensure the required action is completed before the candidate's onboarding is impacted.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p><strong>${esc(recipientType)}</strong> (<code>${esc(originalRecipient)}</code>) has <strong>not replied</strong> to the automated onboarding request sent <strong>48 hours ago</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}).</p>
+      <p>Please follow up manually with <strong>${esc(recipientType)}</strong> to ensure the required action is completed before the candidate's onboarding is impacted.</p>
+      <p>Regards,<br/>${esc(process.env.COMPANY_NAME)} HR Automation</p>
     `,
   });
 }

@@ -65,8 +65,16 @@ function getAuthClient() {
   return oAuth2Client;
 }
 
+// Validate a Drive resource ID — Google IDs are alphanumeric + underscores/hyphens, 10–60 chars
+function assertDriveId(id, label) {
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{10,60}$/.test(id)) {
+    throw new Error(`Invalid Drive ID for ${label}: "${id}"`);
+  }
+}
+
 // List all files inside a Drive folder
 async function listFolderFiles(auth, folderId) {
+  assertDriveId(folderId, 'listFolderFiles');
   const drive = google.drive({ version: 'v3', auth });
   const res = await apiWithRetry(() => drive.files.list({
     q: `'${folderId}' in parents and trashed = false`,

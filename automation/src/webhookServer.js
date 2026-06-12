@@ -5,11 +5,60 @@
 //   GET  /health       ← uptime check
 
 const express = require('express');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { getChangedFiles, loadPushChannels } = require('./driveWatcher');
 const { processGmailPush } = require('./gmailWatcher');
 const config = require('./config');
+
+// ─── Input validation helpers ─────────────────────────────────────────────────
+// employeeId: alphanumeric + hyphen/underscore, 1-32 chars
+function isValidEmployeeId(id) {
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(id);
+}
+// taskId: t followed by 1-3 digits
+function isValidTaskId(id) {
+  return typeof id === 'string' && /^t\d{1,3}$/.test(id);
+}
+// Basic email sanity check
+function isValidEmail(email) {
+  return typeof email === 'string' && /^[^\s@]{1,64}@[^\s@]{1,253}$/.test(email);
+}
+// Timing-safe secret comparison to prevent timing attacks
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) {
+    // Still run crypto.timingSafeEqual on equal-length copies to avoid length leak
+    crypto.timingSafeEqual(Buffer.from(a), Buffer.from(a));
+    return false;
+  }
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+// ─── Per-endpoint in-memory rate limiter (no extra dep needed) ────────────────
+// Tracks request counts per IP in a rolling 60-second window.
+function makeRateLimiter(maxPerMinute) {
+  const counts = new Map(); // ip → { count, windowStart }
+  return function rateLimiter(req, res, next) {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const now = Date.now();
+    const entry = counts.get(ip);
+    if (!entry || now - entry.windowStart > 60_000) {
+      counts.set(ip, { count: 1, windowStart: now });
+      return next();
+    }
+    entry.count++;
+    if (entry.count > maxPerMinute) {
+      return res.status(429).json({ error: 'Too many requests — try again in a minute.' });
+    }
+    next();
+  };
+}
+
+const employeeCreateLimiter = makeRateLimiter(10);   // 10 new employees/min per IP
+const markTaskLimiter       = makeRateLimiter(30);   // 30 mark-task calls/min per IP
+const statusLimiter         = makeRateLimiter(60);   // 60 page views/min per IP
 
 const SEEN_FILES_PATH = path.join(__dirname, '..', 'seen-files.json');
 
@@ -114,12 +163,24 @@ pruneSeenFiles(seenFileIds);
 setInterval(() => pruneSeenFiles(seenFileIds), 24 * 60 * 60 * 1000);
 
 const app = express();
-app.use(express.json());
-// Gmail Pub/Sub sends raw body — parse it too
-app.use(express.raw({ type: 'application/json' }));
+
+// ─── Security headers (no helmet dep — set manually) ──────────────────────────
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
+// Limit request body to 1 MB to prevent memory exhaustion
+app.use(express.json({ limit: '1mb' }));
+// Gmail Pub/Sub sends raw body — parse it too (same 1 MB cap)
+app.use(express.raw({ type: 'application/json', limit: '1mb' }));
 
 // ─── Health check ──────────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => {
+app.get('/health', statusLimiter, (_req, res) => {
   const employees = Object.values(_employeeRegistry).map(emp => {
     // Count done tasks
     let totalTasks = 0, doneTasks = 0;
@@ -157,17 +218,13 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// ─── Employees list ─────────────────────────────────────────────────────────────
-app.get('/employees', (_req, res) => {
+// ─── Employees list — internal use only, no PII emails exposed ─────────────────
+app.get('/employees', statusLimiter, (_req, res) => {
   const list = Object.values(_employeeRegistry).map(emp => ({
     employeeId: emp.employeeId,
     name: emp.name,
-    personalEmail: emp.personalEmail,
-    officialEmail: emp.officialEmail || null,
     doj: emp.doj,
-    driveFolderId: emp.driveFolderId,
     milestonesScheduled: emp.milestonesScheduled || false,
-    checklist: emp.checklist,
   }));
   res.json({ count: list.length, employees: list });
 });
@@ -252,11 +309,28 @@ app.post('/gmail-push', async (req, res) => {
 // HR (or a Google Sheet trigger) POSTs employee details here to start onboarding.
 // Body: { employeeId, name, personalEmail, doj, driveFolderId,
 //         contacts: { recruiterEmail, managerEmail, itEmail } }
-app.post('/employee', async (req, res) => {
+app.post('/employee', employeeCreateLimiter, async (req, res) => {
   const required = ['employeeId', 'name', 'personalEmail', 'doj', 'driveFolderId'];
   const missing = required.filter(f => !req.body[f]);
   if (missing.length) {
     return res.status(400).json({ error: `Missing fields: ${missing.join(', ')}` });
+  }
+
+  // Strict format validation
+  if (!isValidEmployeeId(req.body.employeeId)) {
+    return res.status(400).json({ error: 'Invalid employeeId — use only letters, digits, hyphens, underscores (max 32 chars).' });
+  }
+  if (typeof req.body.name !== 'string' || req.body.name.trim().length < 1 || req.body.name.length > 120) {
+    return res.status(400).json({ error: 'Invalid name — must be 1–120 characters.' });
+  }
+  if (!isValidEmail(req.body.personalEmail)) {
+    return res.status(400).json({ error: 'Invalid personalEmail format.' });
+  }
+  if (!req.body.doj || isNaN(new Date(req.body.doj).getTime())) {
+    return res.status(400).json({ error: 'Invalid doj — use YYYY-MM-DD format.' });
+  }
+  if (typeof req.body.driveFolderId !== 'string' || !/^[A-Za-z0-9_-]{10,60}$/.test(req.body.driveFolderId)) {
+    return res.status(400).json({ error: 'Invalid driveFolderId format.' });
   }
 
   // Validate contacts sub-object — all three are required for escalation emails to reach the right people
@@ -266,6 +340,11 @@ app.post('/employee', async (req, res) => {
     return res.status(400).json({
       error: `Missing contacts fields: ${missingContacts.map(f => `contacts.${f}`).join(', ')}`,
     });
+  }
+  for (const field of ['recruiterEmail', 'managerEmail', 'itEmail']) {
+    if (!isValidEmail(contacts[field])) {
+      return res.status(400).json({ error: `Invalid email format for contacts.${field}` });
+    }
   }
 
   const { employeeId } = req.body;
@@ -287,6 +366,7 @@ app.post('/employee', async (req, res) => {
 // Complements the remove-employee CLI script (which handles file/Drive cleanup).
 app.delete('/employee/:id', (req, res) => {
   const { id } = req.params;
+  if (!isValidEmployeeId(id)) return res.status(400).json({ error: 'Invalid employee ID format.' });
   const emp = _employeeRegistry[id];
   if (!emp) {
     return res.status(404).json({ error: `Employee ${id} not found in registry.` });
@@ -313,7 +393,8 @@ app.delete('/employee/:id', (req, res) => {
 });
 
 // ─── Employee status page ──────────────────────────────────────────────────────
-app.get('/status/:employeeId', (req, res) => {
+app.get('/status/:employeeId', statusLimiter, (req, res) => {
+  if (!isValidEmployeeId(req.params.employeeId)) return res.status(400).send('<h2>Invalid employee ID</h2>');
   const { readLog } = require('./activityLog');
   const emp = _employeeRegistry[req.params.employeeId];
   if (!emp) return res.status(404).send('<h2>Employee not found</h2>');
@@ -445,7 +526,7 @@ app.get('/status/:employeeId', (req, res) => {
 });
 
 // ─── All-employees dashboard ───────────────────────────────────────────────────
-app.get('/status', (_req, res) => {
+app.get('/status', statusLimiter, (_req, res) => {
   const employees = Object.values(_employeeRegistry);
 
   const rows = employees.map(emp => {
@@ -506,7 +587,8 @@ app.get('/status', (_req, res) => {
 });
 
 // ─── Raw state endpoint (debugging) ───────────────────────────────────────────
-app.get('/state/:employeeId', (req, res) => {
+app.get('/state/:employeeId', statusLimiter, (req, res) => {
+  if (!isValidEmployeeId(req.params.employeeId)) return res.status(400).json({ error: 'Invalid employee ID format.' });
   const emp = _employeeRegistry[req.params.employeeId];
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
 
@@ -528,18 +610,25 @@ app.get('/state/:employeeId', (req, res) => {
 // Header: x-mark-task-secret: <MARK_TASK_SECRET>
 // Allows recruiters to mark manual tasks (t53, t54, etc.) done from a browser or curl.
 // Disabled if MARK_TASK_SECRET is not set in .env.
-app.post('/mark-task/:employeeId/:taskId', (req, res) => {
+app.post('/mark-task/:employeeId/:taskId', markTaskLimiter, (req, res) => {
   const secret = process.env.MARK_TASK_SECRET;
   if (!secret) {
     return res.status(503).json({ error: 'Task marking is disabled — set MARK_TASK_SECRET in .env to enable.' });
   }
 
-  const provided = req.headers['x-mark-task-secret'] || req.body.secret;
-  if (provided !== secret) {
+  const provided = req.headers['x-mark-task-secret'] || (req.body && req.body.secret) || '';
+  if (!safeCompare(provided, secret)) {
     return res.status(401).json({ error: 'Invalid or missing secret token.' });
   }
 
   const { employeeId, taskId } = req.params;
+  if (!isValidEmployeeId(employeeId)) {
+    return res.status(400).json({ error: 'Invalid employeeId format.' });
+  }
+  if (!isValidTaskId(taskId)) {
+    return res.status(400).json({ error: 'Invalid taskId format.' });
+  }
+
   const emp = _employeeRegistry[employeeId];
   if (!emp) return res.status(404).json({ error: `Employee ${employeeId} not found.` });
 

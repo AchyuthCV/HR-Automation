@@ -11,17 +11,31 @@ function ensureLogsDir() {
   if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
 }
 
+// Validate that a resolved path stays inside the intended directory
+function safeLogPath(employeeId) {
+  // Reject any id that isn't plain alphanumeric + hyphens/underscores
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(employeeId)) return null;
+  const resolved = path.resolve(LOGS_DIR, `${employeeId}.log`);
+  // Ensure the resolved path is still inside LOGS_DIR
+  if (!resolved.startsWith(path.resolve(LOGS_DIR) + path.sep)) return null;
+  return resolved;
+}
+
 function log(employee, event, detail = '') {
   try {
     ensureLogsDir();
+    const logPath = safeLogPath(employee.employeeId);
+    if (!logPath) {
+      console.warn(`[Log] Rejected unsafe employeeId in log():`, employee.employeeId);
+      return;
+    }
     const entry = JSON.stringify({
       ts: new Date().toISOString(),
       employeeId: employee.employeeId,
       name: employee.name,
-      event,
-      detail,
+      event: String(event).slice(0, 200),
+      detail: String(detail).slice(0, 500),
     });
-    const logPath = path.join(LOGS_DIR, `${employee.employeeId}.log`);
     fs.appendFileSync(logPath, entry + '\n');
   } catch (err) {
     // Never crash the engine due to logging failure
@@ -30,8 +44,8 @@ function log(employee, event, detail = '') {
 }
 
 function readLog(employeeId) {
-  const logPath = path.join(LOGS_DIR, `${employeeId}.log`);
-  if (!fs.existsSync(logPath)) return [];
+  const logPath = safeLogPath(employeeId);
+  if (!logPath || !fs.existsSync(logPath)) return [];
   return fs.readFileSync(logPath, 'utf8')
     .split('\n')
     .filter(Boolean)

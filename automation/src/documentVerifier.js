@@ -83,9 +83,18 @@ function detectDocType(filename) {
   return null;
 }
 
+const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB — enough for any ID/offer document
+
 // Download a Drive file to a temp path, return { tempPath, mimeType }
 async function downloadDriveFile(auth, fileId, mimeType) {
   const drive = google.drive({ version: 'v3', auth });
+
+  // Check file size before downloading to prevent disk exhaustion
+  const meta = await drive.files.get({ fileId, fields: 'size,mimeType' }).catch(() => null);
+  if (meta && meta.data.size && parseInt(meta.data.size) > MAX_FILE_BYTES) {
+    throw new Error(`File exceeds maximum allowed size (${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB). Please upload a smaller file.`);
+  }
+
   const tmpPath = path.join(os.tmpdir(), `hr_auto_${fileId}_${Date.now()}`);
 
   // Google Docs/Slides need export; binary files use direct download
