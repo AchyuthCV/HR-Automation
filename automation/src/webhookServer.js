@@ -236,17 +236,17 @@ app.post('/drive-push', async (req, res) => {
   // Always respond 200 immediately — Google retries on non-2xx
   res.sendStatus(200);
 
-  const state = req.headers['x-goog-resource-state'];
+  // Verify channel token matches a known employee — reject spoofed pushes
   const employeeId = req.headers['x-goog-channel-token'];
-
-  // 'sync' is the handshake ping — nothing to do
-  if (state === 'sync') {
-    console.log(`[Webhook] Drive sync handshake for ${employeeId}`);
+  if (!employeeId || !isValidEmployeeId(employeeId) || !_employeeRegistry[employeeId]) {
+    console.warn(`[Webhook] Drive push rejected — unknown or invalid channel token: ${employeeId}`);
     return;
   }
 
-  if (!employeeId || !_employeeRegistry[employeeId]) {
-    console.warn(`[Webhook] Drive push for unknown employee: ${employeeId}`);
+  const state = req.headers['x-goog-resource-state'];
+  // 'sync' is the handshake ping — nothing to do
+  if (state === 'sync') {
+    console.log(`[Webhook] Drive sync handshake for ${employeeId}`);
     return;
   }
 
@@ -293,6 +293,14 @@ app.post('/gmail-push', async (req, res) => {
 
   if (!body || !body.message) {
     console.warn('[Webhook] Gmail push missing message body');
+    return;
+  }
+
+  // Verify the Pub/Sub subscription name matches our configured subscription,
+  // preventing spoofed pushes from other projects or unknown subscriptions.
+  const expectedSub = process.env.PUBSUB_SUBSCRIPTION_NAME;
+  if (expectedSub && body.subscription && body.subscription !== expectedSub) {
+    console.warn(`[Webhook] Gmail push rejected — unexpected subscription: ${body.subscription}`);
     return;
   }
 
@@ -595,8 +603,12 @@ app.get('/state/:employeeId', statusLimiter, (req, res) => {
   const stateFile = path.join(__dirname, '..', `state-${emp.employeeId}.json`);
   if (fs.existsSync(stateFile)) {
     try {
-      const raw = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-      return res.json(raw);
+      const { decrypt, isEncryptionEnabled } = require('./encryption');
+      const raw = fs.readFileSync(stateFile, 'utf8');
+      const parsed = (isEncryptionEnabled() && raw.includes('"ciphertext"'))
+        ? JSON.parse(decrypt(raw))
+        : JSON.parse(raw);
+      return res.json(parsed);
     } catch (e) {
       return res.status(500).json({ error: 'Failed to parse state file', detail: e.message });
     }
@@ -658,16 +670,19 @@ app.post('/mark-task/:employeeId/:taskId', markTaskLimiter, (req, res) => {
   } catch { /* activityLog is best-effort */ }
 
   try {
+    const { encrypt: enc, decrypt: dec, isEncryptionEnabled: encOn } = require('./encryption');
     const stateFile = path.join(__dirname, '..', `state-${employeeId}.json`);
     if (fs.existsSync(stateFile)) {
-      const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      const raw = fs.readFileSync(stateFile, 'utf8');
+      const state = (encOn() && raw.includes('"ciphertext"')) ? JSON.parse(dec(raw)) : JSON.parse(raw);
       if (state.checklist) {
         for (const phase of Object.values(state.checklist)) {
           if (phase.tasks && phase.tasks[taskId]) {
             phase.tasks[taskId].done = true;
           }
         }
-        fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+        const plaintext = JSON.stringify(state, null, 2);
+        fs.writeFileSync(stateFile, encOn() ? enc(plaintext) : plaintext);
       }
     }
   } catch (e) {

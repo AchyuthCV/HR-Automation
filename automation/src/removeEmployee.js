@@ -1,10 +1,12 @@
 // Remove an employee from employees.json and clean up their state files.
 // Usage: npm run remove-employee
 
+require('dotenv').config();
 const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
+const { decrypt, isEncryptionEnabled } = require('./encryption');
 
 const EMPLOYEES_PATH  = path.join(__dirname, '..', 'employees.json');
 const STATE_DIR       = path.join(__dirname, '..');
@@ -77,7 +79,8 @@ async function main() {
   const stateFile = path.join(STATE_DIR, `state-${id}.json`);
   if (fs.existsSync(stateFile)) {
     try {
-      const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      const raw = fs.readFileSync(stateFile, 'utf8');
+      const state = (isEncryptionEnabled() && raw.includes('"ciphertext"')) ? JSON.parse(decrypt(raw)) : JSON.parse(raw);
       const sheetId = state.statusSheetId;
       if (sheetId) {
         const auth = await buildAuth();

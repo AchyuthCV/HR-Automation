@@ -1,9 +1,11 @@
 // activityLog.js — append-only per-employee event log
 // Each event is one JSON line in logs/<employeeId>.log
 // Format: { ts, employeeId, event, detail }
+// Also mirrors every write to the tamper-evident secure audit log.
 
 const fs = require('fs');
 const path = require('path');
+const { writeAudit } = require('./secureAuditLog');
 
 const LOGS_DIR = path.join(__dirname, '..', 'logs');
 
@@ -37,6 +39,8 @@ function log(employee, event, detail = '') {
       detail: String(detail).slice(0, 500),
     });
     fs.appendFileSync(logPath, entry + '\n');
+    // Mirror to tamper-evident audit log (HMAC-signed when AUDIT_HMAC_KEY is set)
+    writeAudit(employee.employeeId, String(event).slice(0, 200), String(detail).slice(0, 500));
   } catch (err) {
     // Never crash the engine due to logging failure
     console.warn(`[Log] Failed to write activity log for ${employee.employeeId}:`, err.message);

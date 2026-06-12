@@ -1,4 +1,6 @@
 const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
 const config = require('./config');
 const { create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
 const {
@@ -347,6 +349,41 @@ function startDailyHealthCheck() {
   console.log('[Cron] Daily health-check scheduled at 9 AM on weekdays');
 }
 
+// Data retention cron — runs at 2 AM daily, purges logs older than RETENTION_DAYS
+function startDataRetentionCron() {
+  const retentionDays = parseInt(process.env.LOG_RETENTION_DAYS || '90', 10);
+  if (isNaN(retentionDays) || retentionDays < 1) return;
+
+  // Run at 2:00 AM every day
+  cron.schedule('0 2 * * *', () => {
+    const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    const logsDir = path.join(__dirname, '..', 'logs');
+    const auditDir = path.join(logsDir, 'audit');
+
+    let purged = 0;
+    for (const dir of [logsDir, auditDir]) {
+      if (!fs.existsSync(dir)) continue;
+      try {
+        for (const file of fs.readdirSync(dir)) {
+          const full = path.join(dir, file);
+          try {
+            const stat = fs.statSync(full);
+            if (stat.isFile() && stat.mtimeMs < cutoff) {
+              fs.unlinkSync(full);
+              purged++;
+            }
+          } catch { /* skip locked or vanished files */ }
+        }
+      } catch { /* skip unreadable dir */ }
+    }
+
+    if (purged > 0) {
+      console.log(`[Cron] Data retention: purged ${purged} log file(s) older than ${retentionDays} days`);
+    }
+  });
+  console.log(`[Cron] Data retention cron scheduled (purge logs older than ${retentionDays} days at 2 AM daily)`);
+}
+
 module.exports = {
   scheduleAllMilestones,
   scheduleNoResponseAlert,
@@ -359,4 +396,5 @@ module.exports = {
   schedule5MonthProbation,
   cancelAllJobs,
   startDailyHealthCheck,
+  startDataRetentionCron,
 };

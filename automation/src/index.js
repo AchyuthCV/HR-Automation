@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { encrypt, decrypt, isEncryptionEnabled } = require('./encryption');
 const { getAuthClient, watchFolder, scaffoldEmployeeFolder, uploadChecklist, listFolderFiles } = require('./driveWatcher');
 const { verifyDocument, detectDocType } = require('./documentVerifier');
 const {
@@ -24,6 +25,7 @@ const {
   scheduleReplyDeadline,
   restoreMilestonesAfterRestart,
   startDailyHealthCheck,
+  startDataRetentionCron,
   cancelAllJobs,
 } = require('./cronJobs');
 const { createHRInductionEvent, createProjectIntroEvent, create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
@@ -66,7 +68,14 @@ function loadState(employeeId) {
   // Per-employee file takes priority
   const perFile = statePathFor(employeeId);
   if (fs.existsSync(perFile)) {
-    try { return JSON.parse(fs.readFileSync(perFile, 'utf8')); } catch { return null; }
+    try {
+      const raw = fs.readFileSync(perFile, 'utf8');
+      // Detect encrypted payload (starts with '{' and has 'ciphertext' key)
+      if (isEncryptionEnabled() && raw.includes('"ciphertext"')) {
+        return JSON.parse(decrypt(raw));
+      }
+      return JSON.parse(raw);
+    } catch { return null; }
   }
   // One-time migration: check legacy shared state.json
   const legacyPath = path.join(STATE_DIR, 'state.json');
@@ -85,7 +94,9 @@ function loadState(employeeId) {
 }
 
 function saveState(employeeId, data) {
-  fs.writeFileSync(statePathFor(employeeId), JSON.stringify(data, null, 2));
+  const plaintext = JSON.stringify(data, null, 2);
+  const payload = isEncryptionEnabled() ? encrypt(plaintext) : plaintext;
+  fs.writeFileSync(statePathFor(employeeId), payload);
 }
 
 // Serialize all persistable fields from a live employee object into a plain object
@@ -851,6 +862,57 @@ async function main() {
     console.warn('[Config]   Welcome email will show a warning instead of a form link.\n');
   }
 
+  // ─── Startup security checks ─────────────────────────────────────────────────
+  (function runSecurityChecks() {
+    const warnings = [];
+
+    // Encryption key strength
+    const encKey = process.env.MASTER_ENCRYPTION_KEY;
+    if (!encKey) {
+      warnings.push('MASTER_ENCRYPTION_KEY is not set — state files are stored unencrypted.');
+    } else if (!/^[0-9a-fA-F]{64}$/.test(encKey)) {
+      warnings.push('MASTER_ENCRYPTION_KEY must be a 64-character hex string (256-bit key).');
+    }
+
+    // HMAC audit key
+    if (!process.env.AUDIT_HMAC_KEY) {
+      warnings.push('AUDIT_HMAC_KEY is not set — audit log entries will not be HMAC-signed.');
+    } else if (process.env.AUDIT_HMAC_KEY.length < 32) {
+      warnings.push('AUDIT_HMAC_KEY is too short — use at least 32 characters for adequate HMAC security.');
+    }
+
+    // Pub/Sub subscription name for Gmail push verification
+    if (!process.env.PUBSUB_SUBSCRIPTION_NAME) {
+      warnings.push('PUBSUB_SUBSCRIPTION_NAME is not set — /gmail-push subscription verification is disabled.');
+    }
+
+    // HTTPS check for webhook base URL (production safeguard)
+    const wb = process.env.WEBHOOK_BASE_URL || '';
+    if (wb && !wb.startsWith('https://') && !wb.includes('localhost') && !wb.includes('127.0.0.1')) {
+      warnings.push(`WEBHOOK_BASE_URL "${wb}" does not use HTTPS — webhooks should be served over TLS in production.`);
+    }
+
+    // .env file permissions — warn on Windows if env vars look like they came from a world-readable file
+    // (Can't check file mode on Windows easily; log a reminder instead)
+    if (process.platform !== 'win32') {
+      try {
+        const envPath = path.join(__dirname, '..', '.env');
+        if (fs.existsSync(envPath)) {
+          const mode = fs.statSync(envPath).mode & 0o777;
+          if (mode & 0o044) { // readable by group or others
+            warnings.push(`.env file permissions are too open (${mode.toString(8)}) — run: chmod 600 .env`);
+          }
+        }
+      } catch { /* ignore if stat fails */ }
+    }
+
+    if (warnings.length > 0) {
+      console.warn('\n[Security] Startup security warnings:');
+      for (const w of warnings) console.warn(`  ⚠  ${w}`);
+      console.warn('');
+    }
+  })();
+
   const auth = getAuthClient();
 
   // Start webhook server (must come before onboarding so registry is available)
@@ -923,6 +985,7 @@ async function main() {
 
   // Start daily health-check cron
   startDailyHealthCheck();
+  startDataRetentionCron();
 
   process.on('SIGINT', () => {
     console.log('\n[Index] Shutting down gracefully...');
