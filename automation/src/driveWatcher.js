@@ -87,20 +87,20 @@ async function listFolderFiles(auth, folderId) {
 // Create a sub-folder inside a parent Drive folder
 async function createSubFolder(auth, parentFolderId, folderName) {
   const drive = google.drive({ version: 'v3', auth });
-  const existing = await drive.files.list({
+  const existing = await apiWithRetry(() => drive.files.list({
     q: `name='${folderName}' and '${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id, name)',
-  });
+  }), `createSubFolder:list:${folderName}`);
   if (existing.data.files.length > 0) return existing.data.files[0].id;
 
-  const res = await drive.files.create({
+  const res = await apiWithRetry(() => drive.files.create({
     requestBody: {
       name: folderName,
       mimeType: 'application/vnd.google-apps.folder',
       parents: [parentFolderId],
     },
     fields: 'id',
-  });
+  }), `createSubFolder:create:${folderName}`);
   console.log(`[Drive] Created sub-folder "${folderName}" → ${res.data.id}`);
   return res.data.id;
 }
@@ -108,14 +108,14 @@ async function createSubFolder(auth, parentFolderId, folderName) {
 // Move a file into a destination folder
 async function moveFileTo(auth, fileId, destinationFolderId) {
   const drive = google.drive({ version: 'v3', auth });
-  const file = await drive.files.get({ fileId, fields: 'parents' });
+  const file = await apiWithRetry(() => drive.files.get({ fileId, fields: 'parents' }), `moveFileTo:get:${fileId}`);
   const previousParents = file.data.parents.join(',');
-  await drive.files.update({
+  await apiWithRetry(() => drive.files.update({
     fileId,
     addParents: destinationFolderId,
     removeParents: previousParents,
     fields: 'id, parents',
-  });
+  }), `moveFileTo:update:${fileId}`);
 }
 
 // Upload / overwrite a JSON checklist file to Drive

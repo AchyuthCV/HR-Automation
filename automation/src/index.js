@@ -385,10 +385,8 @@ async function handleNewFile(auth, employee, file) {
 
     // Schedule a no-response alert to recruiter if employee doesn't re-upload in 24h
     if (employee.noResponseTimers[docType]) employee.noResponseTimers[docType].stop();
-    employee.noResponseTimers[docType] = scheduleNoResponseAlert(
-      employee,
-      employee.contacts.recruiterEmail
-    );
+    const alertRecipient = (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL;
+    employee.noResponseTimers[docType] = scheduleNoResponseAlert(employee, alertRecipient);
   }
 
   // Always send the latest verification report to the recruiter (t9)
@@ -519,9 +517,12 @@ async function triggerNextStep(auth, employee, docType) {
       saveState(employee.employeeId, snapshotEmployee(employee));
     }
 
-    // t35/t36: Send seat allocation request to Admin and schedule 48h escalation timers
+    // t35/t36: Send seat allocation request to Admin and IT, schedule 48h escalation timers
     employee.replyTimers = employee.replyTimers || {};
     if (!isTaskDone(checklist, 't35')) {
+      await sendITAssetRequest(employee, contacts.itEmail, { type: 'doj_allocation' }).catch(err =>
+        console.warn(`[Index] IT asset request email failed for ${employee.name}: ${err.message}`)
+      );
       employee.replyTimers.itDoj = scheduleReplyDeadline(
         employee, 'IT Team (DOJ Assets)', contacts.itEmail
       );
