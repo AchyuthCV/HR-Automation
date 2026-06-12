@@ -7,12 +7,13 @@ require('dotenv').config();
 const CREDENTIALS_PATH = path.join(__dirname, '..', 'credentials.json');
 const TOKEN_PATH = path.join(__dirname, '..', 'token.json');
 
-// Scopes needed: read Drive files + send Gmail
-const SCOPES = [
-  'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/calendar',
-];
+// OAuth scopes are declared in auth.js and baked into token.json at first-run.
+// Scopes required by this engine (for reference — change auth.js, then re-run npm run auth):
+//   https://www.googleapis.com/auth/drive
+//   https://www.googleapis.com/auth/gmail.send
+//   https://www.googleapis.com/auth/gmail.modify   (needed for users.watch)
+//   https://www.googleapis.com/auth/calendar
+//   https://www.googleapis.com/auth/spreadsheets
 
 // Retry an async API call up to maxAttempts times with exponential backoff.
 // Retries on network errors and Google 429/500/503 responses.

@@ -398,6 +398,7 @@ async function handleNewFile(auth, employee, file) {
   if (result.valid) {
     await triggerNextStep(auth, employee, docType);
   }
+  return true;
 }
 
 // ─── Trigger next automation step after a document passes ─────────────────────
@@ -740,10 +741,16 @@ async function onboardEmployee(auth, employee) {
     activityLog.log(employee, 'onboarding_started', `DOJ: ${employee.doj}`);
 
     // Step 1: Scaffold Drive folder structure
-    await scaffoldEmployeeFolder(auth, employee.driveFolderId, employee.name, employee.employeeId);
-    markAndLog(employee, 't6');
-    markAndLog(employee, 't7');
-    markAndLog(employee, 't8');
+    try {
+      await scaffoldEmployeeFolder(auth, employee.driveFolderId, employee.name, employee.employeeId);
+      markAndLog(employee, 't6');
+      markAndLog(employee, 't7');
+      markAndLog(employee, 't8');
+    } catch (err) {
+      console.error(`[Index] ✖ Could not scaffold Drive folder for ${employee.name} — check driveFolderId "${employee.driveFolderId}" is correct and accessible. (${err.message})`);
+      activityLog.log(employee, 'scaffold_failed', `driveFolderId: ${employee.driveFolderId} — ${err.message}`);
+      return; // cannot continue without a working Drive folder
+    }
 
     // Step 2: Create status sheet and mark preonboarding initiated
     await getOrCreateStatusSheet(auth, employee).catch(() => {});

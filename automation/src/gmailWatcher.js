@@ -270,6 +270,8 @@ async function processGmailPush(auth, pushData, onReplyClassified) {
       const classified = await classifyReply(full);
       if (classified && classified.confidence === 'low') {
         console.warn(`[Gmail] Low-confidence reply dropped — from: ${full.from}, subject: ${full.subject}`);
+        // Mark as read first so this message is never re-fetched on next push
+        await markAsRead(auth, msg.id).catch(() => {});
         // Alert HR so the reply isn't silently lost
         const { sendEmail } = require('./emailSender');
         await sendEmail({

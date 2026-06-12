@@ -31,6 +31,11 @@ async function deleteDriveFile(auth, fileId) {
   await drive.files.delete({ fileId });
 }
 
+async function deleteDriveFolder(auth, folderId) {
+  const drive = google.drive({ version: 'v3', auth });
+  await drive.files.delete({ fileId: folderId });
+}
+
 async function main() {
   if (!fs.existsSync(EMPLOYEES_PATH)) {
     console.log('No employees.json found.');
@@ -100,7 +105,28 @@ async function main() {
     }
   }
 
-  console.log(`\nDone. Restart the engine if it is running.`);
+  // Offer to delete the employee's Drive folder (documents, subfolders, checklist)
+  const driveFolderId = emp.driveFolderId;
+  if (driveFolderId) {
+    const deleteFolder = await ask(`Delete employee Drive folder from Google Drive? This removes all documents permanently. (yes/no): `);
+    if (deleteFolder.toLowerCase() === 'yes') {
+      const auth = await buildAuth();
+      if (auth) {
+        try {
+          await deleteDriveFolder(auth, driveFolderId);
+          console.log(`Deleted Drive folder (${driveFolderId})`);
+        } catch (err) {
+          console.warn(`Could not delete Drive folder: ${err.message}`);
+        }
+      } else {
+        console.warn('Could not authenticate with Google — Drive folder NOT deleted.');
+      }
+    } else {
+      console.log(`Drive folder kept (${driveFolderId}) — delete it manually if needed.`);
+    }
+  }
+
+  console.log(`\nDone. Restart the engine if it is running, or call DELETE /employee/${id} first to stop active timers.`);
   rl.close();
 }
 
