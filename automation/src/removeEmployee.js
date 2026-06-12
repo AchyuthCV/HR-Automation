@@ -4,12 +4,32 @@
 const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
+const { google } = require('googleapis');
 
-const EMPLOYEES_PATH = path.join(__dirname, '..', 'employees.json');
-const STATE_DIR      = path.join(__dirname, '..');
+const EMPLOYEES_PATH  = path.join(__dirname, '..', 'employees.json');
+const STATE_DIR       = path.join(__dirname, '..');
+const TOKEN_PATH      = path.join(__dirname, '..', 'token.json');
+const CREDENTIALS_PATH = path.join(__dirname, '..', 'credentials.json');
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = q => new Promise(resolve => rl.question(q, a => resolve(a.trim())));
+
+async function buildAuth() {
+  if (!fs.existsSync(CREDENTIALS_PATH) || !fs.existsSync(TOKEN_PATH)) return null;
+  try {
+    const { client_secret, client_id, redirect_uris } = JSON.parse(fs.readFileSync(CREDENTIALS_PATH)).installed;
+    const oAuth2 = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+    oAuth2.setCredentials(JSON.parse(fs.readFileSync(TOKEN_PATH)));
+    return oAuth2;
+  } catch {
+    return null;
+  }
+}
+
+async function deleteDriveFile(auth, fileId) {
+  const drive = google.drive({ version: 'v3', auth });
+  await drive.files.delete({ fileId });
+}
 
 async function main() {
   if (!fs.existsSync(EMPLOYEES_PATH)) {
@@ -48,9 +68,24 @@ async function main() {
   fs.writeFileSync(EMPLOYEES_PATH, JSON.stringify(employees, null, 2));
   console.log(`Removed ${emp.name} from employees.json`);
 
-  // Delete per-employee state file
+  // Delete status sheet from Google Drive (read fileId from state before deleting state file)
   const stateFile = path.join(STATE_DIR, `state-${id}.json`);
   if (fs.existsSync(stateFile)) {
+    try {
+      const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      const sheetId = state.statusSheetId;
+      if (sheetId) {
+        const auth = await buildAuth();
+        if (auth) {
+          await deleteDriveFile(auth, sheetId);
+          console.log(`Deleted status sheet from Drive (${sheetId})`);
+        } else {
+          console.warn('Could not authenticate with Google — status sheet NOT deleted from Drive.');
+        }
+      }
+    } catch (err) {
+      console.warn(`Could not delete status sheet from Drive: ${err.message}`);
+    }
     fs.unlinkSync(stateFile);
     console.log(`Deleted state-${id}.json`);
   }

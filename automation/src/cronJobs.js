@@ -143,12 +143,17 @@ function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, m
 
     if (employee._auth) await mark60DayDone(employee._auth, employee).catch(() => {});
 
-    // t47: mark only if review_complete reply hasn't arrived within 48h
-    scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `60-Day No-Reply Check — ${name}`, async () => {
+    // t47: escalate and mark if review_complete reply hasn't arrived within 48h
+    // Use scheduleReplyDeadline so the timer is persisted in replyTimers + survives restart
+    employee.replyTimers = employee.replyTimers || {};
+    employee.replyTimers['60dayNoReply'] = scheduleReplyDeadline(
+      employee, 'Recruiter / Manager (60-Day Review)', recruiterEmail, 48
+    );
+    // Also mark t47 when the 48h window expires (best-effort, same fire time)
+    scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `60-Day No-Reply Mark — ${name}`, async () => {
       if (!isTaskDone(employee.checklist, 't48')) {
-        await sendNoReplyEscalation(employee, 'Recruiter / Manager (60-Day Review)', recruiterEmail);
         if (markTaskFn) markTaskFn('t47');
-        console.log(`[Cron] 60-day no-reply escalation sent for ${name}`);
+        console.log(`[Cron] 60-day no-reply: t47 marked for ${name}`);
       }
     });
   });
@@ -174,12 +179,17 @@ function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, m
 
     if (employee._auth) await mark90DayDone(employee._auth, employee).catch(() => {});
 
-    // t50: mark only if review_complete reply hasn't arrived within 48h
-    scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `90-Day No-Reply Check — ${name}`, async () => {
+    // t50: escalate and mark if review_complete reply hasn't arrived within 48h
+    // Use scheduleReplyDeadline so the timer is persisted in replyTimers + survives restart
+    employee.replyTimers = employee.replyTimers || {};
+    employee.replyTimers['90dayNoReply'] = scheduleReplyDeadline(
+      employee, 'Recruiter / Manager (90-Day Review)', recruiterEmail, 48
+    );
+    // Also mark t50 when the 48h window expires (best-effort, same fire time)
+    scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `90-Day No-Reply Mark — ${name}`, async () => {
       if (!isTaskDone(employee.checklist, 't51')) {
-        await sendNoReplyEscalation(employee, 'Recruiter / Manager (90-Day Review)', recruiterEmail);
         if (markTaskFn) markTaskFn('t50');
-        console.log(`[Cron] 90-day no-reply escalation sent for ${name}`);
+        console.log(`[Cron] 90-day no-reply: t50 marked for ${name}`);
       }
     });
   });
