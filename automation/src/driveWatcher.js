@@ -56,10 +56,14 @@ function getAuthClient() {
 
   // Auto-refresh tokens and persist the updated token.json on refresh
   oAuth2Client.on('tokens', (newTokens) => {
-    const current = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
-    const merged = { ...current, ...newTokens };
-    fs.writeFileSync(TOKEN_PATH, JSON.stringify(merged, null, 2));
-    console.log('[Auth] Token refreshed and saved to token.json');
+    try {
+      const current = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
+      const merged = { ...current, ...newTokens };
+      fs.writeFileSync(TOKEN_PATH, JSON.stringify(merged, null, 2));
+      console.log('[Auth] Token refreshed and saved to token.json');
+    } catch (err) {
+      console.error('[Auth] Failed to persist refreshed token — next API call may fail:', err.message);
+    }
   });
 
   return oAuth2Client;

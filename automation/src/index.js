@@ -3,6 +3,7 @@ const { encrypt, decrypt, isEncryptionEnabled } = require('./encryption');
 const { getAuthClient, watchFolder, scaffoldEmployeeFolder, uploadChecklist, listFolderFiles } = require('./driveWatcher');
 const { verifyDocument, detectDocType } = require('./documentVerifier');
 const {
+  sendEmail,
   sendPreOnboardingForm,
   sendDocumentRejection,
   sendNoResponseAlert,
@@ -375,7 +376,9 @@ async function handleNewFile(auth, employee, file) {
     console.log(`[Index] ✗ ${file.name} failed: ${reason}`);
     activityLog.log(employee, 'document_rejected', `${docType} — ${file.name} — ${reason}`);
 
-    await sendDocumentRejection(employee, result.docType || docType, reason);
+    await sendDocumentRejection(employee, result.docType || docType, reason).catch(err =>
+      console.warn(`[Index] Document rejection email failed for ${employee.name}: ${err.message}`)
+    );
     await markDocumentIssue(auth, employee, result.docType || docType, reason).catch(() => {});
 
     // t10: reminder sent for incorrect document
@@ -426,7 +429,9 @@ async function triggerNextStep(auth, employee, docType) {
       // Simultaneously send asset allocation request to manager (t17)
       // IT asset request (t20) is sent AFTER manager replies with allocation details
       // so IT receives the full asset type, location, and supervisor info — not an empty request.
-      await sendAssetAllocationRequest(employee, contacts.managerEmail);
+      await sendAssetAllocationRequest(employee, contacts.managerEmail).catch(err =>
+        console.warn(`[Index] Asset allocation request email failed for ${employee.name}: ${err.message}`)
+      );
       markAndLog(employee, 't17');
 
       // Send BGV request to recruiter (t23 = request sent, t24 = recruiter triggers it)
@@ -581,6 +586,11 @@ async function handleReply(auth, classified, rawMsg) {
       } else {
         console.warn(`[Index] official_email_created reply for ${employee.name} had no email address extracted — reply was consumed but checklist not advanced.`);
         activityLog.log(employee, 'official_email_parse_failed', 'Gemini could not extract email from reply');
+        await sendEmail({
+          to: process.env.HR_EMAIL,
+          subject: `HR Automation — Official Email Reply Unreadable (${employee.name})`,
+          html: `<p>Hi HR,</p><p>A reply to the official email creation request for <strong>${employee.name} (${employee.employeeId})</strong> was received but the automation could not extract the email address from it.</p><p>Please reply manually or use the status dashboard to mark task t15/t16 once the official email is confirmed.</p><p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
+        }).catch(err => console.warn('[Index] Could not send official-email parse-failure alert:', err.message));
       }
       break;
 
