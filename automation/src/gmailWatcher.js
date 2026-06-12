@@ -268,7 +268,26 @@ async function processGmailPush(auth, pushData, onReplyClassified) {
     try {
       const full = await fetchMessageBody(auth, msg.id);
       const classified = await classifyReply(full);
-      if (classified && classified.confidence !== 'low') {
+      if (classified && classified.confidence === 'low') {
+        console.warn(`[Gmail] Low-confidence reply dropped — from: ${full.from}, subject: ${full.subject}`);
+        // Alert HR so the reply isn't silently lost
+        const { sendEmail } = require('./emailSender');
+        await sendEmail({
+          to: process.env.HR_EMAIL,
+          subject: `HR Automation — Unclassified Reply Received`,
+          html: `
+            <p>Hi HR Team,</p>
+            <p>An email reply was received that the automation could not confidently classify. Please review it manually:</p>
+            <ul>
+              <li><strong>From:</strong> ${full.from}</li>
+              <li><strong>Subject:</strong> ${full.subject}</li>
+            </ul>
+            <blockquote style="border-left:4px solid #ffa000;padding:8px 16px;background:#fffde7;color:#555;">${(full.body || '').slice(0, 500).replace(/</g, '&lt;')}</blockquote>
+            <p>If this is an onboarding reply, you can manually mark the relevant task via the status dashboard.</p>
+            <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+          `,
+        }).catch(err => console.warn('[Gmail] Could not send low-confidence alert to HR:', err.message));
+      } else if (classified) {
         await onReplyClassified(classified, full);
         await markAsRead(auth, msg.id);
       }

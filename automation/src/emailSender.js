@@ -472,6 +472,26 @@ async function sendReviewSummaryRequest(employee, dayMark) {
   });
 }
 
+// Template 18b: Admin seat allocation request — sent on DOJ to Admin/HR asking for seat confirmation
+async function sendAdminSeatAllocationRequest(employee) {
+  const { name, employeeId, doj } = employee;
+  return sendEmail({
+    to: process.env.HR_EMAIL,
+    subject: `Action Required — Seat Allocation Confirmation for ${name} (${employeeId})`,
+    html: `
+      <p>Hi Admin Team,</p>
+      <p><strong>${name}</strong> (ID: ${employeeId}) is joining on <strong>${doj}</strong>. Please confirm that a workstation / seat has been allocated and is ready.</p>
+      <ul>
+        <li>Name: ${name}</li>
+        <li>Employee ID: ${employeeId}</li>
+        <li>Date of Joining: ${doj}</li>
+      </ul>
+      <p>Please reply to this email confirming the seat allocation so the onboarding checklist can be updated.</p>
+      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+    `,
+  });
+}
+
 // Template 18: No-reply escalation — sent to HR when a stakeholder hasn't replied in 48h
 async function sendNoReplyEscalation(employee, recipientType, originalRecipient) {
   const { name, employeeId } = employee;
@@ -496,6 +516,7 @@ module.exports = {
   sendOfficialEmailCreationRequest,
   sendAssetAllocationRequest,
   sendITAssetRequest,
+  sendAdminSeatAllocationRequest,
   sendBGVRequest,
   sendHRInductionConfirmation,
   sendPeriodicReviewReminder,

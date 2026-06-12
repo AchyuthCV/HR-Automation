@@ -20,12 +20,15 @@ let _handleNewFile = null;      // async (auth, employee, file) => void
 let _handleReply = null;        // async (classified, rawMessage) => void
 let _onNewEmployee = null;      // async (employeeData) => void
 
-function init({ auth, employeeRegistry, handleNewFile, handleReply, onNewEmployee }) {
+let _cancelAllJobs = null; // injected by index.js
+
+function init({ auth, employeeRegistry, handleNewFile, handleReply, onNewEmployee, cancelAllJobs }) {
   _auth = auth;
   _employeeRegistry = employeeRegistry;
   _handleNewFile = handleNewFile;
   _handleReply = handleReply;
   _onNewEmployee = onNewEmployee;
+  _cancelAllJobs = cancelAllJobs || null;
 }
 
 // Track last-seen file IDs per employee folder — persisted to seen-files.json
@@ -203,9 +206,16 @@ app.post('/drive-push', async (req, res) => {
         seenFileIds[employeeId].add(file.id);
         saveSeenFiles(seenFileIds);
         console.log(`[Webhook] Drive push → new file: ${file.name} for ${employee.name}`);
-        await _handleNewFile(_auth, employee, file).catch(err =>
-          console.error(`[Webhook] handleNewFile error:`, err.message)
-        );
+        const ok = await _handleNewFile(_auth, employee, file).catch(err => {
+          console.error(`[Webhook] handleNewFile error:`, err.message);
+          return false;
+        });
+        // On transient error (false return), remove from cache so the file is retried next push
+        if (ok === false) {
+          seenFileIds[employeeId].delete(file.id);
+          saveSeenFiles(seenFileIds);
+          console.log(`[Webhook] File ${file.name} removed from seen-cache — will retry on next push`);
+        }
       }
     }
   } catch (err) {
@@ -270,6 +280,36 @@ app.post('/employee', async (req, res) => {
     console.error('[Webhook] /employee error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Remove employee from running engine ───────────────────────────────────────
+// DELETE /employee/:id — cancels cron jobs + reply timers, removes from registry.
+// Complements the remove-employee CLI script (which handles file/Drive cleanup).
+app.delete('/employee/:id', (req, res) => {
+  const { id } = req.params;
+  const emp = _employeeRegistry[id];
+  if (!emp) {
+    return res.status(404).json({ error: `Employee ${id} not found in registry.` });
+  }
+
+  // Stop all reply timers
+  if (emp.replyTimers) {
+    for (const timer of Object.values(emp.replyTimers)) {
+      if (timer && typeof timer.stop === 'function') timer.stop();
+    }
+  }
+  // Stop all no-response timers
+  if (emp.noResponseTimers) {
+    for (const timer of Object.values(emp.noResponseTimers)) {
+      if (timer && typeof timer.stop === 'function') timer.stop();
+    }
+  }
+  // Cancel all cron milestone jobs
+  if (_cancelAllJobs) _cancelAllJobs(id);
+
+  delete _employeeRegistry[id];
+  console.log(`[Webhook] Employee ${id} (${emp.name}) removed from running engine.`);
+  res.json({ ok: true, message: `${emp.name} (${id}) removed. Run remove-employee CLI to clean up files.` });
 });
 
 // ─── Employee status page ──────────────────────────────────────────────────────

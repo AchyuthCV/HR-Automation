@@ -16,6 +16,7 @@ const {
   sendProjectIntroInvite,
   sendCatchupXLSEmail,
   sendReviewSummaryRequest,
+  sendAdminSeatAllocationRequest,
 } = require('./emailSender');
 const {
   scheduleAllMilestones,
@@ -23,6 +24,7 @@ const {
   scheduleReplyDeadline,
   restoreMilestonesAfterRestart,
   startDailyHealthCheck,
+  cancelAllJobs,
 } = require('./cronJobs');
 const { createHRInductionEvent, createProjectIntroEvent, create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
 const webhookServer = require('./webhookServer');
@@ -329,7 +331,7 @@ async function handleNewFile(auth, employee, file) {
   } catch (err) {
     console.error(`[Index] verifyDocument failed for ${file.name}:`, err.message);
     activityLog.log(employee, 'verification_error', `${file.name} — ${err.message}`);
-    return;
+    return false; // signal caller to remove from seen-files so it can be retried
   }
 
   // Always accumulate verification results for the report (pass or fail)
@@ -500,7 +502,7 @@ async function triggerNextStep(auth, employee, docType) {
       saveState(employee.employeeId, snapshotEmployee(employee));
     }
 
-    // t35/t36: IT and Admin haven't confirmed yet — schedule 48h escalation timers
+    // t35/t36: Send seat allocation request to Admin and schedule 48h escalation timers
     employee.replyTimers = employee.replyTimers || {};
     if (!isTaskDone(checklist, 't35')) {
       employee.replyTimers.itDoj = scheduleReplyDeadline(
@@ -508,10 +510,14 @@ async function triggerNextStep(auth, employee, docType) {
       );
     }
     if (!isTaskDone(checklist, 't36')) {
+      await sendAdminSeatAllocationRequest(employee).catch(err =>
+        console.warn(`[Index] Admin seat allocation email failed for ${employee.name}: ${err.message}`)
+      );
       employee.replyTimers.admin = scheduleReplyDeadline(
         employee, 'Admin (Seat Allocation)', process.env.HR_EMAIL
       );
     }
+    saveState(employee.employeeId, snapshotEmployee(employee));
 
     if (isPhaseComplete(checklist, 'phase3')) {
       const done = Object.values(checklist.phase3.tasks).map(t => t.label);
@@ -831,6 +837,7 @@ async function main() {
   webhookServer.init({
     auth,
     employeeRegistry,
+    cancelAllJobs,
     handleNewFile: (a, emp, file) => handleNewFile(a, emp, file),
     handleReply: (classified, rawMsg) => handleReply(auth, classified, rawMsg),
     onNewEmployee: async (data) => {

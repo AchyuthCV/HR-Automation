@@ -172,22 +172,40 @@ function savePushChannels(channels) {
 }
 
 // Register a Drive push channel for a folder. Returns channel metadata.
+// Stops any existing live channel first to avoid duplicate notifications on restart.
 async function registerDrivePushChannel(auth, folderId, employeeId) {
   const drive = google.drive({ version: 'v3', auth });
   const webhookUrl = `${process.env.WEBHOOK_BASE_URL}/drive-push`;
+
+  // Stop existing channel for this employee (if still live) to avoid duplicates
+  const existingChannels = loadPushChannels();
+  const existing = existingChannels[employeeId];
+  if (existing && existing.channelId && existing.resourceId) {
+    try {
+      await drive.channels.stop({ requestBody: { id: existing.channelId, resourceId: existing.resourceId } });
+      console.log(`[Drive] Stopped existing push channel for ${employeeId} before re-registering`);
+    } catch (err) {
+      // May already be expired — non-fatal
+      console.warn(`[Drive] Could not stop existing channel for ${employeeId}: ${err.message}`);
+    }
+  }
+
   const channelId = `hr-auto-${employeeId}-${Date.now()}`;
   const expiration = Date.now() + PUSH_TTL_MS;
 
-  const res = await drive.files.watch({
-    fileId: folderId,
-    requestBody: {
-      id: channelId,
-      type: 'web_hook',
-      address: webhookUrl,
-      expiration: String(expiration),
-      token: employeeId, // echoed back in X-Goog-Channel-Token header
-    },
-  });
+  const res = await apiWithRetry(
+    () => drive.files.watch({
+      fileId: folderId,
+      requestBody: {
+        id: channelId,
+        type: 'web_hook',
+        address: webhookUrl,
+        expiration: String(expiration),
+        token: employeeId,
+      },
+    }),
+    `registerDrivePushChannel(${employeeId})`
+  );
 
   const channel = {
     channelId,
@@ -249,9 +267,15 @@ function watchFolderPolling(auth, folderId, onNewFile, intervalMs = config.drive
         if (!seenFileIds.has(file.id)) {
           seenFileIds.add(file.id);
           console.log(`[Drive] New file detected (poll): ${file.name} (${file.id})`);
-          await onNewFile(file).catch(err =>
-            console.error(`[Drive] Error handling file ${file.name}:`, err.message)
-          );
+          const ok = await onNewFile(file).catch(err => {
+            console.error(`[Drive] Error handling file ${file.name}:`, err.message);
+            return false;
+          });
+          // On transient error, remove from cache so the file is retried next poll
+          if (ok === false) {
+            seenFileIds.delete(file.id);
+            console.log(`[Drive] File ${file.name} removed from poll-cache — will retry next poll`);
+          }
         }
       }
     } catch (err) {
