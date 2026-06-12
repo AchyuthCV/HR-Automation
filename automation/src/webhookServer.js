@@ -395,6 +395,27 @@ app.delete('/employee/:id', (req, res) => {
   // Cancel all cron milestone jobs
   if (_cancelAllJobs) _cancelAllJobs(id);
 
+  // Persist final state (timers cleared) before dropping from registry
+  try {
+    const { encrypt, isEncryptionEnabled } = require('./encryption');
+    const fs = require('fs');
+    const path = require('path');
+    const statePath = path.join(__dirname, '..', `state-${id}.json`);
+    if (fs.existsSync(statePath)) {
+      const plaintext = JSON.stringify({
+        checklist: emp.checklist,
+        milestonesScheduled: emp.milestonesScheduled || false,
+        statusSheetId: emp.statusSheetId || null,
+        verificationResults: emp.verificationResults || {},
+        replyTimerExpiry: {},
+      }, null, 2);
+      const payload = isEncryptionEnabled() ? encrypt(plaintext) : plaintext;
+      fs.writeFileSync(statePath, payload);
+    }
+  } catch (err) {
+    console.warn(`[Webhook] Could not persist final state for ${id}: ${err.message}`);
+  }
+
   delete _employeeRegistry[id];
   console.log(`[Webhook] Employee ${id} (${emp.name}) removed from running engine.`);
   res.json({ ok: true, message: `${emp.name} (${id}) removed. Run remove-employee CLI to clean up files.` });

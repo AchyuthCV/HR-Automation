@@ -601,6 +601,8 @@ async function handleReply(auth, classified, rawMsg) {
           markAndLog(employee, 't20');
           employee.replyTimers = employee.replyTimers || {};
           employee.replyTimers.it = scheduleReplyDeadline(employee, 'IT Team', employee.contacts.itEmail);
+          // Persist immediately so the IT escalation timer survives a restart
+          saveState(employee.employeeId, snapshotEmployee(employee));
         }
       } else {
         console.warn(`[Index] manager_allocation reply for ${employee.name} had no allocation data extracted — checklist not advanced.`);
@@ -634,6 +636,12 @@ async function handleReply(auth, classified, rawMsg) {
       if (employee.replyTimers && employee.replyTimers.bgv) {
         employee.replyTimers.bgv.stop && employee.replyTimers.bgv.stop();
         delete employee.replyTimers.bgv;
+      }
+      if (isPhaseComplete(checklist, 'phase2')) {
+        const done = Object.values(checklist.phase2.tasks).map(t => t.label);
+        await sendPhaseCompletionSummary(employee, 'Phase 2 — Before DOJ (Automation)', done).catch(err =>
+          console.warn(`[Index] Phase 2 completion summary failed for ${employee.name}: ${err.message}`)
+        );
       }
       break;
 
