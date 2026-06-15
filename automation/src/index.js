@@ -418,9 +418,12 @@ async function triggerNextStep(auth, employee, docType) {
   const { checklist, contacts } = employee;
 
   // After all identity docs verified → request official email creation (t14)
+  // Both aadhaar AND pan must pass before firing — check verificationResults, not just t12,
+  // because t12 is shared and gets marked on whichever arrives first.
   if (docType === 'aadhaar' || docType === 'pan') {
-    const aadhaarDone = isTaskDone(checklist, 't12');
-    if (aadhaarDone && !isTaskDone(checklist, 't14')) {
+    const vr = employee.verificationResults || {};
+    const bothVerified = vr.aadhaar && vr.aadhaar.valid && vr.pan && vr.pan.valid;
+    if (bothVerified && !isTaskDone(checklist, 't14')) {
       await markDocumentsVerifiedOk(auth, employee).catch(() => {});
       await sendOfficialEmailCreationRequest(employee);
       markAndLog(employee, 't14');
