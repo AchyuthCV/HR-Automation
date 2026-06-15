@@ -279,6 +279,12 @@ function restoreMilestonesAfterRestart(employee, contacts, completedMilestones, 
     return;
   }
 
+  const dojDate = new Date(employee.doj);
+  if (!employee.doj || isNaN(dojDate.getTime())) {
+    console.warn(`[Cron] restoreMilestonesAfterRestart: invalid or missing DOJ for ${employee.name} — skipping`);
+    return;
+  }
+
   const done = new Set(completedMilestones || []);
   const { employeeId, name } = employee;
   const { recruiterEmail, managerEmail } = contacts;

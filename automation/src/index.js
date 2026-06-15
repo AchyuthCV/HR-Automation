@@ -127,6 +127,8 @@ function snapshotEmployee(employee) {
     statusSheetId: employee.statusSheetId || null,
     verificationResults: employee.verificationResults || {},
     replyTimerExpiry,
+    officialEmail: employee.officialEmail || '',
+    assetDetails: employee.assetDetails || {},
   };
 }
 
@@ -569,9 +571,10 @@ function isTaskDone(checklist, taskId) {
 
 // ─── Handle classified Gmail reply ────────────────────────────────────────────
 async function handleReply(auth, classified, rawMsg) {
-  const { replyType, employeeId, data } = classified;
+  const { replyType, data } = classified;
+  const employeeId = String(classified.employeeId || '').trim();
   if (!employeeId || !employeeRegistry[employeeId]) {
-    console.warn(`[Index] Reply for unknown employee: ${employeeId}`);
+    console.warn(`[Index] Reply for unknown employee: ${classified.employeeId}`);
     return;
   }
 

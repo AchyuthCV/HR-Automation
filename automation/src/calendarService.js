@@ -46,6 +46,10 @@ async function createHRInductionEvent(auth, employee) {
   try {
     const calendar = google.calendar({ version: 'v3', auth });
     const dojDate = new Date(employee.doj);
+    if (!employee.doj || isNaN(dojDate.getTime())) {
+      console.error(`[Calendar] createHRInductionEvent: invalid DOJ "${employee.doj}" for ${employee.name}`);
+      return null;
+    }
 
     const attendees = [
       employee.officialEmail || employee.personalEmail,
@@ -87,6 +91,10 @@ async function createProjectIntroEvent(auth, employee) {
   try {
     const calendar = google.calendar({ version: 'v3', auth });
     const dojDate = new Date(employee.doj);
+    if (!employee.doj || isNaN(dojDate.getTime())) {
+      console.error(`[Calendar] createProjectIntroEvent: invalid DOJ "${employee.doj}" for ${employee.name}`);
+      return null;
+    }
     const eventDate = ensureWorkingDay(addDays(dojDate, config.calendarEvents.projectIntroDayOffset));
 
     const attendees = [
@@ -128,6 +136,10 @@ async function create30DayCatchupEvent(auth, employee) {
   try {
     const calendar = google.calendar({ version: 'v3', auth });
     const dojDate = new Date(employee.doj);
+    if (!employee.doj || isNaN(dojDate.getTime())) {
+      console.error(`[Calendar] create30DayCatchupEvent: invalid DOJ "${employee.doj}" for ${employee.name}`);
+      return null;
+    }
     const eventDate = ensureWorkingDay(addDays(dojDate, config.milestones.catchup30day));
 
     const attendees = [
@@ -171,6 +183,10 @@ async function createReviewEvent(auth, employee, dayMark) {
   try {
     const calendar = google.calendar({ version: 'v3', auth });
     const dojDate = new Date(employee.doj);
+    if (!employee.doj || isNaN(dojDate.getTime())) {
+      console.error(`[Calendar] createReviewEvent (${dayMark}-day): invalid DOJ "${employee.doj}" for ${employee.name}`);
+      return null;
+    }
     const eventDate = ensureWorkingDay(addDays(dojDate, dayMark));
 
     const attendees = [

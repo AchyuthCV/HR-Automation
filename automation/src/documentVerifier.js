@@ -128,6 +128,7 @@ function streamToFile(stream, filePath) {
 // Convert downloaded file to base64 and pick the right media type for Gemini
 function fileToBase64(filePath, mimeType) {
   const data = fs.readFileSync(filePath);
+  if (data.length === 0) throw new Error(`File is empty: ${filePath}`);
   const base64 = data.toString('base64');
   // Gemini vision accepts: image/jpeg, image/png, image/gif, image/webp, application/pdf
   const supported = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
