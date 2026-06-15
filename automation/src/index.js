@@ -73,7 +73,13 @@ function loadState(employeeId) {
       const raw = fs.readFileSync(perFile, 'utf8');
       // Detect encrypted payload (starts with '{' and has 'ciphertext' key)
       if (isEncryptionEnabled() && raw.includes('"ciphertext"')) {
-        return JSON.parse(decrypt(raw));
+        try {
+          return JSON.parse(decrypt(raw));
+        } catch (decryptErr) {
+          console.error(`[State] CRITICAL: Could not decrypt state-${employeeId}.json — MASTER_ENCRYPTION_KEY may have changed. Error: ${decryptErr.message}`);
+          console.error(`[State] Employee ${employeeId} will start fresh. Rename or delete state-${employeeId}.json to suppress this.`);
+          return null;
+        }
       }
       return JSON.parse(raw);
     } catch { return null; }
@@ -328,7 +334,7 @@ async function handleNewFile(auth, employee, file) {
   const docType = detectDocType(file.name);
   if (!docType) {
     console.log(`[Index] Skipping unrecognised file: ${file.name}`);
-    return;
+    return true; // not an error — file is intentionally ignored, keep in seenFileIds
   }
 
   // t5: employee has uploaded at least one document to the Drive folder
@@ -622,6 +628,11 @@ async function handleReply(auth, classified, rawMsg) {
       } else {
         console.warn(`[Index] manager_allocation reply for ${employee.name} had no allocation data extracted — checklist not advanced.`);
         activityLog.log(employee, 'manager_allocation_parse_failed', 'Gemini could not extract allocation details from reply');
+        await sendEmail({
+          to: process.env.HR_EMAIL,
+          subject: `HR Automation — Manager Reply Unreadable (${employee.name})`,
+          html: `<p>Hi HR,</p><p>A reply to the asset allocation request for <strong>${employee.name} (${employee.employeeId})</strong> was received but the automation could not extract allocation details from it.</p><p>Please ask the manager to reply again with: Asset Type, Office Location, and Supervisor Name — or manually mark tasks t18/t19/t20 via the status dashboard.</p><p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
+        }).catch(err => console.warn('[Index] Could not send manager parse-failure alert:', err.message));
       }
       break;
 

@@ -730,7 +730,7 @@ app.post('/mark-task/:employeeId/:taskId', markTaskLimiter, (req, res) => {
 
 // ─── Start the server ──────────────────────────────────────────────────────────
 function start(port) {
-  const p = port || process.env.WEBHOOK_PORT || 3000;
+  const p = port || parseInt(process.env.WEBHOOK_PORT, 10) || 3000;
   app.listen(p, () => {
     console.log(`[Webhook] Server listening on port ${p}`);
     console.log(`[Webhook] Drive push endpoint: ${process.env.WEBHOOK_BASE_URL || 'http://localhost:' + p}/drive-push`);
