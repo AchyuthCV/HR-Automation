@@ -292,7 +292,13 @@ function watchFolderPolling(auth, folderId, onNewFile, intervalMs = config.drive
         }
       }
     } catch (err) {
-      console.error('[Drive] Poll error:', err.message);
+      const status = err.code || (err.response && err.response.status);
+      if (status === 404) {
+        console.error(`[Drive] Folder ${folderId} not found (404) — polling stopped. Folder may have been deleted.`);
+        clearInterval(timer);
+      } else {
+        console.error('[Drive] Poll error:', err.message);
+      }
     }
   }
 

@@ -138,6 +138,9 @@ async function fetchMessageBody(auth, messageId) {
   });
 
   const msg = res.data;
+  if (!msg || !msg.payload) {
+    throw new Error(`Gmail returned malformed message for id ${messageId} — missing payload`);
+  }
   const headers = {};
   for (const h of msg.payload.headers || []) {
     headers[h.name.toLowerCase()] = h.value;
@@ -299,6 +302,8 @@ async function processGmailPush(auth, pushData, onReplyClassified) {
       }
     } catch (err) {
       console.error(`[Gmail] Error processing message ${msg.id}:`, err.message);
+      // Mark as read even on error so the same message is never retried on every push
+      await markAsRead(auth, msg.id).catch(() => {});
     }
   }
 }
