@@ -861,6 +861,7 @@ async function onboardEmployee(auth, employee) {
   // subsequent file uploads (checklist, instructions) land inside it, not in the root.
   try {
     const folderMap = await scaffoldEmployeeFolder(auth, employee.driveFolderId, employee.name, employee.employeeId);
+    employee.rootFolderId = employee.driveFolderId; // keep root (Alethea Onboarding/) for status sheet
     employee.driveFolderId = folderMap.root; // now points to Test User_EMP002/, not Alethea Onboarding/
   } catch (err) {
     console.error(`[Index] ✖ Could not scaffold Drive folder for ${employee.name} — check driveFolderId "${employee.driveFolderId}" is correct and accessible. (${err.message})`);
