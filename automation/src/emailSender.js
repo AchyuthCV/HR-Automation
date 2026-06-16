@@ -466,12 +466,22 @@ async function sendReviewSummaryRequest(employee, dayMark) {
   const managerEmail = contacts && contacts.managerEmail;
   const toEmail = [recruiterEmail, managerEmail].filter(Boolean).join(', ');
 
+  const xlsSection = dayMark === 30 ? `
+      <p style="color:#555;border-left:4px solid #1565c0;padding:8px 16px;background:#e3f2fd;">
+        <strong>Reminder:</strong> Please ensure the <strong>30-day catchup XLS tracker</strong> shared earlier has been filled in before replying.
+      </p>` : '';
+
+  const callNote = dayMark !== 30 ? `
+      <p style="color:#555;border-left:4px solid #ffa000;padding:8px 16px;background:#fffde7;">
+        <strong>Note:</strong> If the call has not happened yet, please reply with a proposed date and the system will send a reminder to reschedule.
+      </p>` : '';
+
   return sendEmail({
     to: toEmail,
-    subject: `${dayMark}-Day Review Summary Request — ${name}`,
+    subject: `${dayMark}-Day Review — Action Required for ${name} (${employeeId})`,
     html: `
       <p>Hi,</p>
-      <p>The <strong>${dayMark}-day review</strong> for <strong>${name}</strong> (ID: ${employeeId}) is due. Please conduct the review call and reply to this email with a brief summary covering the following points:</p>
+      <p>The <strong>${dayMark}-day review</strong> for <strong>${name}</strong> (ID: ${employeeId}) is due today. Please conduct the review call and reply to this email with a brief summary covering:</p>
       <ol>
         <li><strong>Performance so far</strong> — overall assessment</li>
         <li><strong>Key achievements</strong> — notable contributions or milestones</li>
@@ -479,9 +489,8 @@ async function sendReviewSummaryRequest(employee, dayMark) {
         <li><strong>Manager feedback</strong> — reporting manager's overall view</li>
         <li><strong>Next steps</strong> — goals or action items for the next period</li>
       </ol>
-      <p style="color:#555;border-left:4px solid #ffa000;padding:8px 16px;background:#fffde7;">
-        <strong>Note:</strong> If the call has not happened yet, please reply with a proposed date so the system can follow up accordingly.
-      </p>
+      ${xlsSection}
+      ${callNote}
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
     `,
   });

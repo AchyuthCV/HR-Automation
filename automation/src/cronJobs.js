@@ -208,11 +208,13 @@ function schedule5MonthProbation(employee, managerEmail) {
   return scheduleOnce(fireDate, `Pre-Probation — ${name}`, async () => {
     await sendPreProbationReminder(employee, managerEmail);
     console.log(`[Cron] Pre-probation reminder sent for ${name} (${employeeId})`);
-    if (employee._markTask) {
-      employee._markTask('t52');
-      employee._markTask('t55');
-    }
-    if (employee._auth) await markPreprobationDone(employee._auth, employee).catch(() => {});
+    // t52 and t55 are marked only when HR replies with the result (handleReply → pre_probation_result)
+    // Schedule 48h escalation if no reply arrives
+    employee.replyTimers = employee.replyTimers || {};
+    employee.replyTimers['probationNoReply'] = scheduleReplyDeadline(
+      employee, 'HR / Manager (Pre-Probation)', managerEmail, 48
+    );
+    if (employee._saveState) employee._saveState();
   });
 }
 
