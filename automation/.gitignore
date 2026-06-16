@@ -23,6 +23,9 @@ logs/
 Thumbs.db
 
 # ─── ngrok ────────────────────────────────────────────────────────────────────
+../ngrok.exe
+../ngrok.zip
+../ngrok
 ngrok.exe
 ngrok.zip
 ngrok
