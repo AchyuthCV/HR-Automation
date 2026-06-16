@@ -1,4 +1,5 @@
 require('dotenv').config();
+const config = require('./config');
 const { encrypt, decrypt, isEncryptionEnabled } = require('./encryption');
 const { getAuthClient, watchFolder, scaffoldEmployeeFolder, uploadChecklist, uploadInstructions, listFolderFiles } = require('./driveWatcher');
 const { verifyDocument, detectDocType } = require('./documentVerifier');
