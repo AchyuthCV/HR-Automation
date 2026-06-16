@@ -201,17 +201,31 @@ async function classifyReply(message) {
     return null;
   }
 
-  const prompt = `You are an HR automation assistant. Analyse this email and determine if it is a reply to an automated HR onboarding email.
+  const prompt = `You are an HR automation assistant. Analyse this email and determine if it is a substantive reply to an automated HR onboarding email.
 
 FROM: ${message.from}
 SUBJECT: ${message.subject}
 BODY:
 ${message.body}
 
+Reply type definitions — only use a type when the email CLEARLY contains the described information:
+- "official_email_created": IT team confirms a new official company email address was created for the employee (must include the actual email address)
+- "manager_allocation": Manager or HR confirms who the employee's manager/buddy is (must include a name)
+- "it_allocation": IT confirms assets/equipment allocated to employee (must mention specific assets or office location)
+- "bgv_report": Background verification agency or HR sends a formal BGV result (must contain explicit BGV/background check pass/fail status)
+- "induction_confirmed": HR or manager confirms induction/onboarding meeting happened (must confirm attendance or completion of a meeting)
+- "admin_allocation": Admin confirms seat, access card, or office setup (must mention physical access or seating)
+- "catchup_complete": Confirms a 30-day catchup call was completed
+- "review_complete": Confirms a 60-day or 90-day performance review was completed
+- "pre_probation_result": Confirms probation period outcome
+- "unknown": The email is related to onboarding but does not clearly match any above type
+
+Simple acknowledgements ("ok", "noted", "will do", "thanks") should be classified with isOnboardingReply=false unless they also contain substantive information matching one of the types above.
+
 Respond ONLY with a JSON object in this exact format:
 {
   "isOnboardingReply": true/false,
-  "replyType": one of ["official_email_created", "manager_allocation", "it_allocation", "bgv_report", "induction_confirmed", "admin_allocation", "catchup_complete", "review_complete", "pre_probation_result", "unknown"],
+  "replyType": one of the types above or null,
   "employeeId": "extracted employee ID from subject/body or null",
   "data": {
     "officialEmail": "extracted official email address or null",
@@ -224,7 +238,7 @@ Respond ONLY with a JSON object in this exact format:
   "confidence": "high/medium/low"
 }
 
-If this is not related to onboarding, set isOnboardingReply=false and use null for all other fields.`;
+If this is not related to onboarding or is just a simple acknowledgement, set isOnboardingReply=false and use null for all other fields.`;
 
   const model = genAI.getGenerativeModel({ model: config.geminiModel });
   const response = await callWithRetry(() => model.generateContent(prompt));

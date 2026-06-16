@@ -467,22 +467,52 @@ async function triggerNextStep(auth, employee, docType) {
       );
       markAndLog(employee, 't17');
 
-      // Send BGV request to recruiter (t23 = request sent, t24 = recruiter triggers it)
-      await sendBGVRequest(employee, contacts.recruiterEmail);
+      // BGV is initiated — mark that the process has started (t23, t24)
       markAndLog(employee, 't23');
       markAndLog(employee, 't24');
 
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));
 
-      // Schedule 48h reply-deadline timers for HR, manager, and BGV.
+      // Schedule 48h reply-deadline timers for HR and manager.
       // IT timer is started after the manager replies and the IT email is actually sent.
       employee.replyTimers = employee.replyTimers || {};
       employee.replyTimers.hr = scheduleReplyDeadline(employee, 'HR Team', process.env.HR_EMAIL);
       employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', contacts.managerEmail);
-      employee.replyTimers.bgv = scheduleReplyDeadline(employee, 'Recruiter (BGV)', contacts.recruiterEmail);
       // Persist immediately so these escalation timers survive a restart
       saveState(employee.employeeId, snapshotEmployee(employee));
+    }
+  }
+
+  // BGV auto-complete: when all required docs (aadhaar, pan) are verified AND optional docs
+  // (passportPhoto, payslip, relievingLetter) are either verified or marked N/A → BGV is done.
+  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan'];
+  const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'relievingLetter'];
+  const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', relievingLetter: 't58' };
+
+  if (!isTaskDone(checklist, 't25')) {
+    const vr = employee.verificationResults || {};
+    const requiredAllPassed = BGV_REQUIRED_DOCS.every(d => vr[d] && vr[d].valid);
+    const optionalAllSettled = BGV_OPTIONAL_DOCS.every(d => {
+      // settled = verified (valid) OR marked N/A (task done without a valid verification result)
+      return (vr[d] && vr[d].valid) || isTaskDone(checklist, BGV_OPTIONAL_TASKS[d]);
+    });
+
+    if (requiredAllPassed && optionalAllSettled) {
+      console.log(`[Index] All documents verified — auto-completing BGV for ${employee.name}`);
+      activityLog.log(employee, 'bgv_report_received', 'Auto-completed — all documents verified by AI');
+      markAndLog(employee, 't25');
+      markAndLog(employee, 't26');
+      await markBGVDone(auth, employee).catch(() => {});
+      await uploadChecklist(auth, employee.driveFolderId, checklist);
+      saveState(employee.employeeId, snapshotEmployee(employee));
+
+      if (isPhaseComplete(checklist, 'phase2')) {
+        const done = Object.values(checklist.phase2.tasks).map(t => t.label);
+        await sendPhaseCompletionSummary(employee, 'Phase 2 — Before DOJ (Automation)', done).catch(err =>
+          console.warn(`[Index] Phase 2 completion summary failed for ${employee.name}: ${err.message}`)
+        );
+      }
     }
   }
 
@@ -710,23 +740,6 @@ async function handleReply(auth, classified, rawMsg) {
           employee.replyTimers.itDoj.stop && employee.replyTimers.itDoj.stop();
           delete employee.replyTimers.itDoj;
         }
-      }
-      break;
-
-    case 'bgv_report':
-      markAndLog(employee, 't25');
-      markAndLog(employee, 't26');
-      activityLog.log(employee, 'bgv_report_received');
-      await markBGVDone(auth, employee).catch(() => {});
-      if (employee.replyTimers && employee.replyTimers.bgv) {
-        employee.replyTimers.bgv.stop && employee.replyTimers.bgv.stop();
-        delete employee.replyTimers.bgv;
-      }
-      if (isPhaseComplete(checklist, 'phase2')) {
-        const done = Object.values(checklist.phase2.tasks).map(t => t.label);
-        await sendPhaseCompletionSummary(employee, 'Phase 2 — Before DOJ (Automation)', done).catch(err =>
-          console.warn(`[Index] Phase 2 completion summary failed for ${employee.name}: ${err.message}`)
-        );
       }
       break;
 
