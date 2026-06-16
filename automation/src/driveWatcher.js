@@ -199,31 +199,10 @@ async function uploadInstructions(auth, folderId, employeeName) {
   return res.data.id;
 }
 
-// Upload / overwrite a JSON checklist file to Drive
-async function uploadChecklist(auth, folderId, checklistData, filename = 'Checklist1.json') {
-  const drive = google.drive({ version: 'v3', auth });
-  const content = JSON.stringify(checklistData, null, 2);
-  const media = { mimeType: 'application/json', body: content };
-
-  const existing = await apiWithRetry(() => drive.files.list({
-    q: `name='${filename}' and '${folderId}' in parents and trashed=false`,
-    fields: 'files(id)',
-  }), 'uploadChecklist:list');
-
-  if (existing.data.files.length > 0) {
-    const fileId = existing.data.files[0].id;
-    await apiWithRetry(() => drive.files.update({ fileId, media, fields: 'id' }), 'uploadChecklist:update');
-    console.log(`[Drive] Checklist updated (${fileId})`);
-    return fileId;
-  }
-
-  const res = await apiWithRetry(() => drive.files.create({
-    requestBody: { name: filename, parents: [folderId] },
-    media,
-    fields: 'id',
-  }), 'uploadChecklist:create');
-  console.log(`[Drive] Checklist created (${res.data.id})`);
-  return res.data.id;
+// Checklist is no longer uploaded to Drive — state is persisted locally via
+// encrypted state-EMPID.json files. This stub keeps all call sites working.
+async function uploadChecklist() {
+  return null;
 }
 
 // Build the expected sub-folder structure inside an employee's Drive folder
