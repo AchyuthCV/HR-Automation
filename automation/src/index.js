@@ -812,28 +812,30 @@ async function onboardEmployee(auth, employee) {
     restoreMilestonesAfterRestart(employee, employee.contacts, completedTasks, markTaskForEmployee);
   }
 
+  // Always scaffold folder structure and upload instructions on every startup —
+  // scaffoldEmployeeFolder checks for existing folders before creating, so this
+  // is safe to call repeatedly and ensures new subfolders are created for all employees.
+  try {
+    await scaffoldEmployeeFolder(auth, employee.driveFolderId, employee.name, employee.employeeId);
+  } catch (err) {
+    console.error(`[Index] ✖ Could not scaffold Drive folder for ${employee.name} — check driveFolderId "${employee.driveFolderId}" is correct and accessible. (${err.message})`);
+    activityLog.log(employee, 'scaffold_failed', `driveFolderId: ${employee.driveFolderId} — ${err.message}`);
+    return; // cannot continue without a working Drive folder
+  }
+  await uploadInstructions(auth, employee.driveFolderId, employee.name).catch(err =>
+    console.warn(`[Index] Could not upload instructions file for ${employee.name}: ${err.message}`)
+  );
+
   const alreadyStarted = isTaskDone(employee.checklist, 't4');
 
   if (!alreadyStarted) {
     console.log(`\n[Index] Starting onboarding for ${employee.name} (${employee.employeeId})`);
     activityLog.log(employee, 'onboarding_started', `DOJ: ${employee.doj}`);
 
-    // Step 1: Scaffold Drive folder structure
-    try {
-      await scaffoldEmployeeFolder(auth, employee.driveFolderId, employee.name, employee.employeeId);
-      markAndLog(employee, 't6');
-      markAndLog(employee, 't7');
-      markAndLog(employee, 't8');
-    } catch (err) {
-      console.error(`[Index] ✖ Could not scaffold Drive folder for ${employee.name} — check driveFolderId "${employee.driveFolderId}" is correct and accessible. (${err.message})`);
-      activityLog.log(employee, 'scaffold_failed', `driveFolderId: ${employee.driveFolderId} — ${err.message}`);
-      return; // cannot continue without a working Drive folder
-    }
-
-    // Step 1b: Upload upload instructions file so employee knows what to upload
-    await uploadInstructions(auth, employee.driveFolderId, employee.name).catch(err =>
-      console.warn(`[Index] Could not upload instructions file for ${employee.name}: ${err.message}`)
-    );
+    // Mark folder tasks done on first run
+    markAndLog(employee, 't6');
+    markAndLog(employee, 't7');
+    markAndLog(employee, 't8');
 
     // Step 2: Create status sheet and mark preonboarding initiated
     await getOrCreateStatusSheet(auth, employee).catch(() => {});
