@@ -155,7 +155,7 @@ function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, m
     if (employee._saveState) employee._saveState();
     // Also mark t47 when the 48h window expires (best-effort, same fire time)
     scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `60-Day No-Reply Mark — ${name}`, async () => {
-      if (!isTaskDone(employee.checklist, 't48')) {
+      if (!isTaskDone(employee.checklist, 't46')) {
         if (markTaskFn) markTaskFn('t47');
         console.log(`[Cron] 60-day no-reply: t47 marked for ${name}`);
       }
@@ -192,7 +192,7 @@ function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, m
     if (employee._saveState) employee._saveState();
     // Also mark t50 when the 48h window expires (best-effort, same fire time)
     scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `90-Day No-Reply Mark — ${name}`, async () => {
-      if (!isTaskDone(employee.checklist, 't51')) {
+      if (!isTaskDone(employee.checklist, 't49')) {
         if (markTaskFn) markTaskFn('t50');
         console.log(`[Cron] 90-day no-reply: t50 marked for ${name}`);
       }

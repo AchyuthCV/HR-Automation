@@ -424,6 +424,10 @@ async function handleNewFile(auth, employee, file) {
 // ─── Trigger next automation step after a document passes ─────────────────────
 async function triggerNextStep(auth, employee, docType) {
   const { checklist, contacts } = employee;
+  if (!contacts) {
+    console.error(`[Index] triggerNextStep: missing contacts for ${employee.name} — cannot proceed`);
+    return;
+  }
 
   // After all identity docs verified → request official email creation (t14)
   // Both aadhaar AND pan must pass before firing — check verificationResults, not just t12,
@@ -837,7 +841,7 @@ async function onboardEmployee(auth, employee) {
     // Step 6: Schedule 24h no-response alert
     employee.noResponseTimers['preOnboarding'] = scheduleNoResponseAlert(
       employee,
-      employee.contacts.recruiterEmail,
+      (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL,
       24
     );
 
