@@ -812,11 +812,14 @@ async function onboardEmployee(auth, employee) {
     restoreMilestonesAfterRestart(employee, employee.contacts, completedTasks, markTaskForEmployee);
   }
 
-  // Always scaffold folder structure and upload instructions on every startup —
-  // scaffoldEmployeeFolder checks for existing folders before creating, so this
-  // is safe to call repeatedly and ensures new subfolders are created for all employees.
+  // Always scaffold folder structure on every startup.
+  // scaffoldEmployeeFolder creates the "Name_EMPID" subfolder inside the root onboarding
+  // folder and returns a folderMap with the employee's own folder ID at folderMap.root.
+  // We update employee.driveFolderId to point to the employee's own folder so all
+  // subsequent file uploads (checklist, instructions) land inside it, not in the root.
   try {
-    await scaffoldEmployeeFolder(auth, employee.driveFolderId, employee.name, employee.employeeId);
+    const folderMap = await scaffoldEmployeeFolder(auth, employee.driveFolderId, employee.name, employee.employeeId);
+    employee.driveFolderId = folderMap.root; // now points to Test User_EMP002/, not Alethea Onboarding/
   } catch (err) {
     console.error(`[Index] ✖ Could not scaffold Drive folder for ${employee.name} — check driveFolderId "${employee.driveFolderId}" is correct and accessible. (${err.message})`);
     activityLog.log(employee, 'scaffold_failed', `driveFolderId: ${employee.driveFolderId} — ${err.message}`);
@@ -892,7 +895,6 @@ async function onboardEmployee(auth, employee) {
 
   // Also watch each document subfolder so uploads there are detected instantly
   const docSubfolders = ['Aadhaar', 'PAN', 'Offer_Letter', 'Passport_Photo', 'Payslip', 'Relieving_Letter'];
-  const { listFolderFiles: listFiles } = require('./driveWatcher');
   for (const subfolderName of docSubfolders) {
     try {
       const drive = require('googleapis').google.drive({ version: 'v3', auth });
