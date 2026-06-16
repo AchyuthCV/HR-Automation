@@ -351,60 +351,32 @@ async function sendInductionCalendarInvite(employee) {
 }
 
 // Template 15: Project intro meeting invite + intro sheet to manager + employee (t29/t31)
-async function sendProjectIntroInvite(employee) {
+async function sendProjectIntroInvite(employee, sheetUrl) {
   const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
   const managerEmail = contacts && contacts.managerEmail;
-  const toEmail = [officialEmail || personalEmail, managerEmail].filter(Boolean).join(', ');
-  const role = employee.role || employee.designation || 'New Joiner';
+  const recruiterEmail = contacts && contacts.recruiterEmail;
+  const toEmail = [officialEmail || personalEmail, managerEmail, recruiterEmail].filter(Boolean).join(', ');
+
+  const sheetSection = sheetUrl
+    ? `<p style="margin:16px 0;">
+        <a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">
+          Open Project Intro Sheet
+        </a>
+      </p>
+      <p style="color:#555;font-size:13px;">
+        <strong>Manager:</strong> Please open the sheet and fill in Key Projects, Initial Goals, Buddy/Mentor, and Team Name before the meeting.<br/>
+        <strong>Note:</strong> Employee access to this sheet will be removed after 48 hours — manager and recruiter retain access.
+      </p>`
+    : `<p style="color:#e65100;font-size:13px;">The project intro sheet could not be created automatically — please contact HR.</p>`;
 
   return sendEmail({
     to: toEmail,
-    subject: `Project Intro Meeting — ${name}`,
+    subject: `Project Intro Meeting Scheduled — ${name} (${employeeId})`,
     html: `
       <p>Hi,</p>
-      <p>A project introduction meeting has been scheduled for <strong>${name}</strong> (ID: ${employeeId}) during their first week at <strong>${process.env.COMPANY_NAME}</strong>.</p>
-      <p>Please coordinate with your manager to confirm the exact date and time. The meeting should cover initial project context, goals, and introductions to the team.</p>
-      <h3 style="margin-top:20px;font-family:Arial,sans-serif;">Project Intro Sheet</h3>
-      <p style="color:#555;font-size:13px;">Please fill in the highlighted columns before the meeting.</p>
-      <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;margin:12px 0;">
-        <thead>
-          <tr style="background:#1a73e8;color:#fff;">
-            <th style="padding:10px 12px;border:1px solid #1a73e8;text-align:left;">Field</th>
-            <th style="padding:10px 12px;border:1px solid #1a73e8;text-align:left;">Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;">Employee Name</td>
-            <td style="padding:8px 12px;border:1px solid #ddd;">${name}</td>
-          </tr>
-          <tr style="background:#f5f5f5;">
-            <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;">Role / Designation</td>
-            <td style="padding:8px 12px;border:1px solid #ddd;">${role}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;">Reporting Manager</td>
-            <td style="padding:8px 12px;border:1px solid #ddd;">${managerEmail || 'As assigned'}</td>
-          </tr>
-          <tr style="background:#f5f5f5;">
-            <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;">Date of Joining</td>
-            <td style="padding:8px 12px;border:1px solid #ddd;">${doj}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;color:#e65100;">Key Projects</td>
-            <td style="padding:8px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(To be filled by manager before meeting)</td>
-          </tr>
-          <tr style="background:#f5f5f5;">
-            <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;color:#e65100;">Initial Goals</td>
-            <td style="padding:8px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(To be filled by manager before meeting)</td>
-          </tr>
-          <tr>
-            <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;color:#e65100;">Buddy / Mentor Name</td>
-            <td style="padding:8px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(To be assigned)</td>
-          </tr>
-        </tbody>
-      </table>
-      <p style="color:#e65100;font-size:13px;"><strong>Action:</strong> Please fill in the <em>Key Projects</em>, <em>Initial Goals</em>, and <em>Buddy Name</em> columns and reply before the meeting.</p>
+      <p>A project introduction meeting has been scheduled for <strong>${name}</strong> (ID: ${employeeId}) at <strong>${process.env.COMPANY_NAME}</strong>.</p>
+      <p>The meeting will take place on the day of joining (post-lunch) and will cover initial project context, goals, team introductions, and buddy assignment.</p>
+      ${sheetSection}
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
     `,
   });

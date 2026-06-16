@@ -51,6 +51,7 @@ const {
   mark60DayDone,
   mark90DayDone,
   markPreprobationDone,
+  createProjectIntroSheet,
 } = require('./statusTracker');
 
 // ─── Employee registry ────────────────────────────────────────────────────────
@@ -126,6 +127,7 @@ function snapshotEmployee(employee) {
     checklist: employee.checklist,
     milestonesScheduled: employee.milestonesScheduled || false,
     statusSheetId: employee.statusSheetId || null,
+    projectIntroSheetId: employee.projectIntroSheetId || null,
     verificationResults: employee.verificationResults || {},
     replyTimerExpiry,
     officialEmail: employee.officialEmail || '',
@@ -161,6 +163,7 @@ function loadEmployees() {
         checklist: saved ? saved.checklist : buildDefaultChecklist(),
         milestonesScheduled: saved ? saved.milestonesScheduled : false,
         statusSheetId: saved ? (saved.statusSheetId || null) : null,
+        projectIntroSheetId: saved ? (saved.projectIntroSheetId || null) : null,
         verificationResults: saved ? (saved.verificationResults || {}) : {},
         replyTimerExpiry: saved ? (saved.replyTimerExpiry || {}) : {},
         phase: 'Phase2_BeforeDOJ',
@@ -507,9 +510,17 @@ async function triggerNextStep(auth, employee, docType) {
       await markHRInductionScheduled(auth, employee).catch(() => {});
     }
 
-    // t29/t30/t31/t32: Send project intro meeting invite + sheet to manager + employee
+    // t29/t30/t31/t32: Create project intro sheet, send invite + sheet link to manager + employee
     if (!isTaskDone(checklist, 't29')) {
-      await sendProjectIntroInvite(employee);
+      // Create the sheet first so the link can be included in the email
+      const sheetUrl = await createProjectIntroSheet(auth, employee).catch(err => {
+        console.warn(`[Index] Project intro sheet creation failed for ${employee.name}: ${err.message}`);
+        return null;
+      });
+      // Save sheetId immediately so it survives restart
+      saveState(employee.employeeId, snapshotEmployee(employee));
+
+      await sendProjectIntroInvite(employee, sheetUrl);
       await createProjectIntroEvent(auth, employee).catch(err => {
         console.warn(`[Index] Project intro calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
         activityLog.log(employee, 'calendar_event_failed', `Project intro: ${err.message}`);
@@ -519,6 +530,32 @@ async function triggerNextStep(auth, employee, docType) {
       markAndLog(employee, 't31');
       markAndLog(employee, 't32');
       await markProjectIntroScheduled(auth, employee).catch(() => {});
+
+      // Revoke employee's edit access to the sheet after 48 hours —
+      // manager and recruiter retain access to keep updating it
+      if (sheetUrl && employee.projectIntroSheetId) {
+        const empEmail = employee.officialEmail || employee.personalEmail;
+        if (empEmail) {
+          setTimeout(async () => {
+            try {
+              const { google } = require('googleapis');
+              const drive = google.drive({ version: 'v3', auth });
+              const perms = await drive.permissions.list({
+                fileId: employee.projectIntroSheetId,
+                fields: 'permissions(id,emailAddress)',
+              });
+              const empPerm = perms.data.permissions.find(p => p.emailAddress === empEmail);
+              if (empPerm) {
+                await drive.permissions.delete({ fileId: employee.projectIntroSheetId, permissionId: empPerm.id });
+                console.log(`[Index] Project intro sheet access revoked for ${employee.name} (${empEmail}) after 48h`);
+                activityLog.log(employee, 'project_intro_sheet_access_revoked', empEmail);
+              }
+            } catch (err) {
+              console.warn(`[Index] Could not revoke project intro sheet access for ${employee.name}: ${err.message}`);
+            }
+          }, 48 * 60 * 60 * 1000);
+        }
+      }
     }
 
     await uploadChecklist(auth, employee.driveFolderId, checklist);
@@ -1081,6 +1118,7 @@ async function main() {
       const saved = loadState(employee.employeeId);
       if (!employee.checklist) employee.checklist = saved ? saved.checklist : buildDefaultChecklist();
       if (!employee.statusSheetId && saved && saved.statusSheetId) employee.statusSheetId = saved.statusSheetId;
+      if (!employee.projectIntroSheetId && saved && saved.projectIntroSheetId) employee.projectIntroSheetId = saved.projectIntroSheetId;
       if (saved && saved.milestonesScheduled && !employee.milestonesScheduled) employee.milestonesScheduled = true;
       if (saved && saved.verificationResults) employee.verificationResults = saved.verificationResults;
       if (saved && saved.replyTimerExpiry) employee.replyTimerExpiry = saved.replyTimerExpiry;

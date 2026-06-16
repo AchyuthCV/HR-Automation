@@ -359,4 +359,156 @@ module.exports = {
   mark90DayDone,
   markPreprobationDone,
   revokeEmployeeSheetAccess,
+  createProjectIntroSheet,
 };
+
+// ─── Project Intro Sheet ───────────────────────────────────────────────────────
+// Creates a Google Sheet in the employee's Reports folder with all known details
+// pre-filled. Manager fills in Key Projects, Initial Goals, and Buddy Name.
+// Returns the sheet URL, or null on failure.
+async function createProjectIntroSheet(auth, employee) {
+  if (employee.projectIntroSheetId) {
+    // Already created — return the URL
+    return `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`;
+  }
+
+  const drive  = google.drive({ version: 'v3', auth });
+  const sheets = google.sheets({ version: 'v4', auth });
+  const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
+  const role = employee.role || employee.designation || '—';
+  const managerEmail = (contacts && contacts.managerEmail) || '—';
+  const recruiterEmail = (contacts && contacts.recruiterEmail) || '—';
+
+  try {
+    // Create spreadsheet
+    const spreadsheet = await apiWithRetry(() => sheets.spreadsheets.create({
+      requestBody: {
+        properties: { title: `Project Intro Sheet — ${name} (${employeeId})` },
+        sheets: [{ properties: { title: 'Project Intro' } }],
+      },
+    }), 'createProjectIntroSheet:create');
+
+    const spreadsheetId = spreadsheet.data.spreadsheetId;
+    const sheetId = spreadsheet.data.sheets[0].properties.sheetId;
+
+    // Pre-fill all known data; manager fills highlighted rows
+    const rows = [
+      ['Project Intro Sheet', `${name} (${employeeId})`],
+      [''],
+      ['Field', 'Value', 'Notes'],
+      ['Employee Name',     name,                          ''],
+      ['Employee ID',       employeeId,                    ''],
+      ['Role / Designation',role,                          ''],
+      ['Date of Joining',   doj,                           ''],
+      ['Official Email',    officialEmail || '(pending)',  ''],
+      ['Personal Email',    personalEmail || '—',          ''],
+      ['Reporting Manager', managerEmail,                  ''],
+      ['Recruiter',         recruiterEmail,                ''],
+      [''],
+      ['— To be filled by Manager before meeting —', '', ''],
+      ['Key Projects',      '', '(Please fill before meeting)'],
+      ['Initial Goals',     '', '(Please fill before meeting)'],
+      ['Buddy / Mentor',    '', '(Please assign)'],
+      ['Team Name',         '', '(Please fill)'],
+      [''],
+      ['— Review Updates (updated by automation) —', '', ''],
+      ['30-Day Review Summary', '', ''],
+      ['60-Day Review Summary', '', ''],
+      ['90-Day Review Summary', '', ''],
+    ];
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: 'Project Intro!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rows },
+    });
+
+    // Format: title row, headers, manager-fill section highlighted
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          // Title row — dark blue
+          {
+            repeatCell: {
+              range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+              cell: { userEnteredFormat: {
+                backgroundColor: { red: 0.1, green: 0.27, blue: 0.6 },
+                textFormat: { bold: true, fontSize: 13, foregroundColor: { red: 1, green: 1, blue: 1 } },
+              }},
+              fields: 'userEnteredFormat(backgroundColor,textFormat)',
+            },
+          },
+          // Column headers row
+          {
+            repeatCell: {
+              range: { sheetId, startRowIndex: 2, endRowIndex: 3 },
+              cell: { userEnteredFormat: {
+                backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+              }},
+              fields: 'userEnteredFormat(backgroundColor,textFormat)',
+            },
+          },
+          // Manager section header — orange highlight
+          {
+            repeatCell: {
+              range: { sheetId, startRowIndex: 12, endRowIndex: 13 },
+              cell: { userEnteredFormat: {
+                backgroundColor: { red: 1, green: 0.6, blue: 0.2 },
+                textFormat: { bold: true },
+              }},
+              fields: 'userEnteredFormat(backgroundColor,textFormat)',
+            },
+          },
+          // Manager-fill rows — light yellow background
+          {
+            repeatCell: {
+              range: { sheetId, startRowIndex: 13, endRowIndex: 17 },
+              cell: { userEnteredFormat: {
+                backgroundColor: { red: 1, green: 0.98, blue: 0.8 },
+              }},
+              fields: 'userEnteredFormat(backgroundColor)',
+            },
+          },
+          // Auto-resize columns A and B
+          { autoResizeDimensions: { dimensions: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 2 } } },
+        ],
+      },
+    });
+
+    // Move sheet into the employee's Reports subfolder if it exists, else root folder
+    const reportsFolder = await drive.files.list({
+      q: `name='Reports' and '${employee.driveFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'files(id)',
+    }).catch(() => null);
+    const targetFolderId = (reportsFolder && reportsFolder.data.files.length > 0)
+      ? reportsFolder.data.files[0].id
+      : employee.driveFolderId;
+
+    await drive.files.update({
+      fileId: spreadsheetId,
+      addParents: targetFolderId,
+      fields: 'id, parents',
+    });
+
+    // Share with manager and recruiter (edit access so they can fill it in)
+    const shareWith = [managerEmail, recruiterEmail, officialEmail || personalEmail].filter(e => e && e !== '—');
+    for (const email of [...new Set(shareWith)]) {
+      await drive.permissions.create({
+        fileId: spreadsheetId,
+        requestBody: { type: 'user', role: 'writer', emailAddress: email },
+        sendNotificationEmail: false,
+      }).catch(() => {});
+    }
+
+    employee.projectIntroSheetId = spreadsheetId;
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+    console.log(`[Status] Project intro sheet created for ${name}: ${sheetUrl}`);
+    return sheetUrl;
+  } catch (err) {
+    console.error(`[Status] createProjectIntroSheet failed for ${name}: ${err.message}`);
+    return null;
+  }
+}
