@@ -343,6 +343,11 @@ const OPTIONAL_DOCS = new Set(['payslip', 'relievingLetter']);
 
 // ─── Handler: new file detected in Drive folder ────────────────────────────────
 async function handleNewFile(auth, employee, file) {
+  // Skip folders — only process actual files
+  if (file.mimeType === 'application/vnd.google-apps.folder') {
+    return true;
+  }
+
   const docType = detectDocType(file.name);
   if (!docType) {
     console.log(`[Index] Skipping unrecognised file: ${file.name}`);
