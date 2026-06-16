@@ -236,10 +236,12 @@ app.post('/drive-push', async (req, res) => {
   // Always respond 200 immediately — Google retries on non-2xx
   res.sendStatus(200);
 
-  // Verify channel token matches a known employee — reject spoofed pushes
-  const employeeId = req.headers['x-goog-channel-token'];
+  // Verify channel token matches a known employee — reject spoofed pushes.
+  // Subfolder channels use tokens like "EMP001_Aadhaar" — strip the suffix to get the base ID.
+  const rawToken = req.headers['x-goog-channel-token'];
+  const employeeId = rawToken ? rawToken.split('_')[0] : null;
   if (!employeeId || !isValidEmployeeId(employeeId) || !_employeeRegistry[employeeId]) {
-    console.warn(`[Webhook] Drive push rejected — unknown or invalid channel token: ${employeeId}`);
+    console.warn(`[Webhook] Drive push rejected — unknown or invalid channel token: ${rawToken}`);
     return;
   }
 

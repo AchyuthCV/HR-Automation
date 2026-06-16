@@ -21,3 +21,8 @@ package-lock.json
 logs/
 .DS_Store
 Thumbs.db
+
+# ─── ngrok ────────────────────────────────────────────────────────────────────
+ngrok.exe
+ngrok.zip
+ngrok

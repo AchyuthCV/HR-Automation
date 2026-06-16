@@ -874,6 +874,12 @@ async function onboardEmployee(auth, employee) {
 
   const alreadyStarted = isTaskDone(employee.checklist, 't4');
 
+  // Always ensure the status sheet exists — even for employees being resumed after restart.
+  // getOrCreateStatusSheet is idempotent: it searches Drive before creating a new sheet.
+  if (!employee.statusSheetId) {
+    await getOrCreateStatusSheet(auth, employee).catch(() => {});
+  }
+
   if (!alreadyStarted) {
     console.log(`\n[Index] Starting onboarding for ${employee.name} (${employee.employeeId})`);
     activityLog.log(employee, 'onboarding_started', `DOJ: ${employee.doj}`);
@@ -883,8 +889,7 @@ async function onboardEmployee(auth, employee) {
     markAndLog(employee, 't7');
     markAndLog(employee, 't8');
 
-    // Step 2: Create status sheet and mark preonboarding initiated
-    await getOrCreateStatusSheet(auth, employee).catch(() => {});
+    // Mark preonboarding initiated on the status sheet
     await markPreonboardingInitiated(auth, employee).catch(() => {});
 
     // Step 3: Send pre-onboarding form
