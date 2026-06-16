@@ -883,10 +883,32 @@ async function onboardEmployee(auth, employee) {
     console.log(`[Index] Resuming onboarding for ${employee.name} (${employee.employeeId}) — already started, skipping welcome email`);
   }
 
-  // Always start watching the Drive folder (push or poll)
+  // Always start watching the root Drive folder (push or poll)
   await watchFolder(auth, employee.driveFolderId, employee.employeeId,
     (file) => handleNewFile(auth, employee, file)
   );
+
+  // Also watch each document subfolder so uploads there are detected instantly
+  const docSubfolders = ['Aadhaar', 'PAN', 'Offer_Letter', 'Passport_Photo', 'Payslip', 'Relieving_Letter'];
+  const { listFolderFiles: listFiles } = require('./driveWatcher');
+  for (const subfolderName of docSubfolders) {
+    try {
+      const drive = require('googleapis').google.drive({ version: 'v3', auth });
+      const res = await drive.files.list({
+        q: `name='${subfolderName}' and '${employee.driveFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: 'files(id)',
+      });
+      if (res.data.files && res.data.files.length > 0) {
+        const subFolderId = res.data.files[0].id;
+        await watchFolder(auth, subFolderId, `${employee.employeeId}_${subfolderName}`,
+          (file) => handleNewFile(auth, employee, file)
+        );
+        console.log(`[Index] Watching subfolder "${subfolderName}" for ${employee.name}`);
+      }
+    } catch (err) {
+      console.warn(`[Index] Could not watch subfolder "${subfolderName}" for ${employee.name}: ${err.message}`);
+    }
+  }
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
