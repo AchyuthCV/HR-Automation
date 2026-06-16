@@ -71,15 +71,62 @@ Only set valid=true if ALL three checks pass.`,
   "summary": "one sentence summary"
 }
 Only set valid=true if ALL three checks pass.`,
+
+  passportPhoto: `You are verifying a passport-size photograph for HR records. Check ALL of the following and respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "Passport Size Photo",
+  "checks": {
+    "faceVisible": true/false,
+    "plainBackground": true/false,
+    "imageNotBlurry": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Only set valid=true if ALL three checks pass.`,
+
+  payslip: `You are verifying a payslip or salary slip document. Check ALL of the following and respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "Payslip",
+  "checks": {
+    "legible": true/false,
+    "employeeNameVisible": true/false,
+    "salaryAmountVisible": true/false,
+    "monthYearVisible": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Only set valid=true if ALL four checks pass.`,
+
+  relievingLetter: `You are verifying a relieving letter or experience letter from a previous employer. Check ALL of the following and respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "Relieving Letter",
+  "checks": {
+    "legible": true/false,
+    "employeeNameVisible": true/false,
+    "companyNameVisible": true/false,
+    "signedOrStamped": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Only set valid=true if ALL four checks pass.`,
 };
 
 // Map filename keywords to document types
 function detectDocType(filename) {
   const lower = filename.toLowerCase();
-  if (lower.includes('aadhaar') || lower.includes('aadhar')) return 'aadhaar';
-  if (lower.includes('pan')) return 'pan';
-  if (lower.includes('offer') || lower.includes('appointment')) return 'offerLetter';
-  if (lower.includes('meeting') || lower.includes('screenshot') || lower.includes('induction')) return 'meetingScreenshot';
+  if (lower.includes('aadhaar') || lower.includes('aadhar') || lower.includes('uid')) return 'aadhaar';
+  if (lower.includes('pan') || lower.includes('pancard') || lower.includes('pan_card')) return 'pan';
+  if (lower.includes('offer') || lower.includes('appointment') || lower.includes('offer_letter')) return 'offerLetter';
+  if (lower.includes('meeting') || lower.includes('screenshot') || lower.includes('induction') || lower.includes('intro')) return 'meetingScreenshot';
+  if (lower.includes('passport') || lower.includes('photo') || lower.includes('headshot') || lower.includes('profile')) return 'passportPhoto';
+  if (lower.includes('payslip') || lower.includes('pay_slip') || lower.includes('salary') || lower.includes('salary_slip')) return 'payslip';
+  if (lower.includes('relieving') || lower.includes('relieve') || lower.includes('experience') || lower.includes('relieving_letter')) return 'relievingLetter';
   return null;
 }
 

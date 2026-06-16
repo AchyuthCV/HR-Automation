@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { encrypt, decrypt, isEncryptionEnabled } = require('./encryption');
-const { getAuthClient, watchFolder, scaffoldEmployeeFolder, uploadChecklist, listFolderFiles } = require('./driveWatcher');
+const { getAuthClient, watchFolder, scaffoldEmployeeFolder, uploadChecklist, uploadInstructions, listFolderFiles } = require('./driveWatcher');
 const { verifyDocument, detectDocType } = require('./documentVerifier');
 const {
   sendEmail,
@@ -208,6 +208,9 @@ function buildDefaultChecklist() {
         t9:  { label: 'Document verification report generated for recruiter', done: false },
         t10: { label: 'Reminder sent to joinee if document incorrect/illegible', done: false },
         t11: { label: 'Alert sent to recruiter — no response from joinee > 24h', done: false },
+        t56: { label: 'Passport size photo verified', done: false },
+        t57: { label: 'Last payslip verified (or marked N/A — not applicable)', done: false },
+        t58: { label: 'Relieving letter verified (or marked N/A — not applicable)', done: false },
         t12: { label: 'Document verification marked complete in Checklist1', done: false },
         t14: { label: 'Mail sent to HR to create official email ID and greythr login', done: false },
         t15: { label: 'HR responds with official email ID and greythr confirmation', done: false },
@@ -325,11 +328,17 @@ function isPhaseComplete(checklist, phaseKey) {
 
 // ─── Document → required field mapping ────────────────────────────────────────
 const DOC_TASK_MAP = {
-  aadhaar:         't12',
-  pan:             't12',
-  offerLetter:     't13',
-  meetingScreenshot: 't34',
+  aadhaar:          't12',
+  pan:              't12',
+  offerLetter:      't13',
+  meetingScreenshot:'t34',
+  passportPhoto:    't56',
+  payslip:          't57',
+  relievingLetter:  't58',
 };
+
+// Optional documents — auto-marked N/A if not uploaded within grace period
+const OPTIONAL_DOCS = new Set(['payslip', 'relievingLetter']);
 
 // ─── Handler: new file detected in Drive folder ────────────────────────────────
 async function handleNewFile(auth, employee, file) {
@@ -820,6 +829,11 @@ async function onboardEmployee(auth, employee) {
       return; // cannot continue without a working Drive folder
     }
 
+    // Step 1b: Upload upload instructions file so employee knows what to upload
+    await uploadInstructions(auth, employee.driveFolderId, employee.name).catch(err =>
+      console.warn(`[Index] Could not upload instructions file for ${employee.name}: ${err.message}`)
+    );
+
     // Step 2: Create status sheet and mark preonboarding initiated
     await getOrCreateStatusSheet(auth, employee).catch(() => {});
     await markPreonboardingInitiated(auth, employee).catch(() => {});
@@ -844,6 +858,24 @@ async function onboardEmployee(auth, employee) {
       (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL,
       24
     );
+
+    // Step 7: Schedule optional-doc N/A timers — if payslip/relieving letter not
+    // uploaded within grace period, auto-mark as N/A so the flow isn't blocked.
+    const graceDays = config.optionalDocGraceDays || 3;
+    const graceMs = graceDays * 24 * 60 * 60 * 1000;
+    const optionalDocTaskMap = { payslip: 't57', relievingLetter: 't58' };
+    const optionalDocLabels = { payslip: 'Payslip', relievingLetter: 'Relieving Letter' };
+    for (const [docType, taskId] of Object.entries(optionalDocTaskMap)) {
+      setTimeout(async () => {
+        if (!isTaskDone(employee.checklist, taskId)) {
+          console.log(`[Index] Optional doc "${docType}" not uploaded within ${graceDays} days for ${employee.name} — marking N/A`);
+          markAndLog(employee, taskId);
+          await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
+          saveState(employee.employeeId, snapshotEmployee(employee));
+          activityLog.log(employee, 'optional_doc_na', `${optionalDocLabels[docType]} not uploaded — marked N/A`);
+        }
+      }, graceMs);
+    }
 
     console.log(`[Index] Onboarding initiated for ${employee.name}\n`);
   } else {

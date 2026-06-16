@@ -44,7 +44,13 @@ module.exports = {
     pan:               ['pan', 'pancard', 'pan_card'],
     offerLetter:       ['offer', 'offerletter', 'offer_letter'],
     meetingScreenshot: ['meeting', 'screenshot', 'induction', 'intro'],
+    passportPhoto:     ['passport', 'photo', 'headshot', 'profile'],
+    payslip:           ['payslip', 'pay_slip', 'salary', 'salary_slip'],
+    relievingLetter:   ['relieving', 'relieve', 'experience', 'relieving_letter'],
   },
+
+  // ─── Optional documents — auto-marked N/A if not uploaded within this many days ──
+  optionalDocGraceDays: 3,
 
   // ─── Webhook file-change window (ms) ───────────────────────────────────────
   // How far back to look for changed Drive files on each push notification

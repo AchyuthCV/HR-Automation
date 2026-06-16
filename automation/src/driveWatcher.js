@@ -122,6 +122,77 @@ async function moveFileTo(auth, fileId, destinationFolderId) {
   }), `moveFileTo:update:${fileId}`);
 }
 
+// Upload a plain-text upload instructions file into the employee's root Drive folder.
+// Employees see this file when they open their folder and know exactly what to upload.
+async function uploadInstructions(auth, folderId, employeeName) {
+  const drive = google.drive({ version: 'v3', auth });
+  const filename = 'UPLOAD_INSTRUCTIONS.txt';
+  const content = [
+    `Hello ${employeeName},`,
+    ``,
+    `Welcome to Alethea! Please upload the following documents into this folder.`,
+    `The HR automation system will verify each document automatically and notify`,
+    `you if anything needs to be re-uploaded.`,
+    ``,
+    `REQUIRED DOCUMENTS (must be uploaded before your joining date):`,
+    `──────────────────────────────────────────────────────────────`,
+    `1. Aadhaar Card (front and back)`,
+    `   → Name the file with "aadhaar" in the filename  e.g. aadhaar_john.pdf`,
+    ``,
+    `2. PAN Card`,
+    `   → Name the file with "pan" in the filename  e.g. pan_john.jpg`,
+    ``,
+    `3. Signed Offer Letter`,
+    `   → Name the file with "offer" in the filename  e.g. offer_letter_john.pdf`,
+    ``,
+    `4. Passport Size Photo`,
+    `   → Name the file with "photo" in the filename  e.g. photo_john.jpg`,
+    ``,
+    `OPTIONAL DOCUMENTS (upload if applicable):`,
+    `──────────────────────────────────────────`,
+    `5. Last Payslip (required only if you were previously employed)`,
+    `   → Name the file with "payslip" in the filename  e.g. payslip_john.pdf`,
+    ``,
+    `6. Relieving Letter from previous employer (required if previously employed)`,
+    `   → Name the file with "relieving" in the filename  e.g. relieving_john.pdf`,
+    ``,
+    `TIPS:`,
+    `──────`,
+    `• Documents must be clearly legible — not blurry, not cropped.`,
+    `• Aadhaar: upload both front and back in a single image or PDF.`,
+    `• Photo: plain background, face clearly visible, recent photo.`,
+    `• If a document fails verification you will receive an email with the reason.`,
+    `• Optional docs (payslip, relieving letter) will be automatically marked`,
+    `  as N/A after 3 days if not uploaded — no action needed if not applicable.`,
+    ``,
+    `If you have any questions contact HR at ${process.env.HR_EMAIL || 'hr@aletheatech.com'}.`,
+    ``,
+    `— ${process.env.COMPANY_NAME || 'Alethea'} HR Automation`,
+  ].join('\n');
+
+  const media = { mimeType: 'text/plain', body: content };
+
+  const existing = await apiWithRetry(() => drive.files.list({
+    q: `name='${filename}' and '${folderId}' in parents and trashed=false`,
+    fields: 'files(id)',
+  }), 'uploadInstructions:list');
+
+  if (existing.data.files.length > 0) {
+    const fileId = existing.data.files[0].id;
+    await apiWithRetry(() => drive.files.update({ fileId, media, fields: 'id' }), 'uploadInstructions:update');
+    console.log(`[Drive] Upload instructions updated for ${employeeName}`);
+    return fileId;
+  }
+
+  const res = await apiWithRetry(() => drive.files.create({
+    requestBody: { name: filename, parents: [folderId] },
+    media,
+    fields: 'id',
+  }), 'uploadInstructions:create');
+  console.log(`[Drive] Upload instructions created for ${employeeName} (${res.data.id})`);
+  return res.data.id;
+}
+
 // Upload / overwrite a JSON checklist file to Drive
 async function uploadChecklist(auth, folderId, checklistData, filename = 'Checklist1.json') {
   const drive = google.drive({ version: 'v3', auth });
@@ -330,6 +401,7 @@ module.exports = {
   createSubFolder,
   moveFileTo,
   uploadChecklist,
+  uploadInstructions,
   scaffoldEmployeeFolder,
   watchFolder,
   watchFolderPolling,
