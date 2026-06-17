@@ -160,7 +160,7 @@ function loadEmployees() {
           itEmail: process.env.IT_EMAIL || process.env.HR_EMAIL,
         },
         // Restore checklist from state.json if it exists, otherwise start fresh
-        checklist: saved ? saved.checklist : buildDefaultChecklist(),
+        checklist: (() => { const cl = saved ? saved.checklist : buildDefaultChecklist(); migrateChecklist(cl); return cl; })(),
         milestonesScheduled: saved ? saved.milestonesScheduled : false,
         statusSheetId: saved ? (saved.statusSheetId || null) : null,
         projectIntroSheetId: saved ? (saved.projectIntroSheetId || null) : null,
@@ -332,6 +332,21 @@ function isPhaseComplete(checklist, phaseKey) {
   const phase = checklist[phaseKey];
   if (!phase) return false;
   return Object.values(phase.tasks).every(t => t.done);
+}
+
+// Patch any tasks present in the default checklist but missing from a saved one.
+// This handles employees whose state was saved before new tasks were added to the schema.
+function migrateChecklist(checklist) {
+  const defaults = buildDefaultChecklist();
+  for (const [phaseKey, phase] of Object.entries(defaults)) {
+    if (!checklist[phaseKey]) continue;
+    for (const [taskId, task] of Object.entries(phase.tasks)) {
+      if (!checklist[phaseKey].tasks[taskId]) {
+        checklist[phaseKey].tasks[taskId] = { ...task };
+        console.log(`[Checklist] Migrated missing task ${taskId}: "${task.label}"`);
+      }
+    }
+  }
 }
 
 // ─── Document → required field mapping ────────────────────────────────────────
@@ -1103,7 +1118,7 @@ async function main() {
       const saved = loadState(data.employeeId);
       const employee = {
         ...data,
-        checklist: saved ? saved.checklist : buildDefaultChecklist(),
+        checklist: (() => { const cl = saved ? saved.checklist : buildDefaultChecklist(); migrateChecklist(cl); return cl; })(),
         milestonesScheduled: saved ? (saved.milestonesScheduled || false) : false,
         statusSheetId: saved ? (saved.statusSheetId || null) : null,
         verificationResults: saved ? (saved.verificationResults || {}) : {},
