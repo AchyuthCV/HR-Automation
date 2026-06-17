@@ -1159,6 +1159,7 @@ async function main() {
 
       const saved = loadState(employee.employeeId);
       if (!employee.checklist) employee.checklist = saved ? saved.checklist : buildDefaultChecklist();
+      migrateChecklist(employee.checklist);
       if (!employee.statusSheetId && saved && saved.statusSheetId) employee.statusSheetId = saved.statusSheetId;
       if (!employee.projectIntroSheetId && saved && saved.projectIntroSheetId) employee.projectIntroSheetId = saved.projectIntroSheetId;
       if (saved && saved.milestonesScheduled && !employee.milestonesScheduled) employee.milestonesScheduled = true;
