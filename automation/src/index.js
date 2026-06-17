@@ -517,16 +517,16 @@ async function triggerNextStep(auth, employee, docType) {
 
   // BGV auto-complete: when all required docs are verified AND optional docs are either
   // verified or marked N/A → BGV is done.
-  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate', 'passportPhoto'];
-  const BGV_OPTIONAL_DOCS = ['payslip', 'relievingLetter', 'postgradCertificate'];
-  const BGV_OPTIONAL_TASKS = { payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
+  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate'];
+  const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'relievingLetter', 'postgradCertificate'];
+  const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
 
   if (!isTaskDone(checklist, 't25')) {
     const vr = employee.verificationResults || {};
     const requiredAllPassed = BGV_REQUIRED_DOCS.every(d => vr[d] && vr[d].valid);
     const optionalAllSettled = BGV_OPTIONAL_DOCS.every(d => {
-      // settled = verified (valid) OR marked N/A (task done without a valid verification result)
-      return (vr[d] && vr[d].valid) || isTaskDone(checklist, BGV_OPTIONAL_TASKS[d]);
+      // settled = verified (valid) OR marked N/A (task done) OR not yet uploaded (don't block BGV)
+      return (vr[d] && vr[d].valid) || isTaskDone(checklist, BGV_OPTIONAL_TASKS[d]) || !(vr[d]);
     });
 
     if (requiredAllPassed && optionalAllSettled) {
@@ -987,8 +987,10 @@ async function onboardEmployee(auth, employee) {
       const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'relievingLetter', 'postgradCertificate'];
       const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
       const requiredAllPassed = BGV_REQUIRED_DOCS.every(d => vr[d] && vr[d].valid);
+      // Optional docs are settled if verified OR task marked done/N/A OR not yet uploaded (grace period not expired)
+      // passportPhoto is optional — BGV proceeds without it if the 5 required docs pass
       const optionalAllSettled = BGV_OPTIONAL_DOCS.every(d =>
-        (vr[d] && vr[d].valid) || isTaskDone(employee.checklist, BGV_OPTIONAL_TASKS[d])
+        (vr[d] && vr[d].valid) || isTaskDone(employee.checklist, BGV_OPTIONAL_TASKS[d]) || !(vr[d])
       );
       if (requiredAllPassed && optionalAllSettled) {
         console.log(`[Index] All documents verified — auto-completing BGV for ${employee.name}`);
