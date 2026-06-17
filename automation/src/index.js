@@ -963,7 +963,7 @@ async function onboardEmployee(auth, employee) {
   );
 
   // Also watch each document subfolder so uploads there are detected instantly
-  const docSubfolders = ['Aadhaar', 'PAN', 'Offer_Letter', 'Passport_Photo', 'Payslip', 'Relieving_Letter'];
+  const docSubfolders = config.driveSubfolders.filter(sf => !['BGV', 'Meeting_Screenshots', 'Reports'].includes(sf));
   for (const subfolderName of docSubfolders) {
     try {
       const drive = require('googleapis').google.drive({ version: 'v3', auth });
