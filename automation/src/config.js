@@ -80,5 +80,5 @@ module.exports = {
 
   // ─── Gemini model ──────────────────────────────────────────────────────────
   // Used by documentVerifier.js and gmailWatcher.js
-  geminiModel: 'gemini-3.1-flash-lite',
+  geminiModel: 'gemini-2.0-flash',
 };

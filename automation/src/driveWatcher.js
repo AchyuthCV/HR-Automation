@@ -91,8 +91,9 @@ async function listFolderFiles(auth, folderId) {
 // Create a sub-folder inside a parent Drive folder
 async function createSubFolder(auth, parentFolderId, folderName) {
   const drive = google.drive({ version: 'v3', auth });
+  const safeName = folderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const existing = await apiWithRetry(() => drive.files.list({
-    q: `name='${folderName}' and '${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    q: `name='${safeName}' and '${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id, name)',
   }), `createSubFolder:list:${folderName}`);
   if (existing.data.files.length > 0) return existing.data.files[0].id;

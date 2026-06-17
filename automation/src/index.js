@@ -665,7 +665,6 @@ async function triggerNextStep(auth, employee, docType) {
       const markTaskForEmployee = (taskId) => markAndLog(employee, taskId);
       scheduleAllMilestones(employee, contacts, markTaskForEmployee);
       employee.milestonesScheduled = true;
-      markAndLog(employee, 't38');
       markAndLog(employee, 't39');
       markAndLog(employee, 't41');
       await uploadChecklist(auth, employee.driveFolderId, checklist);
@@ -683,8 +682,9 @@ async function triggerNextStep(auth, employee, docType) {
 
     // t35/t36: Send seat allocation request to Admin and IT, schedule 48h escalation timers
     employee.replyTimers = employee.replyTimers || {};
-    if (!isTaskDone(checklist, 't35')) {
-      await sendITAssetRequest(employee, contacts.itEmail, {}).catch(err =>
+    if (!isTaskDone(checklist, 't35') && !isTaskDone(checklist, 't20')) {
+      // Only send DOJ IT email if the pre-DOJ IT email (t20) was not already sent
+      await sendITAssetRequest(employee, contacts.itEmail, employee.assetDetails || {}).catch(err =>
         console.warn(`[Index] IT asset request email failed for ${employee.name}: ${err.message}`)
       );
       employee.replyTimers.itDoj = scheduleReplyDeadline(
@@ -839,7 +839,7 @@ async function handleReply(auth, classified, rawMsg) {
       const daysSinceDoj = Math.floor(
         (Date.now() - new Date(employee.doj).getTime()) / (1000 * 60 * 60 * 24)
       );
-      if (daysSinceDoj < 75) {
+      if (daysSinceDoj < 85) {
         markAndLog(employee, 't46'); markAndLog(employee, 't48');
         activityLog.log(employee, '60_day_review_complete');
         await mark60DayDone(auth, employee).catch(() => {});
@@ -847,7 +847,7 @@ async function handleReply(auth, classified, rawMsg) {
           employee.replyTimers['60dayNoReply'].stop && employee.replyTimers['60dayNoReply'].stop();
           delete employee.replyTimers['60dayNoReply'];
         }
-      } else if (daysSinceDoj < 120) {
+      } else if (daysSinceDoj < 135) {
         markAndLog(employee, 't49'); markAndLog(employee, 't51');
         activityLog.log(employee, '90_day_review_complete');
         await mark90DayDone(auth, employee).catch(() => {});
@@ -855,6 +855,9 @@ async function handleReply(auth, classified, rawMsg) {
           employee.replyTimers['90dayNoReply'].stop && employee.replyTimers['90dayNoReply'].stop();
           delete employee.replyTimers['90dayNoReply'];
         }
+      } else {
+        console.warn(`[Index] review_complete reply for ${employee.name} arrived at day ${daysSinceDoj} — outside expected 60/90-day windows, ignoring`);
+        activityLog.log(employee, 'review_complete_out_of_window', `day ${daysSinceDoj}`);
       }
       break;
     }
@@ -894,7 +897,7 @@ async function onboardEmployee(auth, employee) {
   if (employee.replyTimerExpiry) {
     // Timer key → checklist task ID that marks the awaited reply as received.
     // If the task is already done, the reply was received and the timer is moot — skip it.
-    const TIMER_DONE_TASK = { hr: 't15', manager: 't19', it: 't20', itDoj: 't21', induction: 't44', bgv: 't25' };
+    const TIMER_DONE_TASK = { hr: 't15', manager: 't19', it: 't20', itDoj: 't21', induction: 't33' };
     const now = Date.now();
     for (const [key, entry] of Object.entries(employee.replyTimerExpiry)) {
       const doneTask = TIMER_DONE_TASK[key];

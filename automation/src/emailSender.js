@@ -103,24 +103,25 @@ async function sendNoResponseAlert(employee, recruiterEmail) {
 // Template 4: Request to HR to create official email ID + greythr login
 async function sendOfficialEmailCreationRequest(employee) {
   const { name, employeeId, doj, personalEmail } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
     to: process.env.HR_EMAIL,
-    subject: `Action Required — Create Official Email & Greythr Login for ${name} (${employeeId})`,
+    subject: `Action Required — Create Official Email & Greythr Login for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi HR Team,</p>
-      <p>Pre-onboarding documents for <strong>${name}</strong> have been verified. Please create the following before DOJ on <strong>${doj}</strong>:</p>
+      <p>Pre-onboarding documents for <strong>${esc(name)}</strong> have been verified. Please create the following before DOJ on <strong>${esc(doj)}</strong>:</p>
       <ol>
-        <li>Official ${process.env.COMPANY_NAME} email ID</li>
+        <li>Official ${co} email ID</li>
         <li>Greythr login credentials</li>
       </ol>
       <ul>
-        <li>Name: ${name}</li>
-        <li>Employee ID: ${employeeId}</li>
-        <li>Personal Email: ${personalEmail}</li>
-        <li>Date of Joining: ${doj}</li>
+        <li>Name: ${esc(name)}</li>
+        <li>Employee ID: ${esc(employeeId)}</li>
+        <li>Personal Email: ${esc(personalEmail)}</li>
+        <li>Date of Joining: ${esc(doj)}</li>
       </ul>
       <p>Please reply with the official email ID and Greythr confirmation so we can proceed.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
 }
@@ -128,19 +129,20 @@ async function sendOfficialEmailCreationRequest(employee) {
 // Template 5: Asset allocation request to reporting manager
 async function sendAssetAllocationRequest(employee, managerEmail) {
   const { name, employeeId, doj } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
     to: managerEmail,
-    subject: `Action Required — Asset & Seat Allocation for ${name} (${employeeId})`,
+    subject: `Action Required — Asset & Seat Allocation for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>New team member <strong>${name}</strong> (ID: ${employeeId}) is joining on <strong>${doj}</strong>. Please advise on:</p>
+      <p>New team member <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is joining on <strong>${esc(doj)}</strong>. Please advise on:</p>
       <ol>
         <li>Asset allocation (laptop, peripherals, etc.)</li>
         <li>Office location / work site</li>
         <li>Supervisor / buddy allocation</li>
       </ol>
       <p>Please reply with the above details so we can coordinate with IT and Admin.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
 }
@@ -148,14 +150,17 @@ async function sendAssetAllocationRequest(employee, managerEmail) {
 // Template 6: IT asset request — matches Alethea format used by HR
 async function sendITAssetRequest(employee, itEmail, assetDetails) {
   const { name, doj } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
   const designation = employee.designation || employee.role || 'New Joinee';
-  const team = (employee.contacts && employee.contacts.teamName) || employee.team || employee.department || 'the Team';
-  const location = (assetDetails && assetDetails.officeLocation) || 'Office';
-  const itPersonName = (assetDetails && assetDetails.itPersonName) || 'IT Team';
+  const team = employee.team || employee.department || 'the Team';
+  const location = (employee.officeLocation) || (assetDetails && assetDetails.officeLocation) || 'Office';
+  // itPersonName: prefer employee.contacts, fallback to assetDetails, then generic
+  const itPersonName = (employee.contacts && employee.contacts.itPersonName) ||
+    (assetDetails && assetDetails.itPersonName) || 'IT Team';
 
   return sendEmail({
     to: itEmail,
-    subject: `Format for requesting assets for a new joinee`,
+    subject: `IT Asset Request — ${esc(name)} (DOJ: ${esc(doj)})`,
     html: `
       <p>Dear Team,</p>
       <p>
@@ -164,7 +169,7 @@ async function sendITAssetRequest(employee, itEmail, assetDetails) {
         on <strong>${esc(doj)}</strong>.
       </p>
       <p>@${esc(itPersonName)} &nbsp; Request you to advise on the IT Asset.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -172,14 +177,15 @@ async function sendITAssetRequest(employee, itEmail, assetDetails) {
 // Template 7: BGV initiation request to recruiter
 async function sendBGVRequest(employee, recruiterEmail) {
   const { name, employeeId, doj } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
     to: recruiterEmail,
-    subject: `Action Required — Initiate BGV for ${name} (${employeeId})`,
+    subject: `Action Required — Initiate BGV for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>Please initiate the Background Verification (BGV) for <strong>${name}</strong> (ID: ${employeeId}) joining on <strong>${doj}</strong>.</p>
+      <p>Please initiate the Background Verification (BGV) for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) joining on <strong>${esc(doj)}</strong>.</p>
       <p>Once initiated, please share the BGV report or confirmation by replying to this email.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
 }
@@ -187,14 +193,15 @@ async function sendBGVRequest(employee, recruiterEmail) {
 // Template 8: HR induction attendance confirmation
 async function sendHRInductionConfirmation(employee, recruiterEmail) {
   const { name, employeeId } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
     to: recruiterEmail,
-    subject: `Confirmation Required — HR Induction for ${name} (${employeeId})`,
+    subject: `Confirmation Required — HR Induction for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>Please confirm that the HR induction session for <strong>${name}</strong> (ID: ${employeeId}) has been completed.</p>
+      <p>Please confirm that the HR induction session for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) has been completed.</p>
       <p>Reply with <strong>"Confirmed"</strong> to mark this step complete in the onboarding checklist.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
 }
@@ -202,19 +209,20 @@ async function sendHRInductionConfirmation(employee, recruiterEmail) {
 // Template 10: 60/90-day review reminder
 async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, dayMark) {
   const { name, employeeId } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
     to: `${recruiterEmail}, ${managerEmail}`,
-    subject: `Reminder — ${dayMark}-Day Review for ${name} (${employeeId})`,
+    subject: `Reminder — ${dayMark}-Day Review for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>The <strong>${dayMark}-day review</strong> for <strong>${name}</strong> (ID: ${employeeId}) is due.</p>
+      <p>The <strong>${dayMark}-day review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due.</p>
       <p>Please schedule and conduct the review call. After the call:</p>
       <ol>
         <li>Update the project intro sheet with outcomes</li>
         <li>Reply to this email confirming the review was completed</li>
       </ol>
       <p>If the call cannot happen soon, reply with the new proposed date.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
 }
@@ -222,12 +230,13 @@ async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail
 // Template 11: Pre-probation reminder (5 months)
 async function sendPreProbationReminder(employee, managerEmail) {
   const { name, employeeId } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
     to: `${process.env.HR_EMAIL}, ${managerEmail}`,
-    subject: `Action Required — Pre-Probation Verification for ${name} (${employeeId})`,
+    subject: `Action Required — Pre-Probation Verification for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p><strong>${name}</strong> (ID: ${employeeId}) is approaching the end of their probation period.</p>
+      <p><strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is approaching the end of their probation period.</p>
       <p>Please complete the pre-probation verification:</p>
       <ul>
         <li>Performance review during probation</li>
@@ -236,7 +245,7 @@ async function sendPreProbationReminder(employee, managerEmail) {
         <li>Communicate decision to employee</li>
       </ul>
       <p>Reply to this email with <strong>"Pre-probation verification complete for [Employee ID]"</strong> once done. The system will automatically close this milestone.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
 }
@@ -244,17 +253,18 @@ async function sendPreProbationReminder(employee, managerEmail) {
 // Template 12: Phase completion summary to HR
 async function sendPhaseCompletionSummary(employee, phase, completedTasks) {
   const { name, employeeId } = employee;
-  const taskList = completedTasks.map(t => `<li>${t}</li>`).join('');
+  const co = esc(process.env.COMPANY_NAME || '');
+  const taskList = completedTasks.map(t => `<li>${esc(String(t))}</li>`).join('');
   return sendEmail({
     to: process.env.HR_EMAIL,
-    subject: `Onboarding Update — ${phase} Completed for ${name} (${employeeId})`,
+    subject: `Onboarding Update — ${esc(phase)} Completed for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi HR Team,</p>
-      <p>The following onboarding phase has been completed for <strong>${name}</strong> (ID: ${employeeId}):</p>
-      <p><strong>Phase: ${phase}</strong></p>
+      <p>The following onboarding phase has been completed for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}):</p>
+      <p><strong>Phase: ${esc(phase)}</strong></p>
       <ul>${taskList}</ul>
       <p>The system will now automatically proceed to the next phase.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
 }

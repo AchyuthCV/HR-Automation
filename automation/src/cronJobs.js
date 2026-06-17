@@ -86,15 +86,17 @@ function scheduleOnce(targetDate, label, fn) {
 
 // Schedule the onboarding survey to be sent on the 25th calendar day after DOJ,
 // adjusted to the next working day if it falls on a weekend.
-function scheduleOnboardingSurvey(employee) {
+function scheduleOnboardingSurvey(employee, markTaskFn) {
   const { name, employeeId, officialEmail, doj } = employee;
   const dojDate = new Date(doj);
   const surveyDate = ensureWorkingDay(addDays(dojDate, config.milestones.surveyday));
 
   return scheduleOnce(surveyDate, `Onboarding Survey — ${name}`, async () => {
     const { sendEmail } = require('./emailSender');
-    // Survey form link can be customised; using a placeholder for now
-    const surveyLink = process.env.ONBOARDING_SURVEY_LINK || '#survey-link';
+    const surveyLink = process.env.ONBOARDING_SURVEY_LINK;
+    const surveySection = surveyLink
+      ? `<p><a href="${surveyLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Complete Onboarding Survey</a></p>`
+      : `<p style="color:#e65100;"><strong>Note:</strong> The survey link has not been configured yet. HR will share it with you separately.</p>`;
     await sendEmail({
       to: officialEmail || employee.personalEmail,
       subject: `Your Onboarding Survey — ${process.env.COMPANY_NAME}`,
@@ -102,11 +104,15 @@ function scheduleOnboardingSurvey(employee) {
         <p>Dear ${name},</p>
         <p>You've been with us for 25 days! We'd love to hear about your onboarding experience.</p>
         <p>Please take 5 minutes to complete this survey:</p>
-        <p><a href="${surveyLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Complete Onboarding Survey</a></p>
+        ${surveySection}
         <p>Your feedback helps us improve the experience for future joiners.</p>
         <p>Regards,<br/>HR Team, ${process.env.COMPANY_NAME}</p>
       `,
     });
+    // Mark t38 only after the email is actually sent (not at schedule time)
+    // so the cron is correctly re-scheduled after a restart if it hasn't fired yet
+    if (markTaskFn) markTaskFn('t38');
+    if (employee._saveState) employee._saveState();
     console.log(`[Cron] Onboarding survey sent to ${name} (${employeeId})`);
   });
 }
@@ -272,7 +278,7 @@ function scheduleAllMilestones(employee, contacts, markTaskFn) {
   const { recruiterEmail, managerEmail, itEmail } = contacts;
 
   const tasks = [
-    scheduleOnboardingSurvey(employee),
+    scheduleOnboardingSurvey(employee, markTaskFn),
     schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, markTaskFn),
     schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, markTaskFn),
     schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, markTaskFn),
@@ -309,7 +315,7 @@ function restoreMilestonesAfterRestart(employee, contacts, completedMilestones, 
   const tasks = [];
 
   if (!done.has('t38')) {
-    const t = scheduleOnboardingSurvey(employee);
+    const t = scheduleOnboardingSurvey(employee, markTaskFn);
     if (t) tasks.push(t);
   } else {
     console.log(`[Cron]   Skipping onboarding survey (t38 already done)`);

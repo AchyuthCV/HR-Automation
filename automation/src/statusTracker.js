@@ -250,13 +250,13 @@ async function markPreonboardingInitiated(auth, employee) {
 }
 
 async function markDocumentsReceived(auth, employee, docType) {
-  // Don't downgrade from Done back to In Progress if docs already verified
+  // Don't downgrade if documents are already fully verified (row 6 = milestone index 3)
   const sheets = google.sheets({ version: 'v4', auth });
   try {
     const spreadsheetId = await getOrCreateStatusSheet(auth, employee);
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Status!B4',
+      range: 'Status!B6',
     });
     const currentStatus = (res.data.values && res.data.values[0] && res.data.values[0][0]) || '';
     if (currentStatus === STATUS.DONE) return;
@@ -269,7 +269,17 @@ async function markDocumentIssue(auth, employee, docType, reason) {
 }
 
 async function markDocumentsVerifiedOk(auth, employee) {
-  await updateMilestone(auth, employee, 2, STATUS.DONE, 'All documents verified');
+  // Only mark the "Documents not ok" row (index 2) as Done if it was previously set to NOT_OK
+  // (i.e. a rejection was issued). If no rejection ever happened, leave row 2 as Pending.
+  const sheets = google.sheets({ version: 'v4', auth });
+  try {
+    const spreadsheetId = await getOrCreateStatusSheet(auth, employee);
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!B5' });
+    const current = (res.data.values && res.data.values[0] && res.data.values[0][0]) || '';
+    if (current === STATUS.NOT_OK) {
+      await updateMilestone(auth, employee, 2, STATUS.DONE, 'Issue resolved — all documents verified');
+    }
+  } catch { /* fall through */ }
   await updateMilestone(auth, employee, 3, STATUS.DONE);
 }
 
