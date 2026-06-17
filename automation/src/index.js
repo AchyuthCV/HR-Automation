@@ -517,9 +517,9 @@ async function triggerNextStep(auth, employee, docType) {
 
   // BGV auto-complete: when all required docs are verified AND optional docs are either
   // verified or marked N/A → BGV is done.
-  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate'];
-  const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'relievingLetter', 'postgradCertificate'];
-  const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
+  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate', 'passportPhoto'];
+  const BGV_OPTIONAL_DOCS = ['payslip', 'relievingLetter', 'postgradCertificate'];
+  const BGV_OPTIONAL_TASKS = { payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
 
   if (!isTaskDone(checklist, 't25')) {
     const vr = employee.verificationResults || {};
@@ -978,6 +978,32 @@ async function onboardEmployee(auth, employee) {
     console.log(`[Index] Onboarding initiated for ${employee.name}\n`);
   } else {
     console.log(`[Index] Resuming onboarding for ${employee.name} (${employee.employeeId}) — already started, skipping welcome email`);
+
+    // On resume, check if BGV can be auto-completed (all required docs already verified,
+    // optional docs verified or task already marked done/N/A from a previous run).
+    if (!isTaskDone(employee.checklist, 't25')) {
+      const vr = employee.verificationResults || {};
+      const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate'];
+      const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'relievingLetter', 'postgradCertificate'];
+      const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
+      const requiredAllPassed = BGV_REQUIRED_DOCS.every(d => vr[d] && vr[d].valid);
+      const optionalAllSettled = BGV_OPTIONAL_DOCS.every(d =>
+        (vr[d] && vr[d].valid) || isTaskDone(employee.checklist, BGV_OPTIONAL_TASKS[d])
+      );
+      if (requiredAllPassed && optionalAllSettled) {
+        console.log(`[Index] All documents verified — auto-completing BGV for ${employee.name}`);
+        activityLog.log(employee, 'bgv_report_received', 'Auto-completed — all documents verified by AI');
+        markAndLog(employee, 't25');
+        markAndLog(employee, 't26');
+        await markBGVDone(auth, employee).catch(() => {});
+        await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
+        saveState(employee.employeeId, snapshotEmployee(employee));
+        if (isPhaseComplete(employee.checklist, 'phase2')) {
+          const done = Object.values(employee.checklist.phase2.tasks).map(t => t.label);
+          await sendPhaseCompletionSummary(employee, 'Phase 2 — Before DOJ (Automation)', done).catch(() => {});
+        }
+      }
+    }
   }
 
   // Always start watching the root Drive folder (push or poll)
