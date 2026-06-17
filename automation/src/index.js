@@ -929,7 +929,9 @@ async function onboardEmployee(auth, employee) {
   // Always ensure the status sheet exists — even for employees being resumed after restart.
   // getOrCreateStatusSheet is idempotent: it searches Drive before creating a new sheet.
   if (!employee.statusSheetId) {
-    await getOrCreateStatusSheet(auth, employee).catch(() => {});
+    await getOrCreateStatusSheet(auth, employee).catch(err =>
+      console.error(`[Status] Could not create status sheet for ${employee.name}: ${err.message}`)
+    );
   }
 
   if (!alreadyStarted) {

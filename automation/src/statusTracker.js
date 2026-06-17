@@ -78,6 +78,7 @@ async function getOrCreateStatusSheet(auth, employee) {
 
   // Status sheet goes in the root onboarding folder (visible to HR only, not employee)
   const targetFolderId = employee.rootFolderId || employee.driveFolderId;
+  console.log(`[Status] Creating sheet for ${employee.name} in folder ${targetFolderId}`);
 
   // Check if sheet already exists in root folder
   const existing = await apiWithRetry(() => drive.files.list({
@@ -102,10 +103,14 @@ async function getOrCreateStatusSheet(auth, employee) {
   const spreadsheetId = spreadsheet.data.spreadsheetId;
   const sheetId = spreadsheet.data.sheets[0].properties.sheetId;
 
-  // Move it into the root onboarding folder (HR-only view)
+  // Move it into the root onboarding folder (HR-only view).
+  // Must remove the default "My Drive" parent or the file stays in both places.
+  const fileMeta = await drive.files.get({ fileId: spreadsheetId, fields: 'parents' });
+  const currentParents = (fileMeta.data.parents || []).join(',');
   await drive.files.update({
     fileId: spreadsheetId,
     addParents: targetFolderId,
+    removeParents: currentParents,
     fields: 'id, parents',
   });
 
@@ -490,9 +495,12 @@ async function createProjectIntroSheet(auth, employee) {
       ? reportsFolder.data.files[0].id
       : employee.driveFolderId;
 
+    const introFileMeta = await drive.files.get({ fileId: spreadsheetId, fields: 'parents' });
+    const introCurrentParents = (introFileMeta.data.parents || []).join(',');
     await drive.files.update({
       fileId: spreadsheetId,
       addParents: targetFolderId,
+      removeParents: introCurrentParents,
       fields: 'id, parents',
     });
 
