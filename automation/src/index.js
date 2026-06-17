@@ -1230,10 +1230,12 @@ async function main() {
         checklist: (() => { const cl = saved ? saved.checklist : buildDefaultChecklist(); migrateChecklist(cl); return cl; })(),
         milestonesScheduled: saved ? (saved.milestonesScheduled || false) : false,
         statusSheetId: saved ? (saved.statusSheetId || null) : null,
+        projectIntroSheetId: saved ? (saved.projectIntroSheetId || null) : null,
         verificationResults: saved ? (saved.verificationResults || {}) : {},
         replyTimerExpiry: saved ? (saved.replyTimerExpiry || {}) : {},
         noResponseTimers: {},
         replyTimers: {},
+        processedFileIds: new Set(saved && saved.processedFileIds ? saved.processedFileIds : []),
       };
       await onboardEmployee(auth, employee);
     },
