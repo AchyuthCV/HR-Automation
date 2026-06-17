@@ -208,19 +208,20 @@ SUBJECT: ${message.subject}
 BODY:
 ${message.body}
 
-Reply type definitions — only use a type when the email CLEARLY contains the described information:
-- "official_email_created": IT team confirms a new official company email address was created for the employee (must include the actual email address)
-- "manager_allocation": Manager or HR confirms who the employee's manager/buddy is (must include a name)
-- "it_allocation": IT confirms assets/equipment allocated to employee (must mention specific assets or office location)
-- "bgv_report": Background verification agency or HR sends a formal BGV result (must contain explicit BGV/background check pass/fail status)
-- "induction_confirmed": HR or manager confirms induction/onboarding meeting happened (must confirm attendance or completion of a meeting)
-- "admin_allocation": Admin confirms seat, access card, or office setup (must mention physical access or seating)
+Reply type definitions — use the email SUBJECT as the primary signal, then body for confirmation:
+- "official_email_created": Reply to a "Create Official Email" request — must include an actual @company email address in the body
+- "manager_allocation": Reply to an "Asset & Seat Allocation" request sent TO a MANAGER — contains supervisor name, office location, asset type. This is the MANAGER confirming allocation plans BEFORE joining. Subject will contain "Asset & Seat Allocation".
+- "it_allocation": Reply to an "IT Asset" request sent TO the IT TEAM — IT confirms assets are physically ready/handed over. Subject will contain "IT Asset" or "IT Team". This happens AFTER manager_allocation.
+- "bgv_report": Reply containing explicit BGV/background verification pass or fail result
+- "induction_confirmed": Reply confirming HR induction meeting attendance or completion
+- "admin_allocation": Reply from Admin confirming physical seat or access card allocation
 - "catchup_complete": Confirms a 30-day catchup call was completed
 - "review_complete": Confirms a 60-day or 90-day performance review was completed
 - "pre_probation_result": Confirms probation period outcome
-- "unknown": The email is related to onboarding but does not clearly match any above type
+- "unknown": Related to onboarding but does not clearly match any above type
 
-Simple acknowledgements ("ok", "noted", "will do", "thanks") should be classified with isOnboardingReply=false unless they also contain substantive information matching one of the types above.
+IMPORTANT: If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". Subject is the strongest signal.
+Simple acknowledgements ("ok", "noted", "will do", "thanks") should be classified with isOnboardingReply=false unless they contain substantive information.
 
 Respond ONLY with a JSON object in this exact format:
 {
