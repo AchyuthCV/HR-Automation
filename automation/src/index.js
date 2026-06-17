@@ -975,14 +975,32 @@ async function onboardEmployee(auth, employee) {
     // Mark preonboarding initiated on the status sheet
     await markPreonboardingInitiated(auth, employee).catch(() => {});
 
-    // Step 3: Send pre-onboarding form
+    // Step 3: Send pre-onboarding form — 10 days before DOJ, or immediately if DOJ is within 10 days
     if (!employee.personalEmail) {
       console.error(`[Index] Cannot send pre-onboarding form to ${employee.name} — personalEmail is empty. Add it to employees.json and restart.`);
       activityLog.log(employee, 'pre_onboarding_skipped', 'personalEmail missing');
     } else {
-      await sendPreOnboardingForm(employee);
-      markAndLog(employee, 't4');
-      activityLog.log(employee, 'pre_onboarding_email_sent', employee.personalEmail);
+      const dojDate = new Date(employee.doj);
+      const daysUntilDoj = Math.ceil((dojDate - Date.now()) / (1000 * 60 * 60 * 24));
+      const sendDelayMs = daysUntilDoj > 10 ? (daysUntilDoj - 10) * 24 * 60 * 60 * 1000 : 0;
+
+      if (sendDelayMs > 0) {
+        const sendDate = new Date(Date.now() + sendDelayMs);
+        console.log(`[Index] Pre-onboarding form for ${employee.name} scheduled for ${sendDate.toDateString()} (10 days before DOJ)`);
+        markAndLog(employee, 't4'); // mark as scheduled
+        activityLog.log(employee, 'pre_onboarding_email_scheduled', `Sends ${sendDate.toDateString()}`);
+        setTimeout(async () => {
+          await sendPreOnboardingForm(employee).catch(err =>
+            console.warn(`[Index] Pre-onboarding form send failed for ${employee.name}: ${err.message}`)
+          );
+          activityLog.log(employee, 'pre_onboarding_email_sent', employee.personalEmail);
+        }, sendDelayMs);
+      } else {
+        // DOJ is within 10 days — send immediately
+        await sendPreOnboardingForm(employee);
+        markAndLog(employee, 't4');
+        activityLog.log(employee, 'pre_onboarding_email_sent', employee.personalEmail);
+      }
     }
 
     // Step 5: Save checklist to Drive and locally

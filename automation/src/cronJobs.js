@@ -84,11 +84,12 @@ function scheduleOnce(targetDate, label, fn) {
   return task;
 }
 
-// Schedule the onboarding survey to be sent on the 25th working day after DOJ
+// Schedule the onboarding survey to be sent on the 25th calendar day after DOJ,
+// adjusted to the next working day if it falls on a weekend.
 function scheduleOnboardingSurvey(employee) {
   const { name, employeeId, officialEmail, doj } = employee;
   const dojDate = new Date(doj);
-  const surveyDate = addWorkingDays(dojDate, config.milestones.surveyday);
+  const surveyDate = ensureWorkingDay(addDays(dojDate, config.milestones.surveyday));
 
   return scheduleOnce(surveyDate, `Onboarding Survey — ${name}`, async () => {
     const { sendEmail } = require('./emailSender');
