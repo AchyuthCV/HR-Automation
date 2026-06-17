@@ -1,7 +1,7 @@
 require('dotenv').config();
 const config = require('./config');
 const { encrypt, decrypt, isEncryptionEnabled } = require('./encryption');
-const { getAuthClient, watchFolder, scaffoldEmployeeFolder, uploadChecklist, uploadInstructions, listFolderFiles } = require('./driveWatcher');
+const { getAuthClient, watchFolder, watchFolderPolling, scaffoldEmployeeFolder, uploadChecklist, uploadInstructions, listFolderFiles } = require('./driveWatcher');
 const { verifyDocument, detectDocType } = require('./documentVerifier');
 const {
   sendEmail,
@@ -977,24 +977,23 @@ async function onboardEmployee(auth, employee) {
     (file) => handleNewFile(auth, employee, file)
   );
 
-  // Also watch each document subfolder so uploads there are detected instantly
+  // Poll each document subfolder — push channels are only registered for the root folder
+  // to avoid hitting Drive's per-user push channel quota.
   const docSubfolders = config.driveSubfolders.filter(sf => !['BGV', 'Meeting_Screenshots', 'Reports'].includes(sf));
+  const drive = require('googleapis').google.drive({ version: 'v3', auth });
   for (const subfolderName of docSubfolders) {
     try {
-      const drive = require('googleapis').google.drive({ version: 'v3', auth });
       const res = await drive.files.list({
         q: `name='${subfolderName}' and '${employee.driveFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         fields: 'files(id)',
       });
       if (res.data.files && res.data.files.length > 0) {
         const subFolderId = res.data.files[0].id;
-        await watchFolder(auth, subFolderId, `${employee.employeeId}_${subfolderName}`,
-          (file) => handleNewFile(auth, employee, file)
-        );
-        console.log(`[Index] Watching subfolder "${subfolderName}" for ${employee.name}`);
+        watchFolderPolling(auth, subFolderId, (file) => handleNewFile(auth, employee, file));
+        console.log(`[Index] Polling subfolder "${subfolderName}" for ${employee.name}`);
       }
     } catch (err) {
-      console.warn(`[Index] Could not watch subfolder "${subfolderName}" for ${employee.name}: ${err.message}`);
+      console.warn(`[Index] Could not poll subfolder "${subfolderName}" for ${employee.name}: ${err.message}`);
     }
   }
 }
