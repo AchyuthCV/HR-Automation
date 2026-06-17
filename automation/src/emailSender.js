@@ -145,23 +145,26 @@ async function sendAssetAllocationRequest(employee, managerEmail) {
   });
 }
 
-// Template 6: IT asset request
+// Template 6: IT asset request — matches Alethea format used by HR
 async function sendITAssetRequest(employee, itEmail, assetDetails) {
-  const { name, employeeId, doj } = employee;
+  const { name, doj } = employee;
+  const designation = employee.designation || employee.role || 'New Joinee';
+  const team = (employee.contacts && employee.contacts.teamName) || employee.team || employee.department || 'the Team';
+  const location = (assetDetails && assetDetails.officeLocation) || 'Office';
+  const itPersonName = (assetDetails && assetDetails.itPersonName) || 'IT Team';
+
   return sendEmail({
     to: itEmail,
-    subject: `Action Required — IT Asset Setup for ${name} (${employeeId}) joining ${doj}`,
+    subject: `Format for requesting assets for a new joinee`,
     html: `
-      <p>Hi IT Team,</p>
-      <p>Please arrange IT assets and access for <strong>${name}</strong> (ID: ${employeeId}) joining on <strong>${doj}</strong>:</p>
-      <ul>
-        <li>Asset Type: ${assetDetails.assetType || 'As per standard allocation'}</li>
-        <li>Office Location: ${assetDetails.officeLocation || 'TBD'}</li>
-        <li>Access Card: Required</li>
-        <li>System Access: Email, Internal Tools</li>
-      </ul>
-      <p>Please reply confirming asset allocation and access card issuance.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Dear Team,</p>
+      <p>
+        Candidate <strong>${esc(name)}</strong> (<strong>${esc(designation)}</strong>) is Joining the
+        <strong>${esc(team)}</strong> and will be joining us in office (<strong>${esc(location)}</strong>)
+        on <strong>${esc(doj)}</strong>.
+      </p>
+      <p>@${esc(itPersonName)} &nbsp; Request you to advise on the IT Asset.</p>
+      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
     `,
   });
 }
