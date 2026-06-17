@@ -451,26 +451,34 @@ async function sendCatchupXLSEmail(employee) {
         // Row 16: Summary
       ];
 
-      const buildTrackingData = (monthLabel) => [
-        [monthLabel, '', ''],
-        ['Tasks Assigned', 'Task/ Training 1: Completion Percentage: Mention percentage only (For example 100% )Proficiency achieved on the tasks completed', ''],
-        ['', '', ''],
-        ['', '', ''],
-        ['', "Lead's Observations on the tasks assigned", 'Suggestions for improvements from the lead'],
-        ['PERSONAL QUALITY\n1.Timely and accurate completion of activities with desired standards\n2.Takes initiative and is innovative\n3.Flexible and effective in taking up new challenges\n4.Response time', '', ''],
-        ['TEAMWORK\nCo-operation with other team members', '', ''],
-        ['LEADERSHIP\nAbility to plan\nOrganize\nDelegate\nControl', '', ''],
-        ['COMMUNICATIONClarity  and Conciseness in one-to-one and group discussions', '', ''],
-        ['Ownership & Accountability', '', ''],
-        ['', '', ''],
-        ['', '', ''],
-        ['Filled by Recruiter', 'Filled by Recruiter', ''],
-        ['Do you have any other concerns apart from technical output which is impacting the work currently ?', '', ''],
-        ['Do you have any concerns on the time taken to complete the assigned tasks/training and/or the quality of the output?', '', ''],
-        ['', '', ''],
-        ['Summary', '', ''],
-        ['', '', ''],
-      ];
+      // Month -1: 2 recruiter questions. Month -2 and -3: adds probation question.
+      const buildTrackingData = (monthLabel) => {
+        const hasProbationQ = monthLabel !== 'Tracking - Month -1';
+        const rows = [
+          [monthLabel, '', ''],
+          ['Tasks Assigned', 'Task/ Training 1: Completion Percentage: Mention percentage only (For example 100% )Proficiency achieved on the tasks completed: Task/ Training 2:', ''],
+          ['', '', ''],
+          ['', '', ''],
+          ['', "Lead's Observations on the tasks assigned", 'Suggestions for improvements from the lead'],
+          ['PERSONAL QUALITY\n1.Timely and accurate completion of activities with desired standards\n2.Takes initiative and is innovative\n3.Flexible and effective in taking up new challenges\n4.Response time', '', ''],
+          ['TEAMWORK\nCo-operation with other team members', '', ''],
+          ['LEADERSHIP\nAbility to plan\nOrganize\nDelegate\nControl', '', ''],
+          ['COMMUNICATIONClarity  and Conciseness in one-to-one and group discussions', '', ''],
+          ['Ownership & Accountability', '', ''],
+          ['', '', ''],
+          ['', '', ''],
+          ['Filled by Recruiter', 'Filled by Recruiter', ''],
+          ['Do you have any other concerns apart from technical output which is impacting the work currently ?', '', ''],
+          ['Do you have any concerns on the time taken to complete the assigned tasks/training and/or the quality of the output?', '', ''],
+        ];
+        if (hasProbationQ) {
+          rows.push(['Do you feel the probation will be confirmed or will it be extended ?', '', '']);
+        }
+        rows.push(['', '', '']);
+        rows.push(['Summary', '', '']);
+        rows.push(['', '', '']);
+        return rows;
+      };
 
       for (const tab of ['Tracking - Month -1', 'Tracking - Month -2', 'Tracking - Month -3']) {
         await sheets.spreadsheets.values.update({
