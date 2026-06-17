@@ -43,6 +43,18 @@ function ensureWorkingDay(date) {
   return d;
 }
 
+// Return a Date that is `workingDays` working days (Mon–Fri) after the given Date
+function addWorkingDays(date, workingDays) {
+  const d = new Date(date);
+  let added = 0;
+  while (added < workingDays) {
+    d.setDate(d.getDate() + 1);
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) added++; // skip Saturday (6) and Sunday (0)
+  }
+  return d;
+}
+
 // Convert a Date to a node-cron expression "minute hour day month *"
 function dateToCron(date) {
   return `${date.getMinutes()} ${date.getHours()} ${date.getDate()} ${date.getMonth() + 1} *`;
@@ -72,11 +84,11 @@ function scheduleOnce(targetDate, label, fn) {
   return task;
 }
 
-// Schedule the onboarding survey to be sent on day 25 (working day)
+// Schedule the onboarding survey to be sent on the 25th working day after DOJ
 function scheduleOnboardingSurvey(employee) {
   const { name, employeeId, officialEmail, doj } = employee;
   const dojDate = new Date(doj);
-  const surveyDate = ensureWorkingDay(addDays(dojDate, config.milestones.surveyday));
+  const surveyDate = addWorkingDays(dojDate, config.milestones.surveyday);
 
   return scheduleOnce(surveyDate, `Onboarding Survey — ${name}`, async () => {
     const { sendEmail } = require('./emailSender');

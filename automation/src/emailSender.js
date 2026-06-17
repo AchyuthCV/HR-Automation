@@ -382,19 +382,121 @@ async function sendProjectIntroInvite(employee, sheetUrl) {
   });
 }
 
-// Template 16: 30-day catchup tracker — inline HTML table to recruiter + manager (t40)
+// Template 16: 30-day catchup tracker — creates a Google Sheet in Drive + emails link to recruiter + manager (t40)
 async function sendCatchupXLSEmail(employee) {
-  const { name, employeeId, contacts } = employee;
+  const { name, employeeId, contacts, driveFolderId } = employee;
   const recruiterEmail = contacts && contacts.recruiterEmail;
   const managerEmail = contacts && contacts.managerEmail;
   const toEmail = [recruiterEmail, managerEmail].filter(Boolean).join(', ');
+
+  // Create catchup tracker Google Sheet in employee's Drive folder
+  let sheetUrl = null;
+  if (employee._auth && driveFolderId) {
+    try {
+      const { google } = require('googleapis');
+      const sheets = google.sheets({ version: 'v4', auth: employee._auth });
+      const drive = google.drive({ version: 'v3', auth: employee._auth });
+
+      const spreadsheet = await sheets.spreadsheets.create({
+        requestBody: {
+          properties: { title: `30-Day Catchup Tracker — ${name} (${employeeId})` },
+          sheets: [{ properties: { title: 'Catchup Tracker' } }],
+        },
+      });
+      const spreadsheetId = spreadsheet.data.spreadsheetId;
+      const sheetId = spreadsheet.data.sheets[0].properties.sheetId;
+
+      // Write tracker rows
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: 'Catchup Tracker!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          values: [
+            ['30-Day Catchup Tracker', `${name} (${employeeId})`],
+            [],
+            ['Category', 'Notes / Feedback'],
+            ['Onboarding experience', ''],
+            ['Understanding of role', ''],
+            ['Challenges faced', ''],
+            ['Initial performance feedback', ''],
+            ['Action items', ''],
+            [],
+            ['Filled by', ''],
+            ['Date of call', ''],
+          ],
+        },
+      });
+
+      // Format: title row dark blue, header row dark, data rows alternating
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              repeatCell: {
+                range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+                cell: { userEnteredFormat: {
+                  backgroundColor: { red: 0.1, green: 0.27, blue: 0.6 },
+                  textFormat: { bold: true, fontSize: 13, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                }},
+                fields: 'userEnteredFormat(backgroundColor,textFormat)',
+              },
+            },
+            {
+              repeatCell: {
+                range: { sheetId, startRowIndex: 2, endRowIndex: 3 },
+                cell: { userEnteredFormat: {
+                  backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                  textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                }},
+                fields: 'userEnteredFormat(backgroundColor,textFormat)',
+              },
+            },
+            { autoResizeDimensions: { dimensions: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 2 } } },
+          ],
+        },
+      });
+
+      // Move into employee's Drive folder
+      const fileMeta = await drive.files.get({ fileId: spreadsheetId, fields: 'parents' });
+      const currentParents = (fileMeta.data.parents || []).join(',');
+      await drive.files.update({
+        fileId: spreadsheetId,
+        addParents: driveFolderId,
+        removeParents: currentParents,
+        fields: 'id, parents',
+      });
+
+      // Share with recruiter and manager (edit access)
+      const shareWith = [recruiterEmail, managerEmail].filter(Boolean);
+      for (const email of [...new Set(shareWith)]) {
+        await drive.permissions.create({
+          fileId: spreadsheetId,
+          requestBody: { type: 'user', role: 'writer', emailAddress: email },
+          sendNotificationEmail: false,
+        }).catch(() => {});
+      }
+
+      sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+      console.log(`[Email] Catchup XLS sheet created for ${name}: ${sheetUrl}`);
+    } catch (err) {
+      console.warn(`[Email] Could not create catchup XLS sheet for ${name}: ${err.message}`);
+    }
+  }
+
+  const sheetSection = sheetUrl
+    ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Catchup Tracker Sheet</a></p>
+       <p style="color:#555;font-size:13px;">The sheet has been saved in ${esc(name)}'s onboarding folder. Please fill it in during or after the call.</p>`
+    : `<p style="color:#e65100;">The catchup tracker sheet could not be created automatically — please create it manually.</p>`;
 
   return sendEmail({
     to: toEmail,
     subject: `30-Day Catchup Tracker — ${name} (${employeeId})`,
     html: `
       <p>Hi,</p>
-      <p>The 30-day catchup call for <strong>${name}</strong> (ID: ${employeeId}) is approaching. Please use the tracker below during or after the call and <strong>reply with the filled details</strong>.</p>
+      <p>The 30-day catchup call for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is approaching. Please use the tracker below during or after the call and <strong>reply with the filled details</strong>.</p>
+      ${sheetSection}
       <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;margin:16px 0;">
         <thead>
           <tr style="background:#1a73e8;color:#fff;">
@@ -403,29 +505,14 @@ async function sendCatchupXLSEmail(employee) {
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Onboarding experience</td>
-            <td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td>
-          </tr>
-          <tr style="background:#f5f5f5;">
-            <td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Understanding of role</td>
-            <td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Challenges faced</td>
-            <td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td>
-          </tr>
-          <tr style="background:#f5f5f5;">
-            <td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Initial performance feedback</td>
-            <td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Action items</td>
-            <td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td>
-          </tr>
+          <tr><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Onboarding experience</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Understanding of role</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
+          <tr><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Challenges faced</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Initial performance feedback</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
+          <tr><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Action items</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
         </tbody>
       </table>
-      <p>Please fill in the above table and reply to this email once the 30-day catchup call is complete.</p>
+      <p>Please fill in the above and reply to this email once the 30-day catchup call is complete.</p>
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
     `,
   });

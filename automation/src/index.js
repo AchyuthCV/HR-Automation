@@ -549,6 +549,21 @@ async function triggerNextStep(auth, employee, docType) {
       markAndLog(employee, 't25');
       markAndLog(employee, 't26');
       await markBGVDone(auth, employee).catch(() => {});
+
+      // Notify recruiter that BGV is complete so they have a record (t23/t24 already marked)
+      const bgvRecipient = (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL;
+      await sendEmail({
+        to: bgvRecipient,
+        subject: `BGV Complete — ${employee.name} (${employee.employeeId})`,
+        html: `
+          <p>Hi,</p>
+          <p>Background Verification (BGV) for <strong>${employee.name}</strong> (ID: ${employee.employeeId}) has been automatically completed based on document verification.</p>
+          <p>All required documents (Aadhaar, PAN, 10th marksheet, 12th marksheet, Degree Certificate) have been verified successfully by the automation system.</p>
+          <p>No further action is required for BGV. The onboarding checklist has been updated.</p>
+          <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+        `,
+      }).catch(err => console.warn(`[Index] BGV completion email failed for ${employee.name}: ${err.message}`));
+
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));
 
@@ -1022,6 +1037,20 @@ async function onboardEmployee(auth, employee) {
         markAndLog(employee, 't25');
         markAndLog(employee, 't26');
         await markBGVDone(auth, employee).catch(() => {});
+
+        const bgvRecipient = (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL;
+        await sendEmail({
+          to: bgvRecipient,
+          subject: `BGV Complete — ${employee.name} (${employee.employeeId})`,
+          html: `
+            <p>Hi,</p>
+            <p>Background Verification (BGV) for <strong>${employee.name}</strong> (ID: ${employee.employeeId}) has been automatically completed based on document verification.</p>
+            <p>All required documents (Aadhaar, PAN, 10th marksheet, 12th marksheet, Degree Certificate) have been verified successfully by the automation system.</p>
+            <p>No further action is required for BGV. The onboarding checklist has been updated.</p>
+            <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+          `,
+        }).catch(err => console.warn(`[Index] BGV completion email failed for ${employee.name}: ${err.message}`));
+
         await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
         saveState(employee.employeeId, snapshotEmployee(employee));
         if (isPhaseComplete(employee.checklist, 'phase2')) {
