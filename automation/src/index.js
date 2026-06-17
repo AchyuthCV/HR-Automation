@@ -215,6 +215,10 @@ function buildDefaultChecklist() {
         t56: { label: 'Passport size photo verified', done: false },
         t57: { label: 'Last payslip verified (or marked N/A — not applicable)', done: false },
         t58: { label: 'Relieving letter verified (or marked N/A — not applicable)', done: false },
+        t59: { label: '10th marksheet verified', done: false },
+        t60: { label: '12th/Diploma marksheet verified', done: false },
+        t61: { label: 'Graduation degree certificate verified', done: false },
+        t62: { label: 'Post graduation certificate verified (or marked N/A — not applicable)', done: false },
         t12: { label: 'Document verification marked complete in Checklist1', done: false },
         t14: { label: 'Mail sent to HR to create official email ID and greythr login', done: false },
         t15: { label: 'HR responds with official email ID and greythr confirmation', done: false },
@@ -332,17 +336,21 @@ function isPhaseComplete(checklist, phaseKey) {
 
 // ─── Document → required field mapping ────────────────────────────────────────
 const DOC_TASK_MAP = {
-  aadhaar:          't12',
-  pan:              't12',
-  offerLetter:      't13',
-  meetingScreenshot:'t34',
-  passportPhoto:    't56',
-  payslip:          't57',
-  relievingLetter:  't58',
+  aadhaar:            't12',
+  pan:                't12',
+  offerLetter:        't13',
+  meetingScreenshot:  't34',
+  passportPhoto:      't56',
+  payslip:            't57',
+  relievingLetter:    't58',
+  marksheet10th:      't59',
+  marksheet12th:      't60',
+  degreeCertificate:  't61',
+  postgradCertificate:'t62',
 };
 
 // Optional documents — auto-marked N/A if not uploaded within grace period
-const OPTIONAL_DOCS = new Set(['payslip', 'relievingLetter']);
+const OPTIONAL_DOCS = new Set(['payslip', 'relievingLetter', 'postgradCertificate']);
 
 // ─── Handler: new file detected in Drive folder ────────────────────────────────
 async function handleNewFile(auth, employee, file) {
@@ -484,11 +492,11 @@ async function triggerNextStep(auth, employee, docType) {
     }
   }
 
-  // BGV auto-complete: when all required docs (aadhaar, pan) are verified AND optional docs
-  // (passportPhoto, payslip, relievingLetter) are either verified or marked N/A → BGV is done.
-  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan'];
-  const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'relievingLetter'];
-  const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', relievingLetter: 't58' };
+  // BGV auto-complete: when all required docs are verified AND optional docs are either
+  // verified or marked N/A → BGV is done.
+  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate'];
+  const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'relievingLetter', 'postgradCertificate'];
+  const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
 
   if (!isTaskDone(checklist, 't25')) {
     const vr = employee.verificationResults || {};
@@ -930,8 +938,8 @@ async function onboardEmployee(auth, employee) {
     // uploaded within grace period, auto-mark as N/A so the flow isn't blocked.
     const graceDays = config.optionalDocGraceDays || 3;
     const graceMs = graceDays * 24 * 60 * 60 * 1000;
-    const optionalDocTaskMap = { payslip: 't57', relievingLetter: 't58' };
-    const optionalDocLabels = { payslip: 'Payslip', relievingLetter: 'Relieving Letter' };
+    const optionalDocTaskMap = { payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
+    const optionalDocLabels = { payslip: 'Payslip', relievingLetter: 'Relieving Letter', postgradCertificate: 'Post Graduation Certificate' };
     for (const [docType, taskId] of Object.entries(optionalDocTaskMap)) {
       setTimeout(async () => {
         if (!isTaskDone(employee.checklist, taskId)) {

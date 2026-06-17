@@ -32,7 +32,7 @@ module.exports = {
   },
 
   // ─── Drive folder structure ─────────────────────────────────────────────────
-  driveSubfolders: ['Aadhaar', 'PAN', 'Offer_Letter', 'Passport_Photo', 'Payslip', 'Relieving_Letter', 'BGV', 'Meeting_Screenshots', 'Reports'],
+  driveSubfolders: ['Aadhaar', 'PAN', 'Offer_Letter', 'Passport_Photo', 'Payslip', 'Relieving_Letter', 'Marksheet_10th', 'Marksheet_12th', 'Degree_Certificate', 'Postgrad_Certificate', 'BGV', 'Meeting_Screenshots', 'Reports'],
 
   // ─── Drive push channel TTL ─────────────────────────────────────────────────
   drivePushChannelTtlDays: 6,
@@ -47,6 +47,10 @@ module.exports = {
     passportPhoto:     ['passport', 'photo', 'headshot', 'profile'],
     payslip:           ['payslip', 'pay_slip', 'salary', 'salary_slip'],
     relievingLetter:   ['relieving', 'relieve', 'experience', 'relieving_letter'],
+    marksheet10th:     ['10th', '10_th', 'tenth', 'sslc', 'matriculation', 'marksheet_10'],
+    marksheet12th:     ['12th', '12_th', 'twelfth', 'hsc', 'diploma', 'intermediate', 'marksheet_12'],
+    degreeCertificate: ['degree', 'graduation', 'consolidated', 'btech', 'be_', 'bsc', 'bcom', 'ba_', 'bca', 'bba'],
+    postgradCertificate: ['postgrad', 'post_grad', 'mtech', 'msc', 'mba', 'mca', 'phd', 'masters', 'pg_'],
   },
 
   // ─── Optional documents — auto-marked N/A if not uploaded within this many days ──

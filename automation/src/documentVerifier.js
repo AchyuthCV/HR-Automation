@@ -115,6 +115,66 @@ Only set valid=true if ALL four checks pass.`,
   "summary": "one sentence summary"
 }
 Only set valid=true if ALL four checks pass.`,
+
+  marksheet10th: `You are verifying a 10th standard marksheet (SSC/SSLC/Matriculation). Check ALL of the following and respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "10th Marksheet",
+  "checks": {
+    "legible": true/false,
+    "studentNameVisible": true/false,
+    "marksOrGradeVisible": true/false,
+    "boardOrSchoolVisible": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Only set valid=true if ALL four checks pass.`,
+
+  marksheet12th: `You are verifying a 12th standard marksheet or diploma certificate (HSC/Intermediate/Diploma). Check ALL of the following and respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "12th/Diploma Marksheet",
+  "checks": {
+    "legible": true/false,
+    "studentNameVisible": true/false,
+    "marksOrGradeVisible": true/false,
+    "boardOrInstituteVisible": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Only set valid=true if ALL four checks pass.`,
+
+  degreeCertificate: `You are verifying a graduation consolidated marksheet and/or degree certificate. Check ALL of the following and respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "Degree Certificate",
+  "checks": {
+    "legible": true/false,
+    "studentNameVisible": true/false,
+    "degreeOrCourseNameVisible": true/false,
+    "universityOrInstituteVisible": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Only set valid=true if ALL four checks pass.`,
+
+  postgradCertificate: `You are verifying a post-graduation consolidated marksheet and/or degree certificate (Masters/MBA/MTech/PhD). Check ALL of the following and respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "Post Graduation Certificate",
+  "checks": {
+    "legible": true/false,
+    "studentNameVisible": true/false,
+    "degreeOrCourseNameVisible": true/false,
+    "universityOrInstituteVisible": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Only set valid=true if ALL four checks pass.`,
 };
 
 // Map filename keywords to document types
@@ -127,6 +187,10 @@ function detectDocType(filename) {
   if (lower.includes('passport') || lower.includes('photo') || lower.includes('headshot') || lower.includes('profile')) return 'passportPhoto';
   if (lower.includes('payslip') || lower.includes('pay_slip') || lower.includes('salary') || lower.includes('salary_slip')) return 'payslip';
   if (lower.includes('relieving') || lower.includes('relieve') || lower.includes('experience') || lower.includes('relieving_letter')) return 'relievingLetter';
+  if (lower.includes('10th') || lower.includes('10_th') || lower.includes('tenth') || lower.includes('sslc') || lower.includes('matriculation') || lower.includes('marksheet_10')) return 'marksheet10th';
+  if (lower.includes('12th') || lower.includes('12_th') || lower.includes('twelfth') || lower.includes('hsc') || lower.includes('diploma') || lower.includes('intermediate') || lower.includes('marksheet_12')) return 'marksheet12th';
+  if (lower.includes('postgrad') || lower.includes('post_grad') || lower.includes('mtech') || lower.includes('msc') || lower.includes('mba') || lower.includes('mca') || lower.includes('phd') || lower.includes('masters') || lower.includes('pg_')) return 'postgradCertificate';
+  if (lower.includes('degree') || lower.includes('graduation') || lower.includes('consolidated') || lower.includes('btech') || lower.includes('bsc') || lower.includes('bcom') || lower.includes('bca') || lower.includes('bba')) return 'degreeCertificate';
   return null;
 }
 
@@ -217,7 +281,7 @@ async function verifyDocument(auth, fileId, filename, mimeType) {
       valid: false,
       docType: 'Unknown',
       checks: {},
-      failureReasons: [`Could not determine document type from filename: "${filename}". Please rename the file to include: aadhaar, pan, offer, or meeting.`],
+      failureReasons: [`Could not determine document type from filename: "${filename}". Please rename the file to include a keyword: aadhaar, pan, offer, photo, payslip, relieving, 10th, 12th, degree, or postgrad.`],
       summary: 'Unknown document type.',
     };
   }
