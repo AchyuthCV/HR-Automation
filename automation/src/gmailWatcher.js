@@ -263,6 +263,10 @@ async function markAsRead(auth, messageId) {
   });
 }
 
+// In-memory dedup set — prevents the same message from being processed twice
+// in the same session even if Pub/Sub delivers the push multiple times.
+const processedMessageIds = new Set();
+
 // ─── Main entry point called by webhookServer when a Gmail push arrives ───────
 // `onReplyClassified` is a callback: (classified) => void
 async function processGmailPush(auth, pushData, onReplyClassified) {
@@ -286,6 +290,11 @@ async function processGmailPush(auth, pushData, onReplyClassified) {
   console.log(`[Gmail] ${messages.length} new message(s) to process`);
 
   for (const msg of messages) {
+    if (processedMessageIds.has(msg.id)) {
+      console.log(`[Gmail] Skipping already-processed message ${msg.id}`);
+      continue;
+    }
+    processedMessageIds.add(msg.id);
     try {
       const full = await fetchMessageBody(auth, msg.id);
       const classified = await classifyReply(full);
@@ -316,9 +325,10 @@ async function processGmailPush(auth, pushData, onReplyClassified) {
       }
     } catch (err) {
       console.error(`[Gmail] Error processing message ${msg.id}:`, err.message);
-      // Mark as read even on error so the same message is never retried on every push
       await markAsRead(auth, msg.id).catch(() => {});
     }
+    // Brief pause between messages to avoid Gmail API quota bursts
+    await new Promise(r => setTimeout(r, 500));
   }
 }
 
