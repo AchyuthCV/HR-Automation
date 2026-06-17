@@ -129,6 +129,7 @@ function snapshotEmployee(employee) {
     statusSheetId: employee.statusSheetId || null,
     projectIntroSheetId: employee.projectIntroSheetId || null,
     verificationResults: employee.verificationResults || {},
+    processedFileIds: Array.from(employee.processedFileIds || []),
     replyTimerExpiry,
     officialEmail: employee.officialEmail || '',
     assetDetails: employee.assetDetails || {},
@@ -165,6 +166,7 @@ function loadEmployees() {
         statusSheetId: saved ? (saved.statusSheetId || null) : null,
         projectIntroSheetId: saved ? (saved.projectIntroSheetId || null) : null,
         verificationResults: saved ? (saved.verificationResults || {}) : {},
+        processedFileIds: new Set(saved && saved.processedFileIds ? saved.processedFileIds : []),
         replyTimerExpiry: saved ? (saved.replyTimerExpiry || {}) : {},
         phase: 'Phase2_BeforeDOJ',
         noResponseTimers: {},
@@ -380,11 +382,20 @@ async function handleNewFile(auth, employee, file) {
     return true; // not an error — file is intentionally ignored, keep in seenFileIds
   }
 
-  // Skip re-verification if this document type already passed — prevents duplicate
-  // emails and redundant Gemini calls when the engine restarts and re-scans folders.
+  // Skip files already processed in a previous run (pass or fail) — prevents
+  // duplicate verification emails on every restart. A new upload gets a new file ID
+  // so it will be processed fresh even for the same doc type.
+  if (!employee.processedFileIds) employee.processedFileIds = new Set();
+  if (employee.processedFileIds.has(file.id)) {
+    console.log(`[Index] Skipping ${file.name} — already processed in a previous run`);
+    return true;
+  }
+
+  // Also skip if this doc type already passed — belt-and-suspenders guard
   const existingResult = employee.verificationResults && employee.verificationResults[docType];
   if (existingResult && existingResult.valid) {
     console.log(`[Index] Skipping ${file.name} — ${docType} already verified`);
+    employee.processedFileIds.add(file.id);
     return true;
   }
 
@@ -458,6 +469,9 @@ async function handleNewFile(auth, employee, file) {
   } catch (err) {
     console.warn('[Index] Could not send verification report:', err.message);
   }
+
+  // Record file as processed so restarts don't re-verify and re-send emails
+  employee.processedFileIds.add(file.id);
 
   // Save updated checklist to Drive and locally
   await uploadChecklist(auth, employee.driveFolderId, employee.checklist);
@@ -1213,6 +1227,7 @@ async function main() {
       if (!employee.noResponseTimers) employee.noResponseTimers = {};
       if (!employee.replyTimers) employee.replyTimers = {};
       if (!employee.verificationResults) employee.verificationResults = {};
+      employee.processedFileIds = new Set(saved && saved.processedFileIds ? saved.processedFileIds : []);
       await onboardEmployee(auth, employee);
     }
   }
