@@ -863,8 +863,16 @@ async function onboardEmployee(auth, employee) {
   // Each entry is { expiresAt, recipientEmail } — use the stored recipient so
   // escalations go to the right person (manager, IT, recruiter) not just HR.
   if (employee.replyTimerExpiry) {
+    // Timer key → checklist task ID that marks the awaited reply as received.
+    // If the task is already done, the reply was received and the timer is moot — skip it.
+    const TIMER_DONE_TASK = { hr: 't15', manager: 't19', it: 't20', itDoj: 't21', induction: 't44', bgv: 't25' };
     const now = Date.now();
     for (const [key, entry] of Object.entries(employee.replyTimerExpiry)) {
+      const doneTask = TIMER_DONE_TASK[key];
+      if (doneTask && isTaskDone(employee.checklist, doneTask)) {
+        console.log(`[Index] Skipping reply-deadline timer "${key}" for ${employee.name} — task ${doneTask} already done`);
+        continue;
+      }
       // Support both old format (plain ISO string) and new format ({ expiresAt, recipientEmail })
       const isoDate = typeof entry === 'string' ? entry : entry.expiresAt;
       const recipientEmail = (typeof entry === 'object' && entry.recipientEmail)
