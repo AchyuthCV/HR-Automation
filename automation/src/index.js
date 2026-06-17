@@ -380,6 +380,14 @@ async function handleNewFile(auth, employee, file) {
     return true; // not an error — file is intentionally ignored, keep in seenFileIds
   }
 
+  // Skip re-verification if this document type already passed — prevents duplicate
+  // emails and redundant Gemini calls when the engine restarts and re-scans folders.
+  const existingResult = employee.verificationResults && employee.verificationResults[docType];
+  if (existingResult && existingResult.valid) {
+    console.log(`[Index] Skipping ${file.name} — ${docType} already verified`);
+    return true;
+  }
+
   // t5: employee has uploaded at least one document to the Drive folder
   if (!isTaskDone(employee.checklist, 't5')) {
     markAndLog(employee, 't5');
