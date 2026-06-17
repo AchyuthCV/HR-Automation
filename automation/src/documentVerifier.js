@@ -58,19 +58,27 @@ Only set valid=true if ALL three checks pass.`,
 }
 Only set valid=true if ALL three checks pass.`,
 
-  meetingScreenshot: `You are verifying a meeting screenshot to confirm attendance. Check ALL of the following and respond with a JSON object:
+  meetingScreenshot: `You are an HR automation assistant verifying a project introduction meeting screenshot to confirm that a new employee attended their project intro meeting on their Day of Joining.
+
+Analyse the screenshot and respond ONLY with a JSON object in this exact format:
 {
   "valid": true/false,
   "docType": "Meeting Screenshot",
   "checks": {
-    "meetingEvident": true/false,
-    "employeeNameInParticipants": true/false,
-    "dateVisible": true/false
+    "isMeetingOrVideoCall": true/false,
+    "participantsOrNamesVisible": true/false,
+    "meetingContextEvident": true/false
   },
   "failureReasons": ["list any failed checks in plain English"],
   "summary": "one sentence summary"
 }
-Only set valid=true if ALL three checks pass.`,
+
+Check definitions:
+- "isMeetingOrVideoCall": The image shows a video call, meeting room, or virtual meeting interface (Google Meet, Zoom, Teams, etc.) OR a physical meeting/induction session photo. Set true if ANY meeting evidence is visible.
+- "participantsOrNamesVisible": At least one participant name, tile, or person is visible in the screenshot. Set true even if only one name/face is visible — we don't require the employee's specific name since they may not have turned on camera.
+- "meetingContextEvident": There is some indication this is a work meeting — could be a meeting platform UI, a presentation, office setting, people gathered, or meeting title visible anywhere.
+
+Be LENIENT: This is just attendance confirmation, not document verification. If the screenshot reasonably shows someone was in a meeting or video call, set valid=true. Only set valid=false if the image is clearly not a meeting (e.g. a selfie, document scan, random photo).`,
 
   passportPhoto: `You are verifying a passport-size photograph for HR records. Check ALL of the following and respond with a JSON object:
 {

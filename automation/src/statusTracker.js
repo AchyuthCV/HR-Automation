@@ -250,6 +250,17 @@ async function markPreonboardingInitiated(auth, employee) {
 }
 
 async function markDocumentsReceived(auth, employee, docType) {
+  // Don't downgrade from Done back to In Progress if docs already verified
+  const sheets = google.sheets({ version: 'v4', auth });
+  try {
+    const spreadsheetId = await getOrCreateStatusSheet(auth, employee);
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Status!B4',
+    });
+    const currentStatus = (res.data.values && res.data.values[0] && res.data.values[0][0]) || '';
+    if (currentStatus === STATUS.DONE) return;
+  } catch { /* fall through and update anyway */ }
   await updateMilestone(auth, employee, 1, STATUS.IN_PROGRESS, docType || '');
 }
 

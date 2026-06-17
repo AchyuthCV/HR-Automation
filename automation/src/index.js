@@ -1039,7 +1039,7 @@ async function onboardEmployee(auth, employee) {
 
   // Poll each document subfolder — push channels are only registered for the root folder
   // to avoid hitting Drive's per-user push channel quota.
-  const docSubfolders = config.driveSubfolders.filter(sf => !['BGV', 'Meeting_Screenshots', 'Reports'].includes(sf));
+  const docSubfolders = config.driveSubfolders.filter(sf => !['BGV', 'Reports'].includes(sf));
   const drive = require('googleapis').google.drive({ version: 'v3', auth });
   for (const subfolderName of docSubfolders) {
     try {
