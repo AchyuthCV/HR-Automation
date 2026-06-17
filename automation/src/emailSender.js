@@ -391,7 +391,8 @@ async function sendCatchupXLSEmail(employee) {
   const managerEmail = contacts && contacts.managerEmail;
   const toEmail = [recruiterEmail, managerEmail].filter(Boolean).join(', ');
 
-  // Create catchup tracker Google Sheet in employee's Drive folder
+  // Create catchup tracker Google Sheet matching the actual Alethea template:
+  // 4 tabs: Document Version history | Details of New Joinee & Task | Tracking-Month-1/2/3
   let sheetUrl = null;
   if (employee._auth && driveFolderId) {
     try {
@@ -399,65 +400,162 @@ async function sendCatchupXLSEmail(employee) {
       const sheets = google.sheets({ version: 'v4', auth: employee._auth });
       const drive = google.drive({ version: 'v3', auth: employee._auth });
 
+      // Create workbook with all 4 tabs up front
       const spreadsheet = await sheets.spreadsheets.create({
         requestBody: {
-          properties: { title: `30-Day Catchup Tracker — ${name} (${employeeId})` },
-          sheets: [{ properties: { title: 'Catchup Tracker' } }],
+          properties: { title: `New Joinee & Task Tracker — ${name} (${employeeId})` },
+          sheets: [
+            { properties: { title: 'Document Version history',    index: 0 } },
+            { properties: { title: 'Details of New Joinee & Task', index: 1 } },
+            { properties: { title: 'Tracking - Month -1',          index: 2 } },
+            { properties: { title: 'Tracking - Month -2',          index: 3 } },
+            { properties: { title: 'Tracking - Month -3',          index: 4 } },
+          ],
         },
       });
       const spreadsheetId = spreadsheet.data.spreadsheetId;
-      const sheetId = spreadsheet.data.sheets[0].properties.sheetId;
+      const tabIds = {};
+      for (const s of spreadsheet.data.sheets) {
+        tabIds[s.properties.title] = s.properties.sheetId;
+      }
 
-      // Write tracker rows
+      // ── Tab: Details of New Joinee & Task ──────────────────────────────────
+      const dojStr = employee.doj || '';
+      const teamJoined = employee.team || employee.department || '';
+      const reportingManager = (contacts && contacts.managerName) || managerEmail || '';
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: 'Catchup Tracker!A1',
+        range: "'Details of New Joinee & Task'!A1",
         valueInputOption: 'USER_ENTERED',
         requestBody: {
           values: [
-            ['30-Day Catchup Tracker', `${name} (${employeeId})`],
+            ['Details of New Joinee & Task'],
+            [`Name: ${name}\nDOJ: ${dojStr}\nTeam Joined: ${teamJoined}\nReporting Manager: ${reportingManager}\nProject Buddy:`],
+            ['Key Areas of Responsibilities:\n1.\n2.\n3.'],
+            ['Objectives:\n1.\n2.\n3.'],
+            ['Task/ Training Schedule:'],
             [],
-            ['Category', 'Notes / Feedback'],
-            ['Onboarding experience', ''],
-            ['Understanding of role', ''],
-            ['Challenges faced', ''],
-            ['Initial performance feedback', ''],
-            ['Action items', ''],
-            [],
-            ['Filled by', ''],
-            ['Date of call', ''],
           ],
         },
       });
 
-      // Format: title row dark blue, header row dark, data rows alternating
+      // ── Tab: Tracking rows (same structure for Month -1, -2, -3) ──────────
+      const trackingRows = [
+        // Row 1: header (merged A1:C1 — just set in A1)
+        // Row 2-4: Tasks Assigned block + completion % header
+        // Row 5: Lead's Observations | Suggestions headers
+        // Rows 6-10: Performance dimensions
+        // Rows 11-12: blank spacers
+        // Row 13: Filled by Recruiter headers
+        // Rows 14-15: Concern questions
+        // Row 16: Summary
+      ];
+
+      const buildTrackingData = (monthLabel) => [
+        [monthLabel, '', ''],
+        ['Tasks Assigned', 'Task/ Training 1: Completion Percentage: Mention percentage only (For example 100% )Proficiency achieved on the tasks completed', ''],
+        ['', '', ''],
+        ['', '', ''],
+        ['', "Lead's Observations on the tasks assigned", 'Suggestions for improvements from the lead'],
+        ['PERSONAL QUALITY\n1.Timely and accurate completion of activities with desired standards\n2.Takes initiative and is innovative\n3.Flexible and effective in taking up new challenges\n4.Response time', '', ''],
+        ['TEAMWORK\nCo-operation with other team members', '', ''],
+        ['LEADERSHIP\nAbility to plan\nOrganize\nDelegate\nControl', '', ''],
+        ['COMMUNICATIONClarity  and Conciseness in one-to-one and group discussions', '', ''],
+        ['Ownership & Accountability', '', ''],
+        ['', '', ''],
+        ['', '', ''],
+        ['Filled by Recruiter', 'Filled by Recruiter', ''],
+        ['Do you have any other concerns apart from technical output which is impacting the work currently ?', '', ''],
+        ['Do you have any concerns on the time taken to complete the assigned tasks/training and/or the quality of the output?', '', ''],
+        ['', '', ''],
+        ['Summary', '', ''],
+        ['', '', ''],
+      ];
+
+      for (const tab of ['Tracking - Month -1', 'Tracking - Month -2', 'Tracking - Month -3']) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `'${tab}'!A1`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: buildTrackingData(tab) },
+        });
+      }
+
+      // ── Formatting ─────────────────────────────────────────────────────────
+      const formatRequests = [];
+
+      // Details tab — title row bold centered
+      const detailsId = tabIds['Details of New Joinee & Task'];
+      formatRequests.push({
+        repeatCell: {
+          range: { sheetId: detailsId, startRowIndex: 0, endRowIndex: 1 },
+          cell: { userEnteredFormat: {
+            textFormat: { bold: true, fontSize: 12 },
+            horizontalAlignment: 'CENTER',
+          }},
+          fields: 'userEnteredFormat(textFormat,horizontalAlignment)',
+        },
+      });
+      // Details tab — wrap all cells
+      formatRequests.push({
+        repeatCell: {
+          range: { sheetId: detailsId, startRowIndex: 0, endRowIndex: 10 },
+          cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } },
+          fields: 'userEnteredFormat(wrapStrategy)',
+        },
+      });
+
+      // Tracking tabs — header row + performance dimension rows light grey background
+      for (const tab of ['Tracking - Month -1', 'Tracking - Month -2', 'Tracking - Month -3']) {
+        const sid = tabIds[tab];
+        // Tab title row bold centered
+        formatRequests.push({
+          repeatCell: {
+            range: { sheetId: sid, startRowIndex: 0, endRowIndex: 1 },
+            cell: { userEnteredFormat: {
+              textFormat: { bold: true, fontSize: 11 },
+              horizontalAlignment: 'CENTER',
+            }},
+            fields: 'userEnteredFormat(textFormat,horizontalAlignment)',
+          },
+        });
+        // Performance dimension rows (rows 6-10, 0-indexed: 5-9) light grey + bold label
+        formatRequests.push({
+          repeatCell: {
+            range: { sheetId: sid, startRowIndex: 5, endRowIndex: 10 },
+            cell: { userEnteredFormat: {
+              backgroundColor: { red: 0.93, green: 0.93, blue: 0.93 },
+              textFormat: { bold: true },
+              wrapStrategy: 'WRAP',
+            }},
+            fields: 'userEnteredFormat(backgroundColor,textFormat,wrapStrategy)',
+          },
+        });
+        // "Filled by Recruiter" row bold
+        formatRequests.push({
+          repeatCell: {
+            range: { sheetId: sid, startRowIndex: 12, endRowIndex: 13 },
+            cell: { userEnteredFormat: { textFormat: { bold: true } } },
+            fields: 'userEnteredFormat(textFormat)',
+          },
+        });
+        // Wrap all content rows
+        formatRequests.push({
+          repeatCell: {
+            range: { sheetId: sid, startRowIndex: 0, endRowIndex: 18 },
+            cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } },
+            fields: 'userEnteredFormat(wrapStrategy)',
+          },
+        });
+        // Auto-resize columns A-C
+        formatRequests.push({
+          autoResizeDimensions: { dimensions: { sheetId: sid, dimension: 'COLUMNS', startIndex: 0, endIndex: 3 } },
+        });
+      }
+
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId,
-        requestBody: {
-          requests: [
-            {
-              repeatCell: {
-                range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
-                cell: { userEnteredFormat: {
-                  backgroundColor: { red: 0.1, green: 0.27, blue: 0.6 },
-                  textFormat: { bold: true, fontSize: 13, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                }},
-                fields: 'userEnteredFormat(backgroundColor,textFormat)',
-              },
-            },
-            {
-              repeatCell: {
-                range: { sheetId, startRowIndex: 2, endRowIndex: 3 },
-                cell: { userEnteredFormat: {
-                  backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
-                  textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                }},
-                fields: 'userEnteredFormat(backgroundColor,textFormat)',
-              },
-            },
-            { autoResizeDimensions: { dimensions: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 2 } } },
-          ],
-        },
+        requestBody: { requests: formatRequests },
       });
 
       // Move into employee's Drive folder
@@ -481,40 +579,30 @@ async function sendCatchupXLSEmail(employee) {
       }
 
       sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
-      console.log(`[Email] Catchup XLS sheet created for ${name}: ${sheetUrl}`);
+      console.log(`[Email] Catchup tracker sheet created for ${name}: ${sheetUrl}`);
     } catch (err) {
       console.warn(`[Email] Could not create catchup XLS sheet for ${name}: ${err.message}`);
     }
   }
 
   const sheetSection = sheetUrl
-    ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Catchup Tracker Sheet</a></p>
-       <p style="color:#555;font-size:13px;">The sheet has been saved in ${esc(name)}'s onboarding folder. Please fill it in during or after the call.</p>`
-    : `<p style="color:#e65100;">The catchup tracker sheet could not be created automatically — please create it manually.</p>`;
+    ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open New Joinee & Task Tracker</a></p>
+       <p style="color:#555;font-size:13px;">The tracker has been saved in ${esc(name)}'s onboarding folder. Please fill in the monthly tracking tabs after each review call.</p>`
+    : `<p style="color:#e65100;">The tracker sheet could not be created automatically — please create it manually.</p>`;
 
   return sendEmail({
     to: toEmail,
-    subject: `30-Day Catchup Tracker — ${name} (${employeeId})`,
+    subject: `New Joinee & Task Tracker — ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>The 30-day catchup call for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is approaching. Please use the tracker below during or after the call and <strong>reply with the filled details</strong>.</p>
+      <p>Please find the New Joinee & Task Tracker for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) below.</p>
+      <p>The tracker contains:</p>
+      <ul>
+        <li><strong>Details of New Joinee & Task</strong> — Employee info, Key Areas of Responsibilities, Objectives, Task/Training Schedule (to be filled by manager)</li>
+        <li><strong>Tracking - Month -1/2/3</strong> — Monthly performance tracking with tasks, lead observations, and recruiter feedback sections</li>
+      </ul>
       ${sheetSection}
-      <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;margin:16px 0;">
-        <thead>
-          <tr style="background:#1a73e8;color:#fff;">
-            <th style="padding:10px 12px;border:1px solid #1a73e8;text-align:left;width:40%;">Category</th>
-            <th style="padding:10px 12px;border:1px solid #1a73e8;text-align:left;">Notes / Feedback</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Onboarding experience</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
-          <tr style="background:#f5f5f5;"><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Understanding of role</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
-          <tr><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Challenges faced</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
-          <tr style="background:#f5f5f5;"><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Initial performance feedback</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
-          <tr><td style="padding:10px 12px;border:1px solid #ddd;font-weight:bold;">Action items</td><td style="padding:10px 12px;border:1px solid #ddd;color:#999;font-style:italic;">(Fill after call)</td></tr>
-        </tbody>
-      </table>
-      <p>Please fill in the above and reply to this email once the 30-day catchup call is complete.</p>
+      <p>Please fill in the relevant month tab after each catchup call (30-day, 60-day, and 90-day reviews).</p>
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
     `,
   });
