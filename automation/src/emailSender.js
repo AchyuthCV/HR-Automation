@@ -308,11 +308,12 @@ async function sendVerificationReport(employee, verificationResults) {
   });
 }
 
-// Template 14: HR induction calendar invite — email to employee + recruiter (t27)
+// Template 14: HR induction calendar invite — email to employee + recruiter + manager (t27)
 async function sendInductionCalendarInvite(employee) {
   const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
   const recruiterEmail = contacts && contacts.recruiterEmail;
-  const toEmail = [officialEmail || personalEmail, recruiterEmail].filter(Boolean).join(', ');
+  const managerEmail = contacts && contacts.managerEmail;
+  const toEmail = [officialEmail || personalEmail, recruiterEmail, managerEmail].filter(Boolean).join(', ');
   const displayDoj = doj || 'Your Date of Joining';
 
   return sendEmail({
@@ -344,6 +345,7 @@ async function sendInductionCalendarInvite(employee) {
         </tr>
       </table>
       <p><strong>${name}</strong> — please be present at the office by <strong>9:30 AM</strong> on your Date of Joining. The recruiter will conduct the induction covering company policies, tools, and culture.</p>
+      <p>A calendar invite has been sent to all participants. If the timing does not work, you can <strong>propose a new time</strong> directly from the calendar invite.</p>
       <p><strong>Recruiter</strong> — please confirm attendance by replying to this email once the induction is complete.</p>
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
     `,

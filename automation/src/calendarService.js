@@ -40,6 +40,9 @@ function toGoogleDateTime(date, hour, minute) {
 
 /**
  * Create HR Induction event on the employee's DOJ at 9:30–11:00 AM IST.
+ * DOJ is always a working day but we guard against weekends just in case.
+ * Attendees: employee + recruiter + manager — all receive a calendar invite
+ * with accept/decline/reschedule options (sendUpdates: 'all').
  * Returns the event htmlLink, or null on failure.
  */
 async function createHRInductionEvent(auth, employee) {
@@ -51,9 +54,13 @@ async function createHRInductionEvent(auth, employee) {
       return null;
     }
 
+    // Guard: DOJ must be a working day — push to Monday if it lands on a weekend
+    const inductionDate = ensureWorkingDay(dojDate);
+
     const attendees = [
       employee.officialEmail || employee.personalEmail,
       employee.contacts && employee.contacts.recruiterEmail,
+      employee.contacts && employee.contacts.managerEmail,
     ]
       .filter(Boolean)
       .map(email => ({ email }));
@@ -62,11 +69,13 @@ async function createHRInductionEvent(auth, employee) {
     const endMins = cfg.minute + cfg.durationMins;
     const event = {
       summary: `HR Induction — ${employee.name}`,
-      description: `HR Induction session for ${employee.name} (${employee.employeeId}). Covers company policies, tools, culture, and greythr walkthrough.`,
+      description: `HR Induction session for ${employee.name} (${employee.employeeId}).\n\nAgenda:\n• Company policies and culture\n• Tools and systems walkthrough\n• Greythr login setup\n• Team introductions\n\nConducted by: Recruiter / HR Team\n\nNote: You can propose a new time using the calendar invite if this slot does not work.`,
       location: 'Office / As communicated by HR',
-      start: toGoogleDateTime(dojDate, cfg.hour, cfg.minute),
-      end: toGoogleDateTime(dojDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
+      start: toGoogleDateTime(inductionDate, cfg.hour, cfg.minute),
+      end: toGoogleDateTime(inductionDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
       attendees,
+      guestsCanModify: false,
+      guestsCanSeeOtherGuests: true,
     };
 
     const res = await calendar.events.insert({
@@ -84,7 +93,11 @@ async function createHRInductionEvent(auth, employee) {
 }
 
 /**
- * Create Project Intro Meeting event 3 working days after DOJ at 2:00–3:00 PM IST.
+ * Create Project Intro Meeting event on DOJ itself (post-lunch) at 2:00–3:00 PM IST.
+ * Spec: "Automation schedules project intro meeting with new joinee on the DOJ
+ * with reporting manager as per availability on managers' calendar post lunch."
+ * DOJ is always a working day — weekend guard applied just in case.
+ * Attendees: employee + manager + recruiter — all get invite with reschedule option.
  * Returns the event htmlLink, or null on failure.
  */
 async function createProjectIntroEvent(auth, employee) {
@@ -95,11 +108,14 @@ async function createProjectIntroEvent(auth, employee) {
       console.error(`[Calendar] createProjectIntroEvent: invalid DOJ "${employee.doj}" for ${employee.name}`);
       return null;
     }
-    const eventDate = ensureWorkingDay(addDays(dojDate, config.calendarEvents.projectIntroDayOffset));
+
+    // Meeting is on DOJ itself (post-lunch) — guard for weekend just in case
+    const eventDate = ensureWorkingDay(dojDate);
 
     const attendees = [
       employee.officialEmail || employee.personalEmail,
       employee.contacts && employee.contacts.managerEmail,
+      employee.contacts && employee.contacts.recruiterEmail,
     ]
       .filter(Boolean)
       .map(email => ({ email }));
@@ -108,10 +124,12 @@ async function createProjectIntroEvent(auth, employee) {
     const endMins = cfg.minute + cfg.durationMins;
     const event = {
       summary: `Project Intro Meeting — ${employee.name}`,
-      description: `Project introduction meeting for ${employee.name} with their reporting manager. Agenda: role overview, key projects, initial goals, buddy introduction.`,
+      description: `Project introduction meeting for ${employee.name} (${employee.employeeId}) with their reporting manager.\n\nAgenda:\n• Role overview and expectations\n• Key projects and initial goals\n• Team and buddy introduction\n• Q&A\n\nNote: If this post-lunch slot does not work, you can propose a new time using the calendar invite.`,
       start: toGoogleDateTime(eventDate, cfg.hour, cfg.minute),
       end: toGoogleDateTime(eventDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
       attendees,
+      guestsCanModify: false,
+      guestsCanSeeOtherGuests: true,
     };
 
     const res = await calendar.events.insert({
