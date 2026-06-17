@@ -25,6 +25,8 @@ const {
   sendNoReplyEscalation,
 } = require('./emailSender');
 
+const { getAuthClient } = require('./driveWatcher');
+
 const testEmail = process.env.GMAIL_USER;
 
 if (!testEmail) {
@@ -33,17 +35,23 @@ if (!testEmail) {
 }
 
 // Build a fake employee — all emails point to GMAIL_USER so everything lands in one inbox
+// _auth is injected after Google auth is ready so Drive/Sheets calls work (e.g. catchup XLS)
 const employee = {
   employeeId: 'TEST001',
   name: 'Test Employee',
+  designation: 'Software Engineer',
+  team: 'Test Services Team',
+  officeLocation: 'L4 Location',
   personalEmail: testEmail,
   officialEmail: testEmail,
   doj: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
   formLink: 'https://example.com/form',
+  driveFolderId: process.env.TEST_DRIVE_FOLDER_ID || process.env.EMPLOYEE_DRIVE_FOLDER_ID || null,
   contacts: {
     recruiterEmail: testEmail,
     managerEmail: testEmail,
     itEmail: process.env.IT_EMAIL || testEmail,
+    itPersonName: 'IT Team',
   },
 };
 
@@ -78,6 +86,14 @@ function sleep(ms) {
 }
 
 async function main() {
+  // Inject real Google auth so Drive/Sheets-backed templates (e.g. catchup XLS) work
+  try {
+    employee._auth = getAuthClient();
+    console.log('  Google auth ready — Drive/Sheets templates will create real files');
+  } catch (err) {
+    console.warn(`  Warning: Google auth failed (${err.message}) — Drive/Sheets templates will skip sheet creation`);
+  }
+
   console.log(`\nSending ${tests.length} test emails to ${testEmail}\n`);
   let sent = 0;
 
