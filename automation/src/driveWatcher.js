@@ -390,8 +390,12 @@ async function watchFolder(auth, folderId, employeeId, onNewFile, intervalMs = c
   const isRealWebhook = webhookUrl && !webhookUrl.includes('your-ngrok-url');
 
   if (isRealWebhook) {
-    // Register push for instant notifications AND keep polling as a safety net
-    await registerDrivePushChannel(auth, folderId, employeeId);
+    // Register push for instant notifications — fall back to polling only if quota hit
+    try {
+      await registerDrivePushChannel(auth, folderId, employeeId);
+    } catch (err) {
+      console.warn(`[Drive] Push channel registration failed for ${employeeId} — falling back to polling: ${err.message}`);
+    }
   }
 
   // Always run polling regardless — catches files when push isn't set up
