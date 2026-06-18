@@ -638,7 +638,7 @@ async function sendReviewSummaryRequest(employee, dayMark) {
 
   const xlsSection = dayMark === 30 ? `
       <p style="color:#555;border-left:4px solid #1565c0;padding:8px 16px;background:#e3f2fd;">
-        <strong>Reminder:</strong> Please ensure the <strong>30-day catchup XLS tracker</strong> shared earlier has been filled in before replying.
+        <strong>Catchup Call:</strong> A 30-day catchup call has been scheduled with ${name}. Please check your calendar for the invite. Once the call is done, please fill in the <strong>30-day catchup XLS tracker</strong> shared earlier and reply to this email with a brief summary.
       </p>` : '';
 
   const callNote = dayMark !== 30 ? `
