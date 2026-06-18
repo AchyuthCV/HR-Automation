@@ -897,7 +897,7 @@ async function onboardEmployee(auth, employee) {
   if (employee.replyTimerExpiry) {
     // Timer key → checklist task ID that marks the awaited reply as received.
     // If the task is already done, the reply was received and the timer is moot — skip it.
-    const TIMER_DONE_TASK = { hr: 't15', manager: 't19', it: 't20', itDoj: 't21', induction: 't33' };
+    const TIMER_DONE_TASK = { hr: 't15', manager: 't19', it: 't20', itDoj: 't21', induction: 't33', '30dayReview': 't44', '60dayNoReply': 't48', '90dayNoReply': 't51', probationNoReply: 't52' };
     const now = Date.now();
     for (const [key, entry] of Object.entries(employee.replyTimerExpiry)) {
       const doneTask = TIMER_DONE_TASK[key];
