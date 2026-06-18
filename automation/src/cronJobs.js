@@ -94,9 +94,14 @@ function scheduleOnboardingSurvey(employee, markTaskFn) {
   return scheduleOnce(surveyDate, `Onboarding Survey — ${name}`, async () => {
     const { sendEmail } = require('./emailSender');
     const surveyLink = process.env.ONBOARDING_SURVEY_LINK;
+    const feedbackFormLink = process.env.EMPLOYEE_FEEDBACK_FORM_LINK;
     const surveySection = surveyLink
       ? `<p><a href="${surveyLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Complete Onboarding Survey</a></p>`
       : `<p style="color:#e65100;"><strong>Note:</strong> The survey link has not been configured yet. HR will share it with you separately.</p>`;
+    const feedbackSection = feedbackFormLink
+      ? `<p style="margin-top:16px;">Additionally, please fill in the <strong>Employee Feedback Form</strong> to share your onboarding experience:</p>
+         <p><a href="${feedbackFormLink}" style="background:#34a853;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Employee Feedback Form</a></p>`
+      : '';
     await sendEmail({
       to: officialEmail || employee.personalEmail,
       subject: `Your Onboarding Survey — ${process.env.COMPANY_NAME}`,
@@ -105,6 +110,7 @@ function scheduleOnboardingSurvey(employee, markTaskFn) {
         <p>You've been with us for 25 days! We'd love to hear about your onboarding experience.</p>
         <p>Please take 5 minutes to complete this survey:</p>
         ${surveySection}
+        ${feedbackSection}
         <p>Your feedback helps us improve the experience for future joiners.</p>
         <p>Regards,<br/>HR Team, ${process.env.COMPANY_NAME}</p>
       `,

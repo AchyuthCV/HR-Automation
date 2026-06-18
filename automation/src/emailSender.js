@@ -589,12 +589,20 @@ async function sendCatchupXLSEmail(employee) {
         fields: 'id, parents',
       });
 
-      // Share with recruiter and manager (edit access)
-      const shareWith = [recruiterEmail, managerEmail].filter(Boolean);
-      for (const email of [...new Set(shareWith)]) {
+      // Share with recruiter and manager (edit access), new joiner (view only)
+      const joinerEmail = employee.officialEmail || employee.personalEmail;
+      const shareWithEdit = [recruiterEmail, managerEmail].filter(Boolean);
+      for (const email of [...new Set(shareWithEdit)]) {
         await drive.permissions.create({
           fileId: spreadsheetId,
           requestBody: { type: 'user', role: 'writer', emailAddress: email },
+          sendNotificationEmail: false,
+        }).catch(() => {});
+      }
+      if (joinerEmail) {
+        await drive.permissions.create({
+          fileId: spreadsheetId,
+          requestBody: { type: 'user', role: 'reader', emailAddress: joinerEmail },
           sendNotificationEmail: false,
         }).catch(() => {});
       }
@@ -611,7 +619,8 @@ async function sendCatchupXLSEmail(employee) {
        <p style="color:#555;font-size:13px;">The tracker has been saved in ${esc(name)}'s onboarding folder. Please fill in the monthly tracking tabs after each review call.</p>`
     : `<p style="color:#e65100;">The tracker sheet could not be created automatically — please create it manually.</p>`;
 
-  return sendEmail({
+  // Send to recruiter + manager
+  await sendEmail({
     to: toEmail,
     subject: `New Joinee & Task Tracker — ${esc(name)} (${esc(employeeId)})`,
     html: `
@@ -627,6 +636,22 @@ async function sendCatchupXLSEmail(employee) {
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
     `,
   });
+
+  // Also notify the new joiner with view-only access to their catchup tracker
+  const joinerEmail = employee.officialEmail || employee.personalEmail;
+  if (joinerEmail && sheetUrl) {
+    await sendEmail({
+      to: joinerEmail,
+      subject: `Your Catchup Tracker — ${esc(name)} (${esc(employeeId)})`,
+      html: `
+        <p>Dear ${esc(name)},</p>
+        <p>Your 30-day catchup tracker has been created. You can view it using the link below:</p>
+        <p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">View Catchup Tracker</a></p>
+        <p>Your recruiter and manager will fill in the monthly tracking tabs after each review call.</p>
+        <p>Regards,<br/>HR Team, ${process.env.COMPANY_NAME}</p>
+      `,
+    }).catch(() => {});
+  }
 }
 
 // Template 17: Review summary request — replaces "call transcribed" for t43/t46/t49
