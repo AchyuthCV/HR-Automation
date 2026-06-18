@@ -367,7 +367,7 @@ const DOC_TASK_MAP = {
 };
 
 // Optional documents — auto-marked N/A if not uploaded within grace period
-const OPTIONAL_DOCS = new Set(['payslip', 'relievingLetter', 'postgradCertificate']);
+const OPTIONAL_DOCS = new Set(['payslip', 'postgradCertificate']);
 
 // ─── Handler: new file detected in Drive folder ────────────────────────────────
 async function handleNewFile(auth, employee, file) {
@@ -531,9 +531,9 @@ async function triggerNextStep(auth, employee, docType) {
 
   // BGV auto-complete: when all required docs are verified AND optional docs are either
   // verified or marked N/A → BGV is done.
-  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate'];
-  const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'relievingLetter', 'postgradCertificate'];
-  const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
+  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate', 'relievingLetter'];
+  const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'postgradCertificate'];
+  const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', postgradCertificate: 't62' };
 
   if (!isTaskDone(checklist, 't25')) {
     const vr = employee.verificationResults || {};
@@ -1021,8 +1021,8 @@ async function onboardEmployee(auth, employee) {
     // uploaded within grace period, auto-mark as N/A so the flow isn't blocked.
     const graceDays = config.optionalDocGraceDays || 3;
     const graceMs = graceDays * 24 * 60 * 60 * 1000;
-    const optionalDocTaskMap = { payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
-    const optionalDocLabels = { payslip: 'Payslip', relievingLetter: 'Relieving Letter', postgradCertificate: 'Post Graduation Certificate' };
+    const optionalDocTaskMap = { payslip: 't57', postgradCertificate: 't62' };
+    const optionalDocLabels = { payslip: 'Payslip', postgradCertificate: 'Post Graduation Certificate' };
     for (const [docType, taskId] of Object.entries(optionalDocTaskMap)) {
       setTimeout(async () => {
         if (!isTaskDone(employee.checklist, taskId)) {
@@ -1043,12 +1043,12 @@ async function onboardEmployee(auth, employee) {
     // optional docs verified or task already marked done/N/A from a previous run).
     if (!isTaskDone(employee.checklist, 't25')) {
       const vr = employee.verificationResults || {};
-      const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate'];
-      const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'relievingLetter', 'postgradCertificate'];
-      const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', relievingLetter: 't58', postgradCertificate: 't62' };
+      const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate', 'relievingLetter'];
+      const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'postgradCertificate'];
+      const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', postgradCertificate: 't62' };
       const requiredAllPassed = BGV_REQUIRED_DOCS.every(d => vr[d] && vr[d].valid);
       // Optional docs are settled if verified OR task marked done/N/A OR not yet uploaded (grace period not expired)
-      // passportPhoto is optional — BGV proceeds without it if the 5 required docs pass
+      // passportPhoto is optional — BGV proceeds without it if the required docs pass
       const optionalAllSettled = BGV_OPTIONAL_DOCS.every(d =>
         (vr[d] && vr[d].valid) || isTaskDone(employee.checklist, BGV_OPTIONAL_TASKS[d]) || !(vr[d])
       );
