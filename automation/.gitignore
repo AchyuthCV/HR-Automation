@@ -22,6 +22,9 @@ logs/
 .DS_Store
 Thumbs.db
 
+# ─── Google Apps Scripts (local only — run manually via script.google.com) ────
+scripts/*.gs
+
 # ─── ngrok ────────────────────────────────────────────────────────────────────
 ../ngrok.exe
 ../ngrok.zip
