@@ -7,12 +7,16 @@ Standalone Node.js engine that automates the full employee onboarding lifecycle 
 - Watches a Google Drive folder for new employee documents
 - Verifies documents (Aadhaar, PAN, offer letter, meeting screenshots) using Gemini AI
 - Sends automated emails to the employee, HR, manager, IT, and recruiter at every step
+- 3-strike reminder chain (24h / 48h / 72h) to employee for missing or rejected docs; recruiter escalated after 3rd reminder
 - Tracks progress in a live Google Sheet dashboard per employee
 - Schedules 30/60/90-day review reminders and 5-month pre-probation alerts via cron
+- Sends onboarding survey + employee feedback form at day 25
+- Shares project intro catchup sheet with new joiner
+- Creates calendar invites for HR induction, project intro, 30/60/90-day catchup calls
 - Parses email replies via Gmail Watch + Pub/Sub to advance the checklist automatically
 - Persists all state locally so restarts never repeat completed steps
 
-## 7 Phases — 55 Tasks
+## 7 Phases — 71 Tasks
 
 | Phase | Description |
 |-------|-------------|
@@ -31,8 +35,8 @@ Standalone Node.js engine that automates the full employee onboarding lifecycle 
 - **Google Sheets API** — live status dashboard per employee
 - **Gmail API + Pub/Sub** — reply parsing
 - **Google Calendar API** — induction, project intro, 30/60/90-day review events
-- **Gemini AI** (`@google/generative-ai`, `gemini-2.0-flash-lite`) — document verification + reply classification
-- **nodemailer** — 19 email templates via Gmail App Password, 3-retry backoff
+- **Gemini AI** (`@google/generative-ai`) — document verification + reply classification
+- **nodemailer** — email templates via Gmail App Password, 3-retry backoff
 - **node-cron** — milestone scheduling (survey, 30/60/90-day, 5-month)
 - **Express.js** — webhook server, status dashboard, JSON debug endpoints
 
@@ -163,6 +167,69 @@ For Gmail reply parsing:
 | `src/resetEmployee.js` | CLI to wipe an employee's state for re-onboarding |
 | `src/markTask.js` | CLI to manually mark a task done |
 | `src/viewState.js` | CLI to pretty-print a state file |
+
+## Drive Folder Structure (per employee)
+
+Each new employee gets a folder `Name_EMPID` created automatically inside the Alethea Onboarding root with these subfolders:
+
+```
+Aadhaar / PAN / Offer_Letter / Passport_Photo / Passport / UAN /
+Payslip / Relieving_Letter / Marksheet_10th / Marksheet_12th /
+Degree_Certificate / Postgrad_Certificate / BGV /
+Meeting_Screenshots / Reports
+```
+
+An `UPLOAD_INSTRUCTIONS.txt` file is placed in the employee's folder explaining exactly what to upload and where.
+
+## Required Documents
+
+**Mandatory (all employees):**
+- Aadhaar Card
+- PAN Card
+- Signed Offer Letter
+- Passport Size Photo
+- 10th Marksheet
+- 12th Marksheet / Diploma
+- Graduation Degree Certificate
+- Relieving Letter *(experienced candidates — mandatory for BGV)*
+
+**Previous Employment (conditional — upload into `Relieving_Letter` or `Payslip` folder):**
+- Employer 1 (most recent) — mandatory if previously employed, submit within 30–60 days
+- Employer 2 — required if worked with 2 or more employers
+- Employer 3 — required if worked with 3 or more employers
+- For each employer: Relieving-cum-Experience Letter OR Full & Final Settlement Letter OR Last Month's Payslip
+- Freshers skip this section entirely
+
+**Optional:**
+- Post Graduation Certificate
+- Passport *(upload only if available)*
+- UAN *(via UMANG app — experienced candidates, case by case)*
+
+## Document Reminder Logic
+
+When a document fails verification or is not uploaded:
+
+1. Immediate rejection email sent to employee with the reason
+2. **24h** — Reminder 1 sent to employee
+3. **48h** — Reminder 2 sent to employee
+4. **72h** — Final Reminder sent to employee + recruiter escalation alert
+
+Successful re-upload at any point cancels all pending reminders automatically.
+
+## Giving Someone Access
+
+**View only (no engine setup needed):**
+1. Share the Alethea Onboarding Google Drive folder with their Gmail
+2. Share the Status Google Sheet with their Gmail
+3. Add them as collaborator on this GitHub repo (Read access)
+
+**Run the engine:**
+1. All of the above
+2. Share `credentials.json`, `token.json`, and `.env` securely (not via email or GitHub)
+3. Add their Google account to the Google Cloud project (IAM → Editor)
+4. They run `node src/auth.js` once to generate their own `token.json`
+
+> Share sensitive files only via secure channels — encrypted messaging or a password manager. Never commit them to Git.
 
 ## Runtime Files (not committed)
 
