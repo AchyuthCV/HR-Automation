@@ -440,6 +440,9 @@ async function handleNewFile(auth, employee, file) {
       employee.noResponseTimers[docType].stop();
       delete employee.noResponseTimers[docType];
     }
+
+    // If a rejection was previously issued for any doc, clear the "Documents not ok" sheet row
+    await markDocumentsVerifiedOk(auth, employee).catch(() => {});
   } else {
     const reason = result.failureReasons ? result.failureReasons.join('; ') : 'Verification failed';
     console.log(`[Index] ✗ ${file.name} failed: ${reason}`);
@@ -744,6 +747,17 @@ async function handleReply(auth, classified, rawMsg) {
         if (employee.replyTimers && employee.replyTimers.hr) {
           employee.replyTimers.hr.stop && employee.replyTimers.hr.stop();
           delete employee.replyTimers.hr;
+        }
+        // If asset allocation email was never sent (contacts missing at t14 time), send it now
+        if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail) {
+          await sendAssetAllocationRequest(employee, employee.contacts.managerEmail).catch(err =>
+            console.warn(`[Index] Asset allocation request failed for ${employee.name}: ${err.message}`)
+          );
+          markAndLog(employee, 't17');
+          employee.replyTimers = employee.replyTimers || {};
+          employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', employee.contacts.managerEmail);
+          saveState(employee.employeeId, snapshotEmployee(employee));
+          console.log(`[Index] Asset allocation request sent to manager for ${employee.name} (catch-up after contacts fix)`);
         }
       } else {
         console.warn(`[Index] official_email_created reply for ${employee.name} had no email address extracted — reply was consumed but checklist not advanced.`);
