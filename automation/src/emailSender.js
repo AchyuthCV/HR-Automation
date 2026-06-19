@@ -84,6 +84,32 @@ async function sendDocumentRejection(employee, docType, reason) {
   });
 }
 
+// Template 2b: Follow-up reminder to employee (sent at 24h / 48h after rejection)
+async function sendDocumentReminder(employee, docType, attemptNumber, reason) {
+  const { name, personalEmail } = employee;
+  const urgency = attemptNumber >= 3 ? 'FINAL REMINDER' : `Reminder ${attemptNumber}`;
+  const extra = attemptNumber >= 3
+    ? `<p style="color:#c62828;font-weight:bold;">This is your final reminder. If the document is not uploaded within 24 hours, your onboarding coordinator will be notified and further action may be required.</p>`
+    : '';
+  return sendEmail({
+    to: personalEmail,
+    subject: `${urgency} — Please Re-upload Your ${esc(docType)}`,
+    html: `
+      <p>Dear ${esc(name)},</p>
+      <p>We noticed that your <strong>${esc(docType)}</strong> has not been re-uploaded yet.</p>
+      ${reason ? `<blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${esc(reason)}</blockquote>` : ''}
+      <p>Please upload a clear, legible copy to your designated Google Drive folder as soon as possible.</p>
+      <ul>
+        <li>File must be clearly legible (not blurry or cropped)</li>
+        <li>All required fields must be fully visible</li>
+        <li>Accepted formats: PDF, JPG, PNG</li>
+      </ul>
+      ${extra}
+      <p>Regards,<br/>HR Team, ${process.env.COMPANY_NAME}</p>
+    `,
+  });
+}
+
 // Template 3: 24-hour no-response alert to recruiter
 async function sendNoResponseAlert(employee, recruiterEmail) {
   const { name, employeeId, personalEmail } = employee;
@@ -731,6 +757,7 @@ module.exports = {
   sendEmail,
   sendPreOnboardingForm,
   sendDocumentRejection,
+  sendDocumentReminder,
   sendNoResponseAlert,
   sendOfficialEmailCreationRequest,
   sendAssetAllocationRequest,

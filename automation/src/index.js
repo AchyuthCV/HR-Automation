@@ -24,6 +24,7 @@ const {
 const {
   scheduleAllMilestones,
   scheduleNoResponseAlert,
+  scheduleDocumentReminders,
   scheduleReplyDeadline,
   restoreMilestonesAfterRestart,
   startDailyHealthCheck,
@@ -454,10 +455,11 @@ async function handleNewFile(auth, employee, file) {
       markAndLog(employee, 't10');
     }
 
-    // Schedule a no-response alert to recruiter if employee doesn't re-upload in 24h
+    // Cancel any existing reminder chain for this doc, then start a fresh 3-reminder sequence
+    // Reminders fire at 24h, 48h, 72h to the employee; recruiter escalated after the 3rd
     if (employee.noResponseTimers[docType]) employee.noResponseTimers[docType].stop();
     const alertRecipient = (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL;
-    employee.noResponseTimers[docType] = scheduleNoResponseAlert(employee, alertRecipient);
+    employee.noResponseTimers[docType] = scheduleDocumentReminders(employee, result.docType || docType, reason, alertRecipient);
   }
 
   // Always send the latest verification report to the recruiter (t9)

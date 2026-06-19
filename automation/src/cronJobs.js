@@ -258,6 +258,51 @@ function scheduleNoResponseAlert(employee, recruiterEmail, delayHours) {
   });
 }
 
+// Schedule up to 3 reminder emails to the employee for a missing/rejected doc,
+// at 24h, 48h, and 72h. After the final reminder, escalate to recruiter.
+// Returns an object { stop } so the caller can cancel all timers on successful re-upload.
+function scheduleDocumentReminders(employee, docType, reason, recruiterEmail) {
+  const { name, employeeId } = employee;
+  const REMINDER_HOURS = [24, 48, 72];
+  const timers = [];
+  let stopped = false;
+
+  REMINDER_HOURS.forEach((hours, i) => {
+    const attemptNumber = i + 1;
+    const fireDate = new Date(Date.now() + hours * 60 * 60 * 1000);
+    const label = `Doc Reminder ${attemptNumber}/3 — ${docType} — ${name}`;
+
+    const task = scheduleOnce(fireDate, label, async () => {
+      if (stopped) return;
+      const { sendDocumentReminder, sendNoResponseAlert } = require('./emailSender');
+
+      // Send reminder email to employee
+      await sendDocumentReminder(employee, docType, attemptNumber, reason).catch(err =>
+        console.warn(`[Cron] Reminder ${attemptNumber} email failed for ${name}: ${err.message}`)
+      );
+      console.log(`[Cron] Doc reminder ${attemptNumber}/3 sent to ${name} (${employeeId}) for ${docType}`);
+
+      // After final reminder, also alert recruiter
+      if (attemptNumber === REMINDER_HOURS.length) {
+        await sendNoResponseAlert(employee, recruiterEmail).catch(err =>
+          console.warn(`[Cron] Recruiter escalation failed for ${name}: ${err.message}`)
+        );
+        console.log(`[Cron] Recruiter escalated after 3 reminders for ${name} (${employeeId}) — ${docType}`);
+        if (employee._markTask) employee._markTask('t11');
+      }
+    });
+
+    if (task) timers.push(task);
+  });
+
+  return {
+    stop() {
+      stopped = true;
+      timers.forEach(t => { try { t.stop(); } catch (_) {} });
+    },
+  };
+}
+
 // Schedule a 48h reply-deadline escalation for any stakeholder who hasn't replied
 // Returns a task handle with .stop() — same pattern as scheduleNoResponseAlert
 function scheduleReplyDeadline(employee, recipientType, recipientEmail, delayHours) {
@@ -423,6 +468,7 @@ function startDataRetentionCron() {
 module.exports = {
   scheduleAllMilestones,
   scheduleNoResponseAlert,
+  scheduleDocumentReminders,
   scheduleReplyDeadline,
   restoreMilestonesAfterRestart,
   scheduleOnboardingSurvey,
