@@ -430,10 +430,30 @@ async function sendCatchupXLSEmail(employee) {
   const managerEmail = contacts && contacts.managerEmail;
   const toEmail = [recruiterEmail, managerEmail].filter(Boolean).join(', ');
 
-  // Create catchup tracker Google Sheet matching the actual Alethea template:
-  // 4 tabs: Document Version history | Details of New Joinee & Task | Tracking-Month-1/2/3
-  let sheetUrl = null;
-  if (employee._auth && driveFolderId) {
+  // Reuse the project intro sheet (AL_DI_HR_019) that was created at joining time.
+  // It already contains the Tracking - Month -1/2/3 tabs the manager needs to fill.
+  let sheetUrl = employee.projectIntroSheetId
+    ? `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`
+    : null;
+
+  // Fallback: look it up by name in Drive if not stored on employee object
+  if (!sheetUrl && employee._auth && driveFolderId) {
+    try {
+      const { google } = require('googleapis');
+      const drive = google.drive({ version: 'v3', auth: employee._auth });
+      const res = await drive.files.list({
+        q: `name contains 'AL_DI_HR_019' and name contains '${employeeId}' and trashed=false`,
+        fields: 'files(id)',
+      });
+      if (res.data.files.length > 0) {
+        sheetUrl = `https://docs.google.com/spreadsheets/d/${res.data.files[0].id}`;
+      }
+    } catch (err) {
+      console.warn(`[Email] Could not look up project intro sheet for ${name}: ${err.message}`);
+    }
+  }
+
+  if (!sheetUrl && employee._auth && driveFolderId) {
     try {
       const { google } = require('googleapis');
       const sheets = google.sheets({ version: 'v4', auth: employee._auth });
@@ -638,7 +658,7 @@ async function sendCatchupXLSEmail(employee) {
     } catch (err) {
       console.warn(`[Email] Could not create catchup XLS sheet for ${name}: ${err.message}`);
     }
-  }
+  } // end fallback sheet creation
 
   const sheetSection = sheetUrl
     ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open New Joinee & Task Tracker</a></p>
