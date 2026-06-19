@@ -147,6 +147,30 @@ For Gmail reply parsing:
 3. Add a Push subscription pointing to `WEBHOOK_BASE_URL/gmail-push`
 4. Set `GMAIL_PUBSUB_TOPIC` in `.env`
 
+## Google Forms
+
+Three forms are used in the onboarding flow. Apps Script to create each is in `automation/scripts/`:
+
+| Form | Script | When sent | `.env` variable |
+|------|--------|-----------|-----------------|
+| Pre-Onboarding Form | `createPreonboardingForm.gs` | Before DOJ — welcome email | `PREONBOARDING_FORM_LINK` |
+| Onboarding Survey | `createOnboardingSurvey.gs` | Day 25 after DOJ | `ONBOARDING_SURVEY_LINK` |
+| Employee Feedback Form | `createEmployeeFeedbackForm.gs` | 30/60/90-day review emails | `EMPLOYEE_FEEDBACK_FORM_LINK` |
+
+To create a form: open [script.google.com](https://script.google.com) → New Project → paste the script → Run → copy the Published URL into `.env`.
+
+## Project Intro Sheet (AL_DI_HR_019)
+
+Each employee gets an `AL_DI_HR_019 Project Introduction` Google Sheet created automatically on their joining day with 5 tabs:
+
+- **Document Version history** — HR fills version history
+- **Details of New Joinee & Task** — pre-filled with employee name, DOJ, manager; manager fills Key Areas, Objectives, Task Schedule
+- **Tracking - Month -1** — filled after 30-day review call
+- **Tracking - Month -2** — filled after 60-day review call
+- **Tracking - Month -3** — filled after 90-day review call
+
+The same sheet is re-shared at the 30-day catchup email — no duplicate is created.
+
 ## Key Files
 
 | File | Purpose |
