@@ -1282,6 +1282,14 @@ async function main() {
       if (!employee.replyTimers) employee.replyTimers = {};
       if (!employee.verificationResults) employee.verificationResults = {};
       employee.processedFileIds = new Set(saved && saved.processedFileIds ? saved.processedFileIds : []);
+      // Fall back to .env contacts if employees.json entry has no contacts field
+      if (!employee.contacts || !employee.contacts.managerEmail) {
+        employee.contacts = {
+          recruiterEmail: process.env.RECRUITER_EMAIL || process.env.HR_EMAIL,
+          managerEmail:   process.env.MANAGER_EMAIL   || process.env.HR_EMAIL,
+          itEmail:        process.env.IT_EMAIL        || process.env.HR_EMAIL,
+        };
+      }
       await onboardEmployee(auth, employee);
     }
   }
