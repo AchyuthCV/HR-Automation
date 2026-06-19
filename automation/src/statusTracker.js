@@ -397,7 +397,6 @@ module.exports = {
 // Returns the sheet URL, or null on failure.
 async function createProjectIntroSheet(auth, employee) {
   if (employee.projectIntroSheetId) {
-    // Already created — return the URL
     return `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`;
   }
 
@@ -408,106 +407,170 @@ async function createProjectIntroSheet(auth, employee) {
   const managerEmail = (contacts && contacts.managerEmail) || '—';
   const recruiterEmail = (contacts && contacts.recruiterEmail) || '—';
 
+  const trackingSheetData = [
+    ['Tasks Assigned', 'Task/ Training 1: Completion Percentage: Mention percentage only (For example 100% )Proficiency achieved on the tasks completed', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['', 'Lead\'s Observations on the tasks assigned', 'Suggestions for improvements from the lead'],
+    ['PERSONAL QUALITY', '', ''],
+    ['1.Timely and accurate completion of activities with desired standards\n2.Takes initiative and is innovative\n3.Flexible and effective in taking up new challenges\n4.Response time', '', ''],
+    ['TEAMWORK\nCo-operation with other team members', '', ''],
+    ['LEADERSHIP\nAbility to plan\nOrganize\nDelegate\nControl', '', ''],
+    ['COMMUNICATIONCIarity  and Conciseness in one-to-one and group discussions', '', ''],
+    ['Ownership & Accountability', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['Filled by Recruiter', 'Filled by Recruiter', ''],
+    ['Do you have any other concerns apart from technical output which is impacting the work currently ?', '', ''],
+    ['Do you have any concerns on the time taken to complete the assigned tasks/training and/or the quality of the output?', '', ''],
+    ['', '', ''],
+    ['Summary', '', ''],
+  ];
+
   try {
-    // Create spreadsheet
     const spreadsheet = await apiWithRetry(() => sheets.spreadsheets.create({
       requestBody: {
-        properties: { title: `Project Intro Sheet — ${name} (${employeeId})` },
-        sheets: [{ properties: { title: 'Project Intro' } }],
+        properties: { title: `AL_DI_HR_019 Project Introduction — ${name} (${employeeId})` },
+        sheets: [
+          { properties: { title: 'Document Version history', sheetId: 0 } },
+          { properties: { title: 'Details of New Joinee & Task', sheetId: 1 } },
+          { properties: { title: 'Tracking - Month -1', sheetId: 2 } },
+          { properties: { title: 'Tracking - Month -2', sheetId: 3 } },
+          { properties: { title: 'Tracking - Month -3', sheetId: 4 } },
+        ],
       },
     }), 'createProjectIntroSheet:create');
 
     const spreadsheetId = spreadsheet.data.spreadsheetId;
-    const sheetId = spreadsheet.data.sheets[0].properties.sheetId;
 
-    // Pre-fill all known data; manager fills highlighted rows
-    const rows = [
-      ['Project Intro Sheet', `${name} (${employeeId})`],
-      [''],
-      ['Field', 'Value', 'Notes'],
-      ['Employee Name',     name,                          ''],
-      ['Employee ID',       employeeId,                    ''],
-      ['Role / Designation',role,                          ''],
-      ['Date of Joining',   doj,                           ''],
-      ['Official Email',    officialEmail || '(pending)',  ''],
-      ['Personal Email',    personalEmail || '—',          ''],
-      ['Reporting Manager', managerEmail,                  ''],
-      ['Recruiter',         recruiterEmail,                ''],
-      [''],
-      ['— To be filled by Manager before meeting —', '', ''],
-      ['Key Projects',      '', '(Please fill before meeting)'],
-      ['Initial Goals',     '', '(Please fill before meeting)'],
-      ['Buddy / Mentor',    '', '(Please assign)'],
-      ['Team Name',         '', '(Please fill)'],
-      [''],
-      ['— Review Updates (updated by automation) —', '', ''],
-      ['30-Day Review Summary', '', ''],
-      ['60-Day Review Summary', '', ''],
-      ['90-Day Review Summary', '', ''],
-    ];
-
+    // ── Tab 1: Document Version history ──────────────────────────────────────
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: 'Project Intro!A1',
+      range: 'Document Version history!A1',
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: rows },
+      requestBody: { values: [
+        ['Document Version History'],
+        [''],
+        ['Version', 'Date', 'Updated By', 'Changes'],
+        ['1.0', doj, 'HR Automation', 'Initial creation'],
+      ]},
     });
 
-    // Format: title row, headers, manager-fill section highlighted
-    await sheets.spreadsheets.batchUpdate({
+    // ── Tab 2: Details of New Joinee & Task ──────────────────────────────────
+    await sheets.spreadsheets.values.update({
       spreadsheetId,
-      requestBody: {
-        requests: [
-          // Title row — dark blue
+      range: 'Details of New Joinee & Task!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [
+        ['Details of New Joinee & Task'],
+        [`Name: ${name}   DOJ: ${doj}   Team Joined:    Reporting Manager: ${managerEmail}   Project Buddy:`],
+        [''],
+        ['Key Areas of Responsibilities:1.  2.  3.'],
+        [''],
+        ['Objectives:1.  2.  3.'],
+        [''],
+        ['Task/ Training Schedule:'],
+      ]},
+    });
+
+    // ── Tab 3/4/5: Tracking Month 1/2/3 ─────────────────────────────────────
+    for (const [tabTitle, sheetId] of [['Tracking - Month -1', 2], ['Tracking - Month -2', 3], ['Tracking - Month -3', 4]]) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${tabTitle}!A1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[tabTitle], ...trackingSheetData] },
+      });
+
+      // Format title row
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: { requests: [
           {
             repeatCell: {
               range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
               cell: { userEnteredFormat: {
-                backgroundColor: { red: 0.1, green: 0.27, blue: 0.6 },
-                textFormat: { bold: true, fontSize: 13, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                textFormat: { bold: true, fontSize: 11 },
+                horizontalAlignment: 'CENTER',
               }},
-              fields: 'userEnteredFormat(backgroundColor,textFormat)',
+              fields: 'userEnteredFormat(textFormat,horizontalAlignment)',
             },
           },
-          // Column headers row
+          // "Filled by Recruiter" row — light grey
           {
             repeatCell: {
-              range: { sheetId, startRowIndex: 2, endRowIndex: 3 },
+              range: { sheetId, startRowIndex: 13, endRowIndex: 14 },
               cell: { userEnteredFormat: {
-                backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
-                textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-              }},
-              fields: 'userEnteredFormat(backgroundColor,textFormat)',
-            },
-          },
-          // Manager section header — orange highlight
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: 12, endRowIndex: 13 },
-              cell: { userEnteredFormat: {
-                backgroundColor: { red: 1, green: 0.6, blue: 0.2 },
+                backgroundColor: { red: 0.85, green: 0.85, blue: 0.85 },
                 textFormat: { bold: true },
               }},
               fields: 'userEnteredFormat(backgroundColor,textFormat)',
             },
           },
-          // Manager-fill rows — light yellow background
+          // Merge title row A1:C1
           {
-            repeatCell: {
-              range: { sheetId, startRowIndex: 13, endRowIndex: 17 },
-              cell: { userEnteredFormat: {
-                backgroundColor: { red: 1, green: 0.98, blue: 0.8 },
-              }},
-              fields: 'userEnteredFormat(backgroundColor)',
+            mergeCells: {
+              range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 3 },
+              mergeType: 'MERGE_ALL',
             },
           },
-          // Auto-resize columns A and B
-          { autoResizeDimensions: { dimensions: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 2 } } },
-        ],
-      },
+          // Set column widths to match template
+          {
+            updateDimensionProperties: {
+              range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+              properties: { pixelSize: 280 },
+              fields: 'pixelSize',
+            },
+          },
+          {
+            updateDimensionProperties: {
+              range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
+              properties: { pixelSize: 300 },
+              fields: 'pixelSize',
+            },
+          },
+          {
+            updateDimensionProperties: {
+              range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 3 },
+              properties: { pixelSize: 280 },
+              fields: 'pixelSize',
+            },
+          },
+        ]},
+      });
+    }
+
+    // ── Format Details tab ────────────────────────────────────────────────────
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [
+        {
+          repeatCell: {
+            range: { sheetId: 1, startRowIndex: 0, endRowIndex: 1 },
+            cell: { userEnteredFormat: {
+              textFormat: { bold: true, fontSize: 12 },
+              horizontalAlignment: 'CENTER',
+            }},
+            fields: 'userEnteredFormat(textFormat,horizontalAlignment)',
+          },
+        },
+        {
+          mergeCells: {
+            range: { sheetId: 1, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 3 },
+            mergeType: 'MERGE_ALL',
+          },
+        },
+        {
+          updateDimensionProperties: {
+            range: { sheetId: 1, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+            properties: { pixelSize: 500 },
+            fields: 'pixelSize',
+          },
+        },
+      ]},
     });
 
-    // Move sheet into the employee's Reports subfolder if it exists, else root folder
+    // ── Move to employee's Reports folder or Drive root ───────────────────────
     const reportsFolder = await drive.files.list({
       q: `name='Reports' and '${employee.driveFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
       fields: 'files(id)',
@@ -525,7 +588,7 @@ async function createProjectIntroSheet(auth, employee) {
       fields: 'id, parents',
     });
 
-    // Share with manager and recruiter (edit access so they can fill it in)
+    // ── Share with manager, recruiter, employee ───────────────────────────────
     const shareWith = [managerEmail, recruiterEmail, officialEmail || personalEmail].filter(e => e && e !== '—');
     for (const email of [...new Set(shareWith)]) {
       await drive.permissions.create({
