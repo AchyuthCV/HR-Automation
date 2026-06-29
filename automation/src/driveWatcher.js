@@ -253,11 +253,14 @@ async function uploadChecklist() {
 }
 
 // Build the expected sub-folder structure inside an employee's Drive folder
-async function scaffoldEmployeeFolder(auth, rootFolderId, employeeName, employeeId) {
+async function scaffoldEmployeeFolder(auth, rootFolderId, employeeName, employeeId, isFresher) {
   const folderName = `${employeeName}_${employeeId}`;
   const employeeFolderId = await createSubFolder(auth, rootFolderId, folderName);
 
-  const subFolders = config.driveSubfolders;
+  // Freshers have no prior employment — skip work-history document folders
+  const fresherExclude = isFresher ? ['Relieving_Letter', 'Payslip'] : [];
+  const subFolders = config.driveSubfolders.filter(sf => !fresherExclude.includes(sf));
+
   const folderMap = { root: employeeFolderId };
   for (const sf of subFolders) {
     folderMap[sf] = await createSubFolder(auth, employeeFolderId, sf);

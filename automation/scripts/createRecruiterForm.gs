@@ -32,6 +32,11 @@ function createRecruiterForm() {
     .setHelpText('The email the employee uses personally — pre-onboarding form will be sent here')
     .setRequired(true);
 
+  form.addTextItem()
+    .setTitle('Phone Number')
+    .setHelpText('Employee\'s personal mobile number')
+    .setRequired(true);
+
   form.addDateItem()
     .setTitle('Date of Joining (DOJ)')
     .setRequired(true);
@@ -77,11 +82,6 @@ function createRecruiterForm() {
     .setHelpText('e.g. Software Engineer, Business Analyst')
     .setRequired(true);
 
-  form.addTextItem()
-    .setTitle('Team / Department')
-    .setHelpText('e.g. Engineering Team, Operations')
-    .setRequired(true);
-
   // ── Section 4: Additional Info ────────────────────────────────────────────
   form.addSectionHeaderItem()
     .setTitle('Section 4 — Additional Information');
@@ -90,11 +90,6 @@ function createRecruiterForm() {
     .setTitle('Google Drive Root Folder ID')
     .setHelpText('The ID of the Alethea Onboarding root folder in Drive (from the URL). Engine will create the employee subfolder inside this.')
     .setRequired(true);
-
-  form.addParagraphTextItem()
-    .setTitle('Any additional notes for HR?')
-    .setHelpText('Optional — anything the automation should be aware of')
-    .setRequired(false);
 
   // ── Log URLs ──────────────────────────────────────────────────────────────
   Logger.log('✅ Recruiter Onboarding Form created successfully!');
@@ -121,6 +116,7 @@ function onRecruiterFormSubmit(e) {
     if (title === 'Employee Full Name')              data.name = value;
     else if (title === 'Employee ID')                data.employeeId = value;
     else if (title === 'Personal Email ID')          data.personalEmail = value;
+    else if (title === 'Phone Number')               data.phoneNumber = value;
     else if (title === 'Date of Joining (DOJ)')      data.doj = value; // format: yyyy-mm-dd
     else if (title === 'Is this a Fresher?')         data.isFresher = value.startsWith('Yes');
     else if (title === 'Reporting Manager\'s Full Name') data.managerName = value;
@@ -129,9 +125,7 @@ function onRecruiterFormSubmit(e) {
     else if (title === 'Work Location')              data.officeLocation = value;
     else if (title === 'Asset Required?')            data.assetRequired = value;
     else if (title === 'Designation / Role')         data.designation = value;
-    else if (title === 'Team / Department')          data.team = value;
     else if (title === 'Google Drive Root Folder ID') data.driveFolderId = value;
-    else if (title === 'Any additional notes for HR?') data.notes = value;
   }
 
   // Build the recruiter email from the form submission (for the record)

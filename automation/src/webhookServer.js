@@ -381,10 +381,10 @@ app.post('/employee', employeeCreateLimiter, async (req, res) => {
 //   recruiterEmail, notes
 app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
   const {
-    name, employeeId, personalEmail, doj, isFresher,
+    name, employeeId, personalEmail, phoneNumber, doj, isFresher,
     managerName, managerEmail, itEmail,
-    officeLocation, assetRequired, designation, team,
-    driveFolderId, recruiterEmail, notes,
+    officeLocation, assetRequired, designation,
+    driveFolderId, recruiterEmail,
   } = req.body || {};
 
   // Required field validation
@@ -418,14 +418,13 @@ app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
     employeeId,
     name: name.trim(),
     personalEmail,
+    phoneNumber: phoneNumber || '',
     doj,
     driveFolderId,
     designation: designation || '',
-    team: team || '',
     officeLocation: officeLocation || '',
     isFresher: isFresher === true || isFresher === 'true',
     assetRequired: assetRequired || 'Unaware — To be confirmed',
-    notes: notes || '',
     contacts: {
       recruiterEmail: recruiterEmail || process.env.HR_EMAIL,
       managerName: managerName || '',

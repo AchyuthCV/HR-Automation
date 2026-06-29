@@ -43,9 +43,12 @@ async function sendEmail({ to, subject, html }, retries = 3) {
 }
 
 // Template 1: Pre-onboarding form sent to new joinee
+// Sends fresher form or experienced form based on employee.isFresher flag
 async function sendPreOnboardingForm(employee) {
   const { name, personalEmail, doj } = employee;
-  const formLink = process.env.PREONBOARDING_FORM_LINK || employee.formLink || '#';
+  const formLink = employee.isFresher
+    ? (process.env.PREONBOARDING_FORM_FRESHER_LINK || process.env.PREONBOARDING_FORM_LINK || '#')
+    : (process.env.PREONBOARDING_FORM_EXPERIENCED_LINK || process.env.PREONBOARDING_FORM_LINK || '#');
   const formSection = formLink === '#'
     ? `<p style="color:#c62828;">⚠️ The pre-onboarding form link has not been configured. Please contact HR directly.</p>`
     : `<p><a href="${esc(formLink)}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Complete Pre-Onboarding Form</a></p>`;
@@ -55,7 +58,7 @@ async function sendPreOnboardingForm(employee) {
     html: `
       <p>Dear ${esc(name)},</p>
       <p>We are delighted to welcome you to <strong>${esc(process.env.COMPANY_NAME)}</strong>!</p>
-      <p>Your Date of Joining is <strong>${esc(doj)}</strong>. To ensure a smooth onboarding, please complete the pre-onboarding form and upload your documents (Aadhaar card, PAN card, signed offer letter, passport-size photo).</p>
+      <p>Your Date of Joining is <strong>${esc(doj)}</strong>. To ensure a smooth onboarding, please complete the pre-onboarding form and upload all your documents.</p>
       ${formSection}
       <p>Please submit within <strong>24 hours</strong> of receiving this email.</p>
       <p>Looking forward to having you on board!<br/>HR Team, ${esc(process.env.COMPANY_NAME)}</p>
