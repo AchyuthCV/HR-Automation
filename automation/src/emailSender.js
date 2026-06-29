@@ -44,11 +44,32 @@ async function sendEmail({ to, subject, html }, retries = 3) {
 
 // Template 1: Pre-onboarding form sent to new joinee
 // Sends fresher form or experienced form based on employee.isFresher flag
+// Generates a pre-filled URL so Employee ID and Drive Folder ID are embedded silently
 async function sendPreOnboardingForm(employee) {
-  const { name, personalEmail, doj } = employee;
-  const formLink = employee.isFresher
-    ? (process.env.PREONBOARDING_FORM_FRESHER_LINK || process.env.PREONBOARDING_FORM_LINK || '#')
-    : (process.env.PREONBOARDING_FORM_EXPERIENCED_LINK || process.env.PREONBOARDING_FORM_LINK || '#');
+  const { name, personalEmail, doj, employeeId, driveFolderId } = employee;
+
+  const baseLink = employee.isFresher
+    ? (process.env.PREONBOARDING_FORM_FRESHER_LINK || process.env.PREONBOARDING_FORM_LINK || '')
+    : (process.env.PREONBOARDING_FORM_EXPERIENCED_LINK || process.env.PREONBOARDING_FORM_LINK || '');
+
+  // Entry IDs for "Employee ID" and "Drive Folder ID" hidden fields in each form
+  const FRESHER_EMPLOYEE_ID_ENTRY  = 'entry.1858648165';
+  const FRESHER_FOLDER_ID_ENTRY    = 'entry.39415210';
+  const EXPERIENCED_EMPLOYEE_ID_ENTRY = 'entry.477970624';
+  const EXPERIENCED_FOLDER_ID_ENTRY   = 'entry.1455195850';
+
+  const empEntry    = employee.isFresher ? FRESHER_EMPLOYEE_ID_ENTRY  : EXPERIENCED_EMPLOYEE_ID_ENTRY;
+  const folderEntry = employee.isFresher ? FRESHER_FOLDER_ID_ENTRY    : EXPERIENCED_FOLDER_ID_ENTRY;
+
+  let formLink = '#';
+  if (baseLink) {
+    const base = baseLink.replace(/[?#].*$/, '');
+    const parts = ['usp=pp_url'];
+    if (employeeId)    parts.push(`${empEntry}=${encodeURIComponent(employeeId)}`);
+    if (driveFolderId) parts.push(`${folderEntry}=${encodeURIComponent(driveFolderId)}`);
+    formLink = `${base}?${parts.join('&')}`;
+  }
+
   const formSection = formLink === '#'
     ? `<p style="color:#c62828;">⚠️ The pre-onboarding form link has not been configured. Please contact HR directly.</p>`
     : `<p><a href="${esc(formLink)}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Complete Pre-Onboarding Form</a></p>`;
@@ -59,6 +80,7 @@ async function sendPreOnboardingForm(employee) {
       <p>Dear ${esc(name)},</p>
       <p>We are delighted to welcome you to <strong>${esc(process.env.COMPANY_NAME)}</strong>!</p>
       <p>Your Date of Joining is <strong>${esc(doj)}</strong>. To ensure a smooth onboarding, please complete the pre-onboarding form and upload all your documents.</p>
+      <p>Your <strong>Employee ID</strong> is: <strong style="font-size:16px;">${esc(employeeId)}</strong> — you will need to enter this in the form.</p>
       ${formSection}
       <p>Please submit within <strong>24 hours</strong> of receiving this email.</p>
       <p>Looking forward to having you on board!<br/>HR Team, ${esc(process.env.COMPANY_NAME)}</p>

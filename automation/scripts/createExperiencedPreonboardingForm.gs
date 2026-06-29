@@ -13,6 +13,17 @@ function createExperiencedPreonboardingForm() {
   );
   form.setCollectEmail(true);
 
+  // ── Hidden fields — pre-filled by engine when sending the form link ────────
+  form.addTextItem()
+    .setTitle('Employee ID')
+    .setHelpText('Pre-filled by HR — do not edit')
+    .setRequired(false);
+
+  form.addTextItem()
+    .setTitle('Drive Folder ID')
+    .setHelpText('Pre-filled by HR — do not edit')
+    .setRequired(false);
+
   // ── Section 1: Personal Details ───────────────────────────────────────────
   form.addSectionHeaderItem()
     .setTitle('Section 1 — Personal Details');
@@ -121,4 +132,91 @@ function createExperiencedPreonboardingForm() {
   Logger.log('🔗 Published URL: ' + form.getPublishedUrl());
   Logger.log('📋 Form ID:       ' + form.getId());
   Logger.log('→ Add Published URL to .env as PREONBOARDING_FORM_EXPERIENCED_LINK');
+}
+
+// ── Form submit trigger — moves uploaded files to correct Drive subfolders ──
+// Set this up as an installable trigger: From form → On form submit
+var FOLDER_MAP = {
+  'Upload Aadhaar Card':        'Aadhaar',
+  'Upload PAN Card':            'PAN',
+  'Upload Address Proof':       'Aadhaar',
+  'Upload Passport Size Photo': 'Passport_Photo',
+  'Upload Offer Letter':        'Offer_Letter',
+  'Upload 10th Marksheet':      'Marksheet_10th',
+  'Upload 12th Marksheet':      'Marksheet_12th',
+  'Upload Degree Certificate':  'Degree_Certificate',
+  'Upload Relieving Letter':    'Relieving_Letter',
+  "Upload Last Month's Payslip": 'Payslip',
+};
+
+// Root onboarding folder ID — the "Alethea Onboarding" folder in Drive
+var ALETHEA_ONBOARDING_ROOT_ID = '1faqP459a9quQ3w29On8yH3Hpq95zVdZe';
+
+function onExperiencedFormSubmit(e) {
+  var responses = e.response.getItemResponses();
+  var driveFolderId = '';
+  var employeeId = '';
+  var fileResponses = {};
+
+  for (var i = 0; i < responses.length; i++) {
+    var title = responses[i].getItem().getTitle();
+    var value = responses[i].getResponse();
+    if (title === 'Drive Folder ID' || title === 'Drive Folder ID( Pre-filled by HR — do not edit)') driveFolderId = value;
+    else if (title === 'Employee ID' || title === 'Employee ID( Pre-filled by HR — do not edit)') employeeId = value;
+    else if (FOLDER_MAP[title]) fileResponses[title] = value;
+  }
+
+  // If Drive Folder ID not pre-filled, search for the employee folder by Employee ID
+  var employeeFolder = null;
+  if (driveFolderId) {
+    try {
+      employeeFolder = DriveApp.getFolderById(driveFolderId);
+    } catch (err) {
+      Logger.log('⚠️ Could not open folder by ID, falling back to search: ' + err.message);
+    }
+  }
+
+  if (!employeeFolder && employeeId) {
+    Logger.log('🔍 Searching for employee folder by ID: ' + employeeId);
+    var root = DriveApp.getFolderById(ALETHEA_ONBOARDING_ROOT_ID);
+    var subfolders = root.getFolders();
+    while (subfolders.hasNext()) {
+      var folder = subfolders.next();
+      if (folder.getName().indexOf(employeeId) !== -1) {
+        employeeFolder = folder;
+        Logger.log('✅ Found employee folder: ' + folder.getName());
+        break;
+      }
+    }
+  }
+
+  if (!employeeFolder) {
+    Logger.log('❌ Could not find employee folder for ID: ' + employeeId);
+    return;
+  }
+
+  for (var questionTitle in fileResponses) {
+    var subfolderName = FOLDER_MAP[questionTitle];
+    var fileIds = fileResponses[questionTitle];
+    if (!Array.isArray(fileIds)) fileIds = [fileIds];
+
+    var subfolderIterator = employeeFolder.getFoldersByName(subfolderName);
+    if (!subfolderIterator.hasNext()) {
+      Logger.log('⚠️ Subfolder not found: ' + subfolderName + ' — skipping');
+      continue;
+    }
+    var targetFolder = subfolderIterator.next();
+
+    for (var j = 0; j < fileIds.length; j++) {
+      try {
+        var file = DriveApp.getFileById(fileIds[j]);
+        file.moveTo(targetFolder);
+        Logger.log('✅ Moved ' + file.getName() + ' → ' + subfolderName);
+      } catch (err) {
+        Logger.log('❌ Error moving file ' + fileIds[j] + ': ' + err.message);
+      }
+    }
+  }
+
+  Logger.log('✅ All files processed for employee: ' + employeeId);
 }

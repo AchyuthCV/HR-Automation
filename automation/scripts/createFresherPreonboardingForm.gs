@@ -13,6 +13,20 @@ function createFresherPreonboardingForm() {
   );
   form.setCollectEmail(true);
 
+  // ── Hidden field — pre-filled by engine when sending the form link ─────────
+  // Engine generates a pre-filled URL with employeeId and driveFolderId embedded.
+  // New joiner never sees or edits this — it is used by the submit trigger to
+  // move uploaded files into the correct Drive subfolders automatically.
+  form.addTextItem()
+    .setTitle('Employee ID')
+    .setHelpText('Pre-filled by HR — do not edit')
+    .setRequired(false);
+
+  form.addTextItem()
+    .setTitle('Drive Folder ID')
+    .setHelpText('Pre-filled by HR — do not edit')
+    .setRequired(false);
+
   // ── Section 1: Personal Details ───────────────────────────────────────────
   form.addSectionHeaderItem()
     .setTitle('Section 1 — Personal Details');
@@ -92,4 +106,96 @@ function createFresherPreonboardingForm() {
   Logger.log('🔗 Published URL: ' + form.getPublishedUrl());
   Logger.log('📋 Form ID:       ' + form.getId());
   Logger.log('→ Add Published URL to .env as PREONBOARDING_FORM_FRESHER_LINK');
+}
+
+// ── Form submit trigger — moves uploaded files to correct Drive subfolders ──
+// Set this up as an installable trigger: From form → On form submit
+// Map of form question title → Drive subfolder name
+var FOLDER_MAP = {
+  'Upload Aadhaar Card':      'Aadhaar',
+  'Upload PAN Card':          'PAN',
+  'Upload Address Proof':     'Aadhaar',
+  'Upload Passport Size Photo': 'Passport_Photo',
+  'Upload Offer Letter':      'Offer_Letter',
+  'Upload 10th Marksheet':    'Marksheet_10th',
+  'Upload 12th Marksheet':    'Marksheet_12th',
+  'Upload Degree Certificate':'Degree_Certificate',
+};
+
+// Root onboarding folder ID — the "Alethea Onboarding" folder in Drive
+// Update this if the root folder changes
+var ALETHEA_ONBOARDING_ROOT_ID = '1faqP459a9quQ3w29On8yH3Hpq95zVdZe';
+
+function onFresherFormSubmit(e) {
+  var responses = e.response.getItemResponses();
+  var driveFolderId = '';
+  var employeeId = '';
+  var fileResponses = {};
+
+  for (var i = 0; i < responses.length; i++) {
+    var title = responses[i].getItem().getTitle();
+    var value = responses[i].getResponse();
+    if (title === 'Drive Folder ID' || title === 'Drive Folder ID( Pre-filled by HR — do not edit)') driveFolderId = value;
+    else if (title === 'Employee ID' || title === 'Employee ID( Pre-filled by HR — do not edit)') employeeId = value;
+    else if (FOLDER_MAP[title]) fileResponses[title] = value;
+  }
+
+  // If Drive Folder ID not pre-filled, search for the employee folder by Employee ID
+  var employeeFolder = null;
+  if (driveFolderId) {
+    try {
+      employeeFolder = DriveApp.getFolderById(driveFolderId);
+    } catch (err) {
+      Logger.log('⚠️ Could not open folder by ID, falling back to search: ' + err.message);
+    }
+  }
+
+  if (!employeeFolder && employeeId) {
+    Logger.log('🔍 Searching for employee folder by ID: ' + employeeId);
+    var root = DriveApp.getFolderById(ALETHEA_ONBOARDING_ROOT_ID);
+    var subfolders = root.getFolders();
+    while (subfolders.hasNext()) {
+      var folder = subfolders.next();
+      if (folder.getName().indexOf(employeeId) !== -1) {
+        employeeFolder = folder;
+        Logger.log('✅ Found employee folder: ' + folder.getName());
+        break;
+      }
+    }
+  }
+
+  if (!employeeFolder) {
+    Logger.log('❌ Could not find employee folder for ID: ' + employeeId);
+    return;
+  }
+
+  // Second pass — move each uploaded file to its correct subfolder
+  for (var questionTitle in fileResponses) {
+    var subfolderName = FOLDER_MAP[questionTitle];
+    var fileIds = fileResponses[questionTitle];
+
+    // fileIds can be a single string or array
+    if (!Array.isArray(fileIds)) fileIds = [fileIds];
+
+    // Find the target subfolder inside the employee folder
+    var subfolderIterator = employeeFolder.getFoldersByName(subfolderName);
+    if (!subfolderIterator.hasNext()) {
+      Logger.log('⚠️ Subfolder not found: ' + subfolderName + ' — skipping');
+      continue;
+    }
+    var targetFolder = subfolderIterator.next();
+
+    for (var j = 0; j < fileIds.length; j++) {
+      try {
+        var file = DriveApp.getFileById(fileIds[j]);
+        // Move file to target subfolder (remove from current parent)
+        file.moveTo(targetFolder);
+        Logger.log('✅ Moved ' + file.getName() + ' → ' + subfolderName);
+      } catch (err) {
+        Logger.log('❌ Error moving file ' + fileIds[j] + ': ' + err.message);
+      }
+    }
+  }
+
+  Logger.log('✅ All files processed for employee: ' + employeeId);
 }
