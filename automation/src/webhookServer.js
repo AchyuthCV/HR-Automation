@@ -1,8 +1,9 @@
 // Express webhook server — receives push notifications from:
-//   POST /drive-push   ← Google Drive file change notifications
-//   POST /gmail-push   ← Gmail inbox change notifications (via Pub/Sub)
-//   POST /employee     ← HR adds a new employee (triggers onboarding)
-//   GET  /health       ← uptime check
+//   POST /drive-push       ← Google Drive file change notifications
+//   POST /gmail-push       ← Gmail inbox change notifications (via Pub/Sub)
+//   POST /employee         ← HR adds a new employee (triggers onboarding)
+//   POST /recruiter-form   ← Google Apps Script form submit trigger (recruiter form)
+//   GET  /health           ← uptime check
 
 const express = require('express');
 const crypto = require('crypto');
@@ -367,6 +368,79 @@ app.post('/employee', employeeCreateLimiter, async (req, res) => {
     res.status(201).json({ message: `Onboarding started for ${req.body.name}` });
   } catch (err) {
     console.error('[Webhook] /employee error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Recruiter Google Form webhook ────────────────────────────────────────────
+// Google Apps Script POSTs here when a recruiter submits the New Joinee form.
+// Maps form fields → /employee payload and triggers onboarding automatically.
+// Body fields (from createRecruiterForm.gs onRecruiterFormSubmit):
+//   name, employeeId, personalEmail, doj, isFresher, managerName, managerEmail,
+//   itEmail, officeLocation, assetRequired, designation, team, driveFolderId,
+//   recruiterEmail, notes
+app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
+  const {
+    name, employeeId, personalEmail, doj, isFresher,
+    managerName, managerEmail, itEmail,
+    officeLocation, assetRequired, designation, team,
+    driveFolderId, recruiterEmail, notes,
+  } = req.body || {};
+
+  // Required field validation
+  const required = { name, employeeId, personalEmail, doj, managerEmail, itEmail, driveFolderId };
+  const missing = Object.entries(required).filter(([, v]) => !v).map(([k]) => k);
+  if (missing.length) {
+    return res.status(400).json({ error: `Missing fields: ${missing.join(', ')}` });
+  }
+  if (!isValidEmployeeId(employeeId)) {
+    return res.status(400).json({ error: 'Invalid employeeId — use only letters, digits, hyphens, underscores (max 32 chars).' });
+  }
+  if (!isValidEmail(personalEmail))  return res.status(400).json({ error: 'Invalid personalEmail format.' });
+  if (!isValidEmail(managerEmail))   return res.status(400).json({ error: 'Invalid managerEmail format.' });
+  if (!isValidEmail(itEmail))        return res.status(400).json({ error: 'Invalid itEmail format.' });
+  if (recruiterEmail && !isValidEmail(recruiterEmail)) {
+    return res.status(400).json({ error: 'Invalid recruiterEmail format.' });
+  }
+  if (!doj || isNaN(new Date(doj).getTime())) {
+    return res.status(400).json({ error: 'Invalid doj — use YYYY-MM-DD format.' });
+  }
+  if (!/^[A-Za-z0-9_-]{10,60}$/.test(driveFolderId)) {
+    return res.status(400).json({ error: 'Invalid driveFolderId format.' });
+  }
+
+  if (_employeeRegistry[employeeId]) {
+    return res.status(409).json({ error: `Employee ${employeeId} is already registered.` });
+  }
+
+  // Build the employee object the same way /employee does
+  const employeeData = {
+    employeeId,
+    name: name.trim(),
+    personalEmail,
+    doj,
+    driveFolderId,
+    designation: designation || '',
+    team: team || '',
+    officeLocation: officeLocation || '',
+    isFresher: isFresher === true || isFresher === 'true',
+    assetRequired: assetRequired || 'Unaware — To be confirmed',
+    notes: notes || '',
+    contacts: {
+      recruiterEmail: recruiterEmail || process.env.HR_EMAIL,
+      managerName: managerName || '',
+      managerEmail,
+      itEmail,
+    },
+  };
+
+  console.log(`[Webhook] /recruiter-form — received submission for ${name} (${employeeId}), DOJ: ${doj}`);
+
+  try {
+    if (_onNewEmployee) await _onNewEmployee(employeeData);
+    res.status(201).json({ message: `Onboarding started for ${name}` });
+  } catch (err) {
+    console.error('[Webhook] /recruiter-form error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
