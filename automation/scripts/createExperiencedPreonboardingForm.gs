@@ -139,7 +139,7 @@ function createExperiencedPreonboardingForm() {
 var FOLDER_MAP = {
   'Upload Aadhaar Card':        'Aadhaar',
   'Upload PAN Card':            'PAN',
-  'Upload Address Proof':       'Aadhaar',
+  'Upload Address Proof':       'Address_Proof',
   'Upload Passport Size Photo': 'Passport_Photo',
   'Upload Offer Letter':        'Offer_Letter',
   'Upload 10th Marksheet':      'Marksheet_10th',
