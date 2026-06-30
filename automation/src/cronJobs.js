@@ -84,42 +84,51 @@ function scheduleOnce(targetDate, label, fn) {
   return task;
 }
 
-// Schedule the onboarding survey to be sent on the 25th calendar day after DOJ,
+// Schedule the employee feedback form to be sent on the 25th calendar day after DOJ,
 // adjusted to the next working day if it falls on a weekend.
 function scheduleOnboardingSurvey(employee, markTaskFn) {
   const { name, employeeId, officialEmail, doj } = employee;
   const dojDate = new Date(doj);
   const surveyDate = ensureWorkingDay(addDays(dojDate, config.milestones.surveyday));
 
-  return scheduleOnce(surveyDate, `Onboarding Survey — ${name}`, async () => {
+  return scheduleOnce(surveyDate, `Feedback Form — ${name}`, async () => {
     const { sendEmail } = require('./emailSender');
-    const surveyLink = process.env.ONBOARDING_SURVEY_LINK;
     const feedbackFormLink = process.env.EMPLOYEE_FEEDBACK_FORM_LINK;
-    const surveySection = surveyLink
-      ? `<p><a href="${surveyLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Complete Onboarding Survey</a></p>`
-      : `<p style="color:#e65100;"><strong>Note:</strong> The survey link has not been configured yet. HR will share it with you separately.</p>`;
-    const feedbackSection = feedbackFormLink
-      ? `<p style="margin-top:16px;">Additionally, please fill in the <strong>Employee Feedback Form</strong> to share your onboarding experience:</p>
-         <p><a href="${feedbackFormLink}" style="background:#34a853;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Employee Feedback Form</a></p>`
-      : '';
+    const formSection = feedbackFormLink
+      ? `<p><a href="${feedbackFormLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Employee Feedback Form</a></p>`
+      : `<p style="color:#e65100;"><strong>Note:</strong> The feedback form link has not been configured yet. HR will share it with you separately.</p>`;
     await sendEmail({
       to: officialEmail || employee.personalEmail,
-      subject: `Your Onboarding Survey — ${process.env.COMPANY_NAME}`,
+      subject: `Employee Feedback Form — ${process.env.COMPANY_NAME}`,
       html: `
         <p>Dear ${name},</p>
-        <p>You've been with us for 25 days! We'd love to hear about your onboarding experience.</p>
-        <p>Please take 5 minutes to complete this survey:</p>
-        ${surveySection}
-        ${feedbackSection}
-        <p>Your feedback helps us improve the experience for future joiners.</p>
+        <p>You've been with us for 25 days! Please take a moment to fill in the employee feedback form:</p>
+        ${formSection}
         <p>Regards,<br/>HR Team, ${process.env.COMPANY_NAME}</p>
       `,
     });
-    // Mark t38 only after the email is actually sent (not at schedule time)
-    // so the cron is correctly re-scheduled after a restart if it hasn't fired yet
     if (markTaskFn) markTaskFn('t38');
     if (employee._saveState) employee._saveState();
-    console.log(`[Cron] Onboarding survey sent to ${name} (${employeeId})`);
+    console.log(`[Cron] Feedback form sent to ${name} (${employeeId})`);
+  });
+}
+
+// Schedule the 25th day catchup call email to HR + new joiner
+function schedule25DayCatchup(employee, markTaskFn) {
+  const { name, employeeId, doj } = employee;
+  const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.surveyday));
+
+  return scheduleOnce(fireDate, `25-Day Catchup — ${name}`, async () => {
+    const { send25DayCatchupEmail } = require('./emailSender');
+    const { mark25DayCatchupDone } = require('./statusTracker');
+
+    await send25DayCatchupEmail(employee).catch(err =>
+      console.warn(`[Cron] 25-day catchup email failed for ${name}: ${err.message}`)
+    );
+    console.log(`[Cron] 25-day catchup email sent for ${name} (${employeeId})`);
+    if (markTaskFn) markTaskFn('t63');
+    if (employee._auth) await mark25DayCatchupDone(employee._auth, employee).catch(() => {});
+    if (employee._saveState) employee._saveState();
   });
 }
 
@@ -135,9 +144,12 @@ function schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, 
       console.warn(`[Cron] 30-day calendar event failed for ${name} — email still sent. (${err.message})`)
     );
 
-    // t43: send review summary request to recruiter + manager asking them to confirm catchup
-    await sendReviewSummaryRequest(employee, 30);
-    console.log(`[Cron] 30-day review summary request sent for ${name} (${employeeId})`);
+    // t43: send 30-day technical review email to manager + new joiner only
+    const { send30DayTechnicalReview } = require('./emailSender');
+    await send30DayTechnicalReview(employee).catch(err =>
+      console.warn(`[Cron] 30-day technical review email failed for ${name}: ${err.message}`)
+    );
+    console.log(`[Cron] 30-day technical review email sent for ${name} (${employeeId})`);
     if (markTaskFn) markTaskFn('t43');
 
     if (employee._auth) await mark30DayDone(employee._auth, employee).catch(() => {});
@@ -330,6 +342,7 @@ function scheduleAllMilestones(employee, contacts, markTaskFn) {
 
   const tasks = [
     scheduleOnboardingSurvey(employee, markTaskFn),
+    schedule25DayCatchup(employee, markTaskFn),
     schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, markTaskFn),
     schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, markTaskFn),
     schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, markTaskFn),
@@ -370,6 +383,13 @@ function restoreMilestonesAfterRestart(employee, contacts, completedMilestones, 
     if (t) tasks.push(t);
   } else {
     console.log(`[Cron]   Skipping onboarding survey (t38 already done)`);
+  }
+
+  if (!done.has('t63')) {
+    const t = schedule25DayCatchup(employee, markTaskFn);
+    if (t) tasks.push(t);
+  } else {
+    console.log(`[Cron]   Skipping 25-day catchup (t63 already done)`);
   }
 
   if (!done.has('t45')) {
@@ -472,6 +492,7 @@ module.exports = {
   scheduleReplyDeadline,
   restoreMilestonesAfterRestart,
   scheduleOnboardingSurvey,
+  schedule25DayCatchup,
   schedule30DayCatchup,
   schedule60DayReview,
   schedule90DayReview,

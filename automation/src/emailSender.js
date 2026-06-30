@@ -177,6 +177,24 @@ async function sendOfficialEmailCreationRequest(employee) {
   });
 }
 
+// Template 4b: Test email to new official address — employee replies to confirm access
+async function sendOfficialEmailAccessTest(employee) {
+  const { name, employeeId, officialEmail } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
+  return sendEmail({
+    to: officialEmail,
+    subject: `Welcome to ${co} — Please Confirm Access to Your Official Email (${esc(employeeId)})`,
+    html: `
+      <p>Hi ${esc(name)},</p>
+      <p>Welcome to <strong>${co}</strong>! Your official email ID has been created.</p>
+      <p>To confirm that you can access this inbox, simply <strong>reply to this email</strong> with the word <strong>"Confirmed"</strong>.</p>
+      <p>Once we receive your confirmation, your onboarding checklist will be updated automatically.</p>
+      <p>If you face any issues logging in, please contact HR immediately.</p>
+      <p>Regards,<br/>${co} HR Automation</p>
+    `,
+  });
+}
+
 // Template 5: Asset allocation request to reporting manager
 async function sendAssetAllocationRequest(employee, managerEmail) {
   const { name, employeeId, doj } = employee;
@@ -229,13 +247,20 @@ async function sendITAssetRequest(employee, itEmail, assetDetails) {
 async function sendBGVRequest(employee, recruiterEmail) {
   const { name, employeeId, doj } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
+  const engineEmail = esc(process.env.ENGINE_EMAIL || process.env.GMAIL_USER || '');
   return sendEmail({
     to: recruiterEmail,
     subject: `Action Required — Initiate BGV for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>Please initiate the Background Verification (BGV) for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) joining on <strong>${esc(doj)}</strong>.</p>
-      <p>Once initiated, please share the BGV report or confirmation by replying to this email.</p>
+      <p>Please initiate the Background Verification (BGV) for <strong>${esc(name)}</strong> (Employee ID: <strong>${esc(employeeId)}</strong>) joining on <strong>${esc(doj)}</strong>.</p>
+      <p>Once you receive the BGV report PDF from SmartScreen (or your BGV vendor):</p>
+      <ol>
+        <li><strong>Reply to this email</strong> with the BGV report PDF attached.</li>
+        <li>Make sure the Employee ID <strong>${esc(employeeId)}</strong> is visible in the subject or body.</li>
+      </ol>
+      <p>The automation system will read the PDF, classify the result as BGV Passed or Failed, move the report to the employee's Drive folder, and notify you — no manual entry needed.</p>
+      <p style="color:#555;font-size:13px;">(The engine monitors replies to this email at ${engineEmail})</p>
       <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
@@ -261,17 +286,47 @@ async function sendHRInductionConfirmation(employee, recruiterEmail) {
 async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, dayMark) {
   const { name, employeeId } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
+
+  // Month tab: 30→Month -1, 60→Month -2, 90→Month -3
+  const monthTab = dayMark === 30 ? 'Tracking - Month -1' : dayMark === 60 ? 'Tracking - Month -2' : 'Tracking - Month -3';
+
+  // Get tracking sheet URL from projectIntroSheetId (New Joinee & Task Tracker)
+  let sheetUrl = employee.projectIntroSheetId
+    ? `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`
+    : null;
+
+  if (!sheetUrl && employee._auth && employee.driveFolderId) {
+    try {
+      const drive = google.drive({ version: 'v3', auth: employee._auth });
+      const res = await drive.files.list({
+        q: `'${employee.driveFolderId}' in parents and name contains 'New Joinee' and trashed=false`,
+        fields: 'files(id)',
+        pageSize: 5,
+      });
+      if (res.data.files.length > 0) {
+        sheetUrl = `https://docs.google.com/spreadsheets/d/${res.data.files[0].id}`;
+      }
+    } catch (err) {
+      console.warn(`[Email] Could not look up tracking sheet for ${name}: ${err.message}`);
+    }
+  }
+
+  const sheetSection = sheetUrl
+    ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Tracking Sheet — ${esc(monthTab)}</a></p>`
+    : '';
+
   return sendEmail({
     to: `${recruiterEmail}, ${managerEmail}`,
-    subject: `Reminder — ${dayMark}-Day Review for ${esc(name)} (${esc(employeeId)})`,
+    subject: `Reminder — ${dayMark}-Day Project Review for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>The <strong>${dayMark}-day review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due.</p>
-      <p>Please schedule and conduct the review call. After the call:</p>
+      <p>The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due.</p>
+      <p>Please schedule and conduct the review. After the call:</p>
       <ol>
-        <li>Update the project intro sheet with outcomes</li>
+        <li>Fill in the <strong>${esc(monthTab)}</strong> tab in the tracking sheet below</li>
         <li>Reply to this email confirming the review was completed</li>
       </ol>
+      ${sheetSection}
       <p>If the call cannot happen soon, reply with the new proposed date.</p>
       <p>Regards,<br/>${co} HR Automation</p>
     `,
@@ -725,39 +780,102 @@ async function sendCatchupXLSEmail(employee) {
   }
 }
 
-// Template 17: Review summary request — replaces "call transcribed" for t43/t46/t49
+// Template 17: 30/60/90-day review email — single email with tracking sheet link
 async function sendReviewSummaryRequest(employee, dayMark) {
   const { name, employeeId, contacts } = employee;
   const recruiterEmail = contacts && contacts.recruiterEmail;
   const managerEmail = contacts && contacts.managerEmail;
   const toEmail = [recruiterEmail, managerEmail].filter(Boolean).join(', ');
+  const co = esc(process.env.COMPANY_NAME || '');
 
-  const xlsSection = dayMark === 30 ? `
-      <p style="color:#555;border-left:4px solid #1565c0;padding:8px 16px;background:#e3f2fd;">
-        <strong>Catchup Call:</strong> A 30-day catchup call has been scheduled with ${name}. Please check your calendar for the invite. Once the call is done, please fill in the <strong>30-day catchup XLS tracker</strong> shared earlier and reply to this email with a brief summary.
-      </p>` : '';
+  // Month tab mapping: 30-day → Month -1, 60-day → Month -2, 90-day → Month -3
+  const monthTab = dayMark === 30 ? 'Tracking - Month -1' : dayMark === 60 ? 'Tracking - Month -2' : 'Tracking - Month -3';
+  const monthLabel = dayMark === 30 ? 'Month 1' : dayMark === 60 ? 'Month 2' : 'Month 3';
 
-  const callNote = dayMark !== 30 ? `
-      <p style="color:#555;border-left:4px solid #ffa000;padding:8px 16px;background:#fffde7;">
-        <strong>Note:</strong> If the call has not happened yet, please reply with a proposed date and the system will send a reminder to reschedule.
-      </p>` : '';
+  // Get the tracking sheet URL (AL_DI_HR_019 project intro sheet)
+  let sheetUrl = employee.projectIntroSheetId
+    ? `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`
+    : null;
+
+  if (!sheetUrl && employee._auth && employee.driveFolderId) {
+    try {
+      const drive = google.drive({ version: 'v3', auth: employee._auth });
+      const res = await drive.files.list({
+        q: `'${employee.driveFolderId}' in parents and name contains 'New Joinee' and trashed=false`,
+        fields: 'files(id,name)',
+        pageSize: 5,
+      });
+      if (res.data.files.length > 0) {
+        sheetUrl = `https://docs.google.com/spreadsheets/d/${res.data.files[0].id}`;
+      }
+    } catch (err) {
+      console.warn(`[Email] Could not look up tracking sheet for ${name}: ${err.message}`);
+    }
+  }
+
+  const sheetSection = sheetUrl
+    ? `<p style="margin:16px 0;">
+        <a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">
+          Open Tracking Sheet — ${monthLabel}
+        </a>
+       </p>
+       <p style="color:#555;font-size:13px;">Please fill in the <strong>${esc(monthTab)}</strong> tab after the review call.</p>`
+    : `<p style="color:#e65100;font-size:13px;">Tracking sheet not found — please fill it in manually from the employee's Drive folder.</p>`;
 
   return sendEmail({
     to: toEmail,
-    subject: `${dayMark}-Day Review — Action Required for ${name} (${employeeId})`,
+    subject: `${dayMark}-Day Project Review — ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>The <strong>${dayMark}-day review</strong> for <strong>${name}</strong> (ID: ${employeeId}) is due today. Please conduct the review call and reply to this email with a brief summary covering:</p>
-      <ol>
-        <li><strong>Performance so far</strong> — overall assessment</li>
-        <li><strong>Key achievements</strong> — notable contributions or milestones</li>
-        <li><strong>Areas of improvement</strong> — feedback on gaps or development needs</li>
-        <li><strong>Manager feedback</strong> — reporting manager's overall view</li>
-        <li><strong>Next steps</strong> — goals or action items for the next period</li>
-      </ol>
-      ${xlsSection}
-      ${callNote}
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due. Please check your calendar for the meeting invite.</p>
+      <p>After the review, please fill in the tracking sheet for <strong>${monthLabel}</strong>:</p>
+      ${sheetSection}
+      <p style="color:#555;border-left:4px solid #ffa000;padding:8px 16px;background:#fffde7;">
+        Once the review is done, reply to this email with <strong>"Confirmed"</strong> to update the onboarding checklist.
+      </p>
+      <p>Regards,<br/>${co} HR Automation</p>
+    `,
+  });
+}
+
+// Template 18c2: Day 30 technical review — simple email to manager + new joiner
+async function send30DayTechnicalReview(employee) {
+  const { name, employeeId, contacts } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
+  const joineeEmail = employee.officialEmail || employee.personalEmail;
+  const managerEmail = contacts && contacts.managerEmail;
+  const toEmail = [managerEmail, joineeEmail].filter(Boolean).join(', ');
+
+  return sendEmail({
+    to: toEmail,
+    subject: `30-Day Project Review — ${esc(name)} (${esc(employeeId)})`,
+    html: `
+      <p>Hi,</p>
+      <p>It has been 30 days since <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) joined ${co}. Time for the <strong>30-day project review!</strong></p>
+      <p>Please check your calendar for the review meeting invite and come prepared to discuss progress, challenges, and next steps.</p>
+      <p>Regards,<br/>${co} HR Automation</p>
+    `,
+  });
+}
+
+// Template 18c: Day 25 catchup call notification — sent to HR + new joiner on day 25
+async function send25DayCatchupEmail(employee) {
+  const { name, employeeId } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
+  const hrEmail = process.env.HR_EMAIL;
+  const joineeEmail = employee.officialEmail || employee.personalEmail;
+  const toEmail = [hrEmail, joineeEmail].filter(Boolean).join(', ');
+  const sheetLink = process.env.CATCHUP_TRACKING_SHEET_LINK || '#';
+
+  return sendEmail({
+    to: toEmail,
+    subject: `25th Day Catchup Call — ${esc(name)} (${esc(employeeId)})`,
+    html: `
+      <p>Hi,</p>
+      <p>This is a reminder that the <strong>25th day catchup call</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due. Please check your calendar for the invite.</p>
+      <p>Recruiter — please fill in the <a href="${sheetLink}">catchup tracking sheet</a> after the call.</p>
+      <p>HR — once the call is done, reply to this email with <strong>"Confirmed"</strong> to update the checklist.</p>
+      <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
 }
@@ -805,9 +923,12 @@ module.exports = {
   sendDocumentReminder,
   sendNoResponseAlert,
   sendOfficialEmailCreationRequest,
+  sendOfficialEmailAccessTest,
   sendAssetAllocationRequest,
   sendITAssetRequest,
   sendAdminSeatAllocationRequest,
+  send25DayCatchupEmail,
+  send30DayTechnicalReview,
   sendBGVRequest,
   sendHRInductionConfirmation,
   sendPeriodicReviewReminder,

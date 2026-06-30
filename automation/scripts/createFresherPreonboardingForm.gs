@@ -19,7 +19,6 @@ function createFresherPreonboardingForm() {
   // move uploaded files into the correct Drive subfolders automatically.
   form.addTextItem()
     .setTitle('Employee ID')
-    .setHelpText('Pre-filled by HR — do not edit')
     .setRequired(false);
 
   form.addTextItem()

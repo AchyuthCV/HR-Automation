@@ -2,13 +2,14 @@ require('dotenv').config();
 const config = require('./config');
 const { encrypt, decrypt, isEncryptionEnabled } = require('./encryption');
 const { getAuthClient, watchFolder, watchFolderPolling, scaffoldEmployeeFolder, uploadChecklist, uploadInstructions, listFolderFiles } = require('./driveWatcher');
-const { verifyDocument, detectDocType } = require('./documentVerifier');
+const { verifyDocument, detectDocType, extractDocumentData } = require('./documentVerifier');
 const {
   sendEmail,
   sendPreOnboardingForm,
   sendDocumentRejection,
   sendNoResponseAlert,
   sendOfficialEmailCreationRequest,
+  sendOfficialEmailAccessTest,
   sendAssetAllocationRequest,
   sendITAssetRequest,
   sendBGVRequest,
@@ -20,6 +21,7 @@ const {
   sendCatchupXLSEmail,
   sendReviewSummaryRequest,
   sendAdminSeatAllocationRequest,
+  send25DayCatchupEmail,
 } = require('./emailSender');
 const {
   scheduleAllMilestones,
@@ -33,7 +35,7 @@ const {
 } = require('./cronJobs');
 const { createHRInductionEvent, createProjectIntroEvent, create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
 const webhookServer = require('./webhookServer');
-const { registerGmailWatch } = require('./gmailWatcher');
+const { registerGmailWatch, downloadAttachment } = require('./gmailWatcher');
 const activityLog = require('./activityLog');
 const {
   getOrCreateStatusSheet,
@@ -48,11 +50,13 @@ const {
   markHRInductionScheduled,
   markProjectIntroScheduled,
   markOnboardingComplete,
+  mark25DayCatchupDone,
   mark30DayDone,
   mark60DayDone,
   mark90DayDone,
   markPreprobationDone,
   createProjectIntroSheet,
+  createEmployeeInfoSheet,
 } = require('./statusTracker');
 
 // ─── Employee registry ────────────────────────────────────────────────────────
@@ -125,11 +129,26 @@ function snapshotEmployee(employee) {
     }
   }
   return {
+    // Identity fields — needed to reconstruct the employee on restart
+    employeeId: employee.employeeId,
+    name: employee.name,
+    personalEmail: employee.personalEmail || '',
+    phoneNumber: employee.phoneNumber || '',
+    doj: employee.doj || '',
+    driveFolderId: employee.driveFolderId || '',
+    isFresher: employee.isFresher || false,
+    role: employee.role || '',
+    department: employee.department || '',
+    contacts: employee.contacts || {},
+    personalDetails: employee.personalDetails || {},
+    // Runtime state
     checklist: employee.checklist,
     milestonesScheduled: employee.milestonesScheduled || false,
     statusSheetId: employee.statusSheetId || null,
     projectIntroSheetId: employee.projectIntroSheetId || null,
+    employeeInfoSheetId: employee.employeeInfoSheetId || null,
     verificationResults: employee.verificationResults || {},
+    extractedData: employee.extractedData || {},
     processedFileIds: Array.from(employee.processedFileIds || []),
     replyTimerExpiry,
     officialEmail: employee.officialEmail || '',
@@ -137,8 +156,40 @@ function snapshotEmployee(employee) {
   };
 }
 
+const EMPLOYEES_FILE = path.join(__dirname, '..', 'employees.json');
+
+// Add or update an employee entry in employees.json so it survives engine restarts
+function persistEmployeeToFile(data) {
+  try {
+    let list = [];
+    if (fs.existsSync(EMPLOYEES_FILE)) {
+      list = JSON.parse(fs.readFileSync(EMPLOYEES_FILE, 'utf8'));
+    }
+    const idx = list.findIndex(e => e.employeeId === data.employeeId);
+    // Only store the fields employees.json needs (not runtime state)
+    const entry = {
+      employeeId: data.employeeId,
+      name: data.name,
+      personalEmail: data.personalEmail,
+      phoneNumber: data.phoneNumber || '',
+      officialEmail: data.officialEmail || '',
+      doj: data.doj,
+      driveFolderId: data.driveFolderId,
+      isFresher: data.isFresher,
+      role: data.role || '',
+      department: data.department || '',
+      contacts: data.contacts || {},
+    };
+    if (idx >= 0) list[idx] = entry; else list.push(entry);
+    fs.writeFileSync(EMPLOYEES_FILE, JSON.stringify(list, null, 2));
+    console.log(`[Index] Persisted ${data.employeeId} to employees.json`);
+  } catch (err) {
+    console.error(`[Index] Failed to persist ${data.employeeId} to employees.json:`, err.message);
+  }
+}
+
 function loadEmployees() {
-  const registryPath = path.join(__dirname, '..', 'employees.json');
+  const registryPath = EMPLOYEES_FILE;
   if (fs.existsSync(registryPath)) {
     return JSON.parse(fs.readFileSync(registryPath, 'utf8'));
   }
@@ -166,7 +217,9 @@ function loadEmployees() {
         milestonesScheduled: saved ? saved.milestonesScheduled : false,
         statusSheetId: saved ? (saved.statusSheetId || null) : null,
         projectIntroSheetId: saved ? (saved.projectIntroSheetId || null) : null,
+        employeeInfoSheetId: saved ? (saved.employeeInfoSheetId || null) : null,
         verificationResults: saved ? (saved.verificationResults || {}) : {},
+        extractedData: saved ? (saved.extractedData || {}) : {},
         processedFileIds: new Set(saved && saved.processedFileIds ? saved.processedFileIds : []),
         replyTimerExpiry: saved ? (saved.replyTimerExpiry || {}) : {},
         phase: 'Phase2_BeforeDOJ',
@@ -255,11 +308,20 @@ function buildDefaultChecklist() {
         t36: { label: 'General Admin confirms seat allocation', done: false },
         t37: { label: 'Project intro meeting attendance confirmed', done: false },
         t54: { label: 'Recruiter checks asset and seat allocation physically', done: false },
-        t38: { label: 'Onboarding survey scheduled for day 25 (working day)', done: false },
+        t38: { label: 'Employee feedback form sent on day 25', done: false },
         t39: { label: '30-day catchup call scheduled', done: false },
         t40: { label: 'Catchup XLS created, shared with recruiter, saved in joinee folder', done: false },
         t41: { label: '30/60/90-day project reviews scheduled with manager and recruiter', done: false },
         t42: { label: 'Checklist1 updated — DOJ phase complete', done: false },
+      },
+    },
+    // ── Phase 3b: 25 Days After DOJ — Catchup Call ───────────────────────────
+    phase3b: {
+      label: 'Phase 3b — 25th Day Catchup Call',
+      tasks: {
+        t63: { label: 'Day 25 catchup call email sent to HR and new joiner', done: false },
+        t64: { label: 'Recruiter confirms catchup call happened', done: false },
+        t65: { label: '25-day milestone marked complete in Checklist1', done: false },
       },
     },
     // ── Phase 4: 30 Days After DOJ ────────────────────────────────────────────
@@ -443,6 +505,18 @@ async function handleNewFile(auth, employee, file) {
 
     // If a rejection was previously issued for any doc, clear the "Documents not ok" sheet row
     await markDocumentsVerifiedOk(auth, employee).catch(() => {});
+
+    // Extract structured data from the verified doc — await so data is ready before t9 sheet creation
+    try {
+      const extracted = await extractDocumentData(auth, file.id, file.name, file.mimeType);
+      if (extracted && extracted.docType && extracted.fields) {
+        employee.extractedData = employee.extractedData || {};
+        employee.extractedData[extracted.docType] = extracted.fields;
+        console.log(`[Index] Extracted data stored for ${extracted.docType} — ${employee.name}`);
+      }
+    } catch (err) {
+      console.warn(`[Index] Extraction failed for ${file.name}: ${err.message}`);
+    }
   } else {
     const reason = result.failureReasons ? result.failureReasons.join('; ') : 'Verification failed';
     console.log(`[Index] ✗ ${file.name} failed: ${reason}`);
@@ -465,15 +539,8 @@ async function handleNewFile(auth, employee, file) {
     employee.noResponseTimers[docType] = scheduleDocumentReminders(employee, result.docType || docType, reason, alertRecipient);
   }
 
-  // Always send the latest verification report to the recruiter (t9)
-  try {
-    await sendVerificationReport(employee, employee.verificationResults);
-    if (!isTaskDone(employee.checklist, 't9')) {
-      markAndLog(employee, 't9');
-    }
-  } catch (err) {
-    console.warn('[Index] Could not send verification report:', err.message);
-  }
+  // Verification report is sent once — as a consolidated email when all docs are done.
+  // See the BGV auto-complete block in triggerNextStep which fires sendVerificationReport.
 
   // Record file as processed so restarts don't re-verify and re-send emails
   employee.processedFileIds.add(file.id);
@@ -490,6 +557,10 @@ async function handleNewFile(auth, employee, file) {
 }
 
 // ─── Trigger next automation step after a document passes ─────────────────────
+// Per-employee in-memory lock set — prevents duplicate emails when multiple docs
+// arrive simultaneously and both pass before state is persisted to disk.
+const _triggerLocks = new Set();
+
 async function triggerNextStep(auth, employee, docType) {
   const { checklist, contacts } = employee;
   if (!contacts) {
@@ -503,7 +574,9 @@ async function triggerNextStep(auth, employee, docType) {
   if (docType === 'aadhaar' || docType === 'pan') {
     const vr = employee.verificationResults || {};
     const bothVerified = vr.aadhaar && vr.aadhaar.valid && vr.pan && vr.pan.valid;
-    if (bothVerified && !isTaskDone(checklist, 't14')) {
+    const lockKey = `${employee.employeeId}:t14`;
+    if (bothVerified && !isTaskDone(checklist, 't14') && !_triggerLocks.has(lockKey)) {
+      _triggerLocks.add(lockKey);
       await markDocumentsVerifiedOk(auth, employee).catch(() => {});
       await sendOfficialEmailCreationRequest(employee);
       markAndLog(employee, 't14');
@@ -517,7 +590,10 @@ async function triggerNextStep(auth, employee, docType) {
       );
       markAndLog(employee, 't17');
 
-      // BGV is initiated — mark that the process has started (t23, t24)
+      // BGV is initiated — send request to recruiter, mark t23/t24
+      await sendBGVRequest(employee, contacts.recruiterEmail).catch(err =>
+        console.warn(`[Index] BGV request email failed for ${employee.name}: ${err.message}`)
+      );
       markAndLog(employee, 't23');
       markAndLog(employee, 't24');
 
@@ -531,60 +607,54 @@ async function triggerNextStep(auth, employee, docType) {
       employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', contacts.managerEmail);
       // Persist immediately so these escalation timers survive a restart
       saveState(employee.employeeId, snapshotEmployee(employee));
+      // Lock stays set permanently — t14 is now done so the isTaskDone guard
+      // will catch any future re-entry; lock only needed for the race window.
     }
   }
 
-  // BGV auto-complete: when all required docs are verified AND optional docs are either
-  // verified or marked N/A → BGV is done.
-  const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate', 'relievingLetter'];
-  const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'postgradCertificate'];
-  const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', postgradCertificate: 't62' };
-
-  if (!isTaskDone(checklist, 't25')) {
+  // Send ONE consolidated doc verification report when all expected docs are verified.
+  // BGV is always handled separately — HR forwards the SmartScreen PDF to the engine.
+  const ALL_DOCS = employee.isFresher
+    ? ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate']
+    : ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate', 'relievingLetter'];
+  const reportLockKey = `${employee.employeeId}:t9`;
+  if (!isTaskDone(checklist, 't9') && !_triggerLocks.has(reportLockKey)) {
     const vr = employee.verificationResults || {};
-    const requiredAllPassed = BGV_REQUIRED_DOCS.every(d => vr[d] && vr[d].valid);
-    const optionalAllSettled = BGV_OPTIONAL_DOCS.every(d => {
-      // settled = verified (valid) OR marked N/A (task done) OR not yet uploaded (don't block BGV)
-      return (vr[d] && vr[d].valid) || isTaskDone(checklist, BGV_OPTIONAL_TASKS[d]) || !(vr[d]);
-    });
+    const allCoreDone = ALL_DOCS.every(d => vr[d] && (vr[d].valid || vr[d].valid === false));
+    if (allCoreDone) {
+      _triggerLocks.add(reportLockKey);
+      try {
+        await sendVerificationReport(employee, vr);
+        markAndLog(employee, 't9');
+        console.log(`[Index] Consolidated doc verification report sent for ${employee.name}`);
+      } catch (err) {
+        console.warn(`[Index] Could not send consolidated verification report: ${err.message}`);
+        _triggerLocks.delete(reportLockKey);
+      }
 
-    if (requiredAllPassed && optionalAllSettled) {
-      console.log(`[Index] All documents verified — auto-completing BGV for ${employee.name}`);
-      activityLog.log(employee, 'bgv_report_received', 'Auto-completed — all documents verified by AI');
-      markAndLog(employee, 't25');
-      markAndLog(employee, 't26');
-      await markBGVDone(auth, employee).catch(() => {});
-
-      // Notify recruiter that BGV is complete so they have a record (t23/t24 already marked)
-      const bgvRecipient = (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL;
-      await sendEmail({
-        to: bgvRecipient,
-        subject: `BGV Complete — ${employee.name} (${employee.employeeId})`,
-        html: `
-          <p>Hi,</p>
-          <p>Background Verification (BGV) for <strong>${employee.name}</strong> (ID: ${employee.employeeId}) has been automatically completed based on document verification.</p>
-          <p>All required documents (Aadhaar, PAN, 10th marksheet, 12th marksheet, Degree Certificate) have been verified successfully by the automation system.</p>
-          <p>No further action is required for BGV. The onboarding checklist has been updated.</p>
-          <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
-        `,
-      }).catch(err => console.warn(`[Index] BGV completion email failed for ${employee.name}: ${err.message}`));
+      // Create AL/DI/HR/018 Employee Info Sheet with AI-extracted data pre-filled
+      if (!employee.employeeInfoSheetId) {
+        createEmployeeInfoSheet(auth, employee).then(url => {
+          if (url) {
+            console.log(`[Index] Employee info sheet created for ${employee.name}: ${url}`);
+            saveState(employee.employeeId, snapshotEmployee(employee));
+          }
+        }).catch(err => {
+          console.warn(`[Index] Employee info sheet creation failed for ${employee.name}: ${err.message}`);
+        });
+      }
 
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));
-
-      if (isPhaseComplete(checklist, 'phase2')) {
-        const done = Object.values(checklist.phase2.tasks).map(t => t.label);
-        await sendPhaseCompletionSummary(employee, 'Phase 2 — Before DOJ (Automation)', done).catch(err =>
-          console.warn(`[Index] Phase 2 completion summary failed for ${employee.name}: ${err.message}`)
-        );
-      }
     }
   }
 
   // After offer letter saved → send induction confirmation request, calendar invite, project intro
   // t13 is already marked by DOC_TASK_MAP in handleNewFile when the offer letter passes verification
   if (docType === 'offerLetter') {
-    if (!isTaskDone(checklist, 't33')) {
+    const inductionLockKey = `${employee.employeeId}:t33`;
+    if (!isTaskDone(checklist, 't33') && !_triggerLocks.has(inductionLockKey)) {
+      _triggerLocks.add(inductionLockKey);
       await sendHRInductionConfirmation(employee, contacts.recruiterEmail);
       // Schedule 48h escalation if recruiter never confirms induction attendance
       employee.replyTimers = employee.replyTimers || {};
@@ -594,7 +664,9 @@ async function triggerNextStep(auth, employee, docType) {
     }
 
     // t27/t28: Send HR induction calendar invite to employee + recruiter
-    if (!isTaskDone(checklist, 't27')) {
+    const calLockKey = `${employee.employeeId}:t27`;
+    if (!isTaskDone(checklist, 't27') && !_triggerLocks.has(calLockKey)) {
+      _triggerLocks.add(calLockKey);
       await sendInductionCalendarInvite(employee);
       await createHRInductionEvent(auth, employee).catch(err => {
         console.warn(`[Index] HR induction calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
@@ -606,7 +678,9 @@ async function triggerNextStep(auth, employee, docType) {
     }
 
     // t29/t30/t31/t32: Create project intro sheet, send invite + sheet link to manager + employee
-    if (!isTaskDone(checklist, 't29')) {
+    const introLockKey = `${employee.employeeId}:t29`;
+    if (!isTaskDone(checklist, 't29') && !_triggerLocks.has(introLockKey)) {
+      _triggerLocks.add(introLockKey);
       // Create the sheet first so the link can be included in the email
       const sheetUrl = await createProjectIntroSheet(auth, employee).catch(err => {
         console.warn(`[Index] Project intro sheet creation failed for ${employee.name}: ${err.message}`);
@@ -720,16 +794,226 @@ function isTaskDone(checklist, taskId) {
   return false;
 }
 
+// ─── Process BGV PDF report forwarded by HR/recruiter ────────────────────────
+// Downloads the PDF attachment, sends it to Gemini for analysis,
+// classifies as BGV Passed / BGV Failed, moves PDF to BGV subfolder,
+// notifies HR with the result.
+async function processBGVReport(auth, employee, rawMsg) {
+  const { GoogleGenerativeAI } = require('@google/generative-ai');
+  const os = require('os');
+
+  const attachment = rawMsg.attachments && rawMsg.attachments[0];
+  if (!attachment) {
+    console.warn(`[BGV] No PDF attachment found in email for ${employee.name}`);
+    return;
+  }
+
+  console.log(`[BGV] Processing BGV report for ${employee.name}: ${attachment.filename}`);
+
+  // Download PDF bytes
+  let pdfBuffer;
+  try {
+    if (attachment.data) {
+      pdfBuffer = Buffer.from(attachment.data, 'base64');
+    } else if (attachment.attachmentId) {
+      pdfBuffer = await downloadAttachment(auth, rawMsg.id, attachment.attachmentId);
+    } else {
+      console.warn(`[BGV] Attachment has no data or attachmentId — skipping`);
+      return;
+    }
+  } catch (err) {
+    console.error(`[BGV] Failed to download attachment: ${err.message}`);
+    return;
+  }
+
+  // Save to temp file
+  const tmpPath = path.join(os.tmpdir(), `bgv-${employee.employeeId}-${Date.now()}.pdf`);
+  fs.writeFileSync(tmpPath, pdfBuffer);
+
+  let bgvResult = null;
+  try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: config.geminiModel });
+
+    const pdfBase64 = pdfBuffer.toString('base64');
+    const prompt = `You are an HR automation assistant. Analyse this BGV (Background Verification) report PDF.
+
+Extract ALL individual checks and their results (e.g. Address-1, Address-2, Education, Employment, Criminal, etc.).
+For each check note whether it is "Verified", "Discrepancy", "Unable to Verify", or any other status.
+
+Then classify the overall BGV result:
+- "BGV Passed" if 80% or more of checks are "Verified"
+- "BGV Failed" if more than 20% of checks have Discrepancy or Unable to Verify
+
+Respond ONLY with this JSON:
+{
+  "overallResult": "BGV Passed" or "BGV Failed",
+  "totalChecks": <number>,
+  "verifiedCount": <number>,
+  "failedCount": <number>,
+  "checks": [
+    { "name": "check name", "result": "Verified/Discrepancy/Unable to Verify/etc" }
+  ],
+  "summary": "one sentence summary"
+}`;
+
+    const response = await model.generateContent([
+      prompt,
+      { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
+    ]);
+
+    const raw = response.response.text().trim();
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) bgvResult = JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    console.error(`[BGV] Gemini analysis failed: ${err.message}`);
+  } finally {
+    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+  }
+
+  if (!bgvResult) {
+    await sendEmail({
+      to: process.env.HR_EMAIL,
+      subject: `BGV Report Received — Manual Review Required (${employee.name})`,
+      html: `<p>Hi HR,</p><p>A BGV report was received for <strong>${employee.name} (${employee.employeeId})</strong> but the automation could not parse it. Please review it manually.</p><p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
+    }).catch(() => {});
+    return;
+  }
+
+  const passed = bgvResult.overallResult === 'BGV Passed';
+  console.log(`[BGV] ${employee.name}: ${bgvResult.overallResult} (${bgvResult.verifiedCount}/${bgvResult.totalChecks} verified)`);
+  activityLog.log(employee, 'bgv_report_received', bgvResult.overallResult);
+
+  // Move PDF to BGV subfolder in Drive
+  try {
+    const { google } = require('googleapis');
+    const drive = google.drive({ version: 'v3', auth });
+
+    // Find BGV subfolder
+    const folderRes = await drive.files.list({
+      q: `name='BGV' and '${employee.driveFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'files(id)',
+    });
+
+    if (folderRes.data.files.length > 0) {
+      const bgvFolderId = folderRes.data.files[0].id;
+      // Upload PDF to BGV folder
+      const { Readable } = require('stream');
+      const stream = new Readable();
+      stream.push(pdfBuffer);
+      stream.push(null);
+      await drive.files.create({
+        requestBody: {
+          name: attachment.filename,
+          parents: [bgvFolderId],
+        },
+        media: { mimeType: 'application/pdf', body: stream },
+        fields: 'id',
+      });
+      console.log(`[BGV] PDF uploaded to BGV folder for ${employee.name}`);
+    } else {
+      console.warn(`[BGV] BGV subfolder not found for ${employee.name}`);
+    }
+  } catch (err) {
+    console.warn(`[BGV] Could not upload PDF to Drive: ${err.message}`);
+  }
+
+  // Build check rows for email
+  const checkRows = (bgvResult.checks || []).map(c => {
+    const color = c.result === 'Verified' ? '#2e7d32' : '#c62828';
+    return `<tr><td style="padding:6px 12px;border:1px solid #ddd;">${c.name}</td><td style="padding:6px 12px;border:1px solid #ddd;color:${color};font-weight:bold;">${c.result}</td></tr>`;
+  }).join('');
+
+  // Notify HR
+  const resultColor = passed ? '#2e7d32' : '#c62828';
+  await sendEmail({
+    to: process.env.HR_EMAIL,
+    subject: `BGV Report — ${bgvResult.overallResult} — ${employee.name} (${employee.employeeId})`,
+    html: `
+      <p>Hi HR Team,</p>
+      <p>The Background Verification (BGV) report for <strong>${employee.name}</strong> (ID: ${employee.employeeId}) has been processed.</p>
+      <p style="font-size:18px;font-weight:bold;color:${resultColor};">${bgvResult.overallResult}</p>
+      <p>${bgvResult.verifiedCount} of ${bgvResult.totalChecks} checks verified. ${bgvResult.summary || ''}</p>
+      <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;margin:16px 0;">
+        <thead><tr style="background:#1a73e8;color:#fff;">
+          <th style="padding:8px 12px;border:1px solid #1a73e8;text-align:left;">Check</th>
+          <th style="padding:8px 12px;border:1px solid #1a73e8;text-align:left;">Result</th>
+        </tr></thead>
+        <tbody>${checkRows}</tbody>
+      </table>
+      <p>The BGV report PDF has been saved to the employee's BGV folder in Drive.</p>
+      ${passed ? '' : '<p style="color:#c62828;font-weight:bold;">Action Required: BGV has failed. Please review the discrepancies and decide on next steps.</p>'}
+      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+    `,
+  }).catch(err => console.warn(`[BGV] Notification email failed: ${err.message}`));
+
+  // Mark tasks and update checklist
+  markAndLog(employee, 't25');
+  markAndLog(employee, 't26');
+  await markBGVDone(auth, employee).catch(() => {});
+  await uploadChecklist(auth, employee.driveFolderId, employee.checklist);
+  saveState(employee.employeeId, snapshotEmployee(employee));
+}
+
 // ─── Handle classified Gmail reply ────────────────────────────────────────────
 async function handleReply(auth, classified, rawMsg) {
   const { replyType, data } = classified;
-  const employeeId = String(classified.employeeId || '').trim();
-  if (!employeeId || !employeeRegistry[employeeId]) {
+  const rawId = String(classified.employeeId || '').trim();
+
+  let employee = employeeRegistry[rawId];
+
+  // Fallback 1: Gemini sometimes returns the employee name instead of the ID
+  if (!employee && rawId) {
+    const needle = rawId.toLowerCase();
+    employee = Object.values(employeeRegistry).find(
+      e => e.name && e.name.toLowerCase() === needle
+    );
+    if (employee) {
+      console.log(`[Index] Matched employee by name "${rawId}" → ${employee.employeeId}`);
+    }
+  }
+
+  // Fallback 2: when employeeId is null, match by sender email + pending task state
+  if (!employee && replyType) {
+    const senderEmail = rawMsg && rawMsg.from
+      ? rawMsg.from.toLowerCase().replace(/.*<([^>]+)>.*/, '$1').trim()
+      : '';
+
+    const PENDING_TASK_MAP = {
+      it_allocation:              e => isTaskDone(e.checklist, 't20') && !isTaskDone(e.checklist, 't21'),
+      manager_allocation:         e => isTaskDone(e.checklist, 't17') && !isTaskDone(e.checklist, 't18'),
+      official_email_created:     e => !isTaskDone(e.checklist, 't15'),
+      official_email_access_confirmed: e => isTaskDone(e.checklist, 't15') && !isTaskDone(e.checklist, 't16'),
+      official_email_access_failed:    e => isTaskDone(e.checklist, 't15') && !isTaskDone(e.checklist, 't16'),
+      bgv_report:                 e => isTaskDone(e.checklist, 't23') && !isTaskDone(e.checklist, 't25'),
+      induction_confirmed:        e => !isTaskDone(e.checklist, 't33'),
+    };
+
+    const pendingCheck = PENDING_TASK_MAP[replyType];
+    const candidates = Object.values(employeeRegistry).filter(e => pendingCheck ? pendingCheck(e) : true);
+
+    if (candidates.length === 1) {
+      employee = candidates[0];
+      console.log(`[Index] Matched employee by pending task state (${replyType}) → ${employee.employeeId}`);
+    } else if (candidates.length > 1 && senderEmail) {
+      // Narrow by sender address matching a known contact
+      employee = candidates.find(e => {
+        const contacts = e.contacts || {};
+        return [contacts.itEmail, contacts.managerEmail, contacts.recruiterEmail, e.personalEmail, e.officialEmail]
+          .some(addr => addr && addr.toLowerCase() === senderEmail);
+      });
+      if (employee) {
+        console.log(`[Index] Matched employee by sender email "${senderEmail}" → ${employee.employeeId}`);
+      }
+    }
+  }
+
+  if (!employee) {
     console.warn(`[Index] Reply for unknown employee: ${classified.employeeId}`);
     return;
   }
 
-  const employee = employeeRegistry[employeeId];
+  const employeeId = employee.employeeId;
   const { checklist } = employee;
 
   console.log(`[Index] Processing reply: ${replyType} for ${employee.name}`);
@@ -737,17 +1021,26 @@ async function handleReply(auth, classified, rawMsg) {
 
   switch (replyType) {
     case 'official_email_created':
+      if (isTaskDone(checklist, 't15')) {
+        console.log(`[Index] Skipping duplicate official_email_created for ${employee.name} — t15 already done`);
+        break;
+      }
       if (data.officialEmail) {
         employee.officialEmail = data.officialEmail;
         markAndLog(employee, 't15');
-        markAndLog(employee, 't16');
+        // t16 stays pending until employee confirms access by replying to the test email
         console.log(`[Index] Official email recorded: ${data.officialEmail}`);
-        activityLog.log(employee, 'official_email_confirmed', data.officialEmail);
+        activityLog.log(employee, 'official_email_recorded', data.officialEmail);
         await markOfficialEmailConfirmed(auth, employee, data.officialEmail).catch(() => {});
         if (employee.replyTimers && employee.replyTimers.hr) {
           employee.replyTimers.hr.stop && employee.replyTimers.hr.stop();
           delete employee.replyTimers.hr;
         }
+        // Send access test email to the new official address
+        await sendOfficialEmailAccessTest(employee).catch(err =>
+          console.warn(`[Index] Official email access test failed for ${employee.name}: ${err.message}`)
+        );
+        console.log(`[Index] Access test email sent to ${data.officialEmail} for ${employee.name}`);
         // If asset allocation email was never sent (contacts missing at t14 time), send it now
         if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail) {
           await sendAssetAllocationRequest(employee, employee.contacts.managerEmail).catch(err =>
@@ -768,6 +1061,33 @@ async function handleReply(auth, classified, rawMsg) {
           html: `<p>Hi HR,</p><p>A reply to the official email creation request for <strong>${employee.name} (${employee.employeeId})</strong> was received but the automation could not extract the email address from it.</p><p>Please reply manually or use the status dashboard to mark task t15/t16 once the official email is confirmed.</p><p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
         }).catch(err => console.warn('[Index] Could not send official-email parse-failure alert:', err.message));
       }
+      break;
+
+    case 'official_email_access_confirmed':
+      markAndLog(employee, 't16');
+      activityLog.log(employee, 'official_email_access_confirmed', employee.officialEmail || '');
+      console.log(`[Index] Official email access confirmed by ${employee.name}`);
+      await markOfficialEmailConfirmed(auth, employee, employee.officialEmail).catch(() => {});
+      await sendEmail({
+        to: process.env.HR_EMAIL,
+        subject: `Official Email Access Confirmed — ${employee.name} (${employee.employeeId})`,
+        html: `<p>Hi HR,</p><p><strong>${employee.name}</strong> (${employee.employeeId}) has confirmed access to their official email address <strong>${employee.officialEmail || ''}</strong>. The onboarding checklist has been updated.</p><p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
+      }).catch(() => {});
+      break;
+
+    case 'official_email_access_failed':
+      activityLog.log(employee, 'official_email_access_failed', employee.officialEmail || '');
+      console.warn(`[Index] Official email access issue reported by ${employee.name}`);
+      await sendEmail({
+        to: process.env.HR_EMAIL,
+        subject: `Action Required — Official Email Issue for ${employee.name} (${employee.employeeId})`,
+        html: `
+          <p>Hi HR,</p>
+          <p><strong>${employee.name}</strong> (${employee.employeeId}) has reported that they are unable to access their official email address <strong>${employee.officialEmail || ''}</strong>.</p>
+          <p>Please check the account setup and resolve the issue. Once fixed, ask the employee to reply "Confirmed" to the access test email so the onboarding checklist can be updated.</p>
+          <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+        `,
+      }).catch(() => {});
       break;
 
     case 'manager_allocation':
@@ -839,6 +1159,14 @@ async function handleReply(auth, classified, rawMsg) {
       }
       break;
 
+    case 'catchup25_complete':
+      markAndLog(employee, 't64');
+      markAndLog(employee, 't65');
+      activityLog.log(employee, '25_day_catchup_complete');
+      await mark25DayCatchupDone(auth, employee).catch(() => {});
+      console.log(`[Index] 25-day catchup confirmed for ${employee.name}`);
+      break;
+
     case 'catchup_complete':
       markAndLog(employee, 't43');
       markAndLog(employee, 't44');
@@ -885,6 +1213,20 @@ async function handleReply(auth, classified, rawMsg) {
       await markPreprobationDone(auth, employee).catch(() => {});
       console.log(`[Index] Pre-probation result received for ${employee.name}`);
       break;
+
+    case 'bgv_report': {
+      const bgvLockKey = `${employee.employeeId}:bgv_report`;
+      if (_triggerLocks.has(bgvLockKey) || isTaskDone(checklist, 't25')) {
+        console.log(`[BGV] Skipping duplicate bgv_report for ${employee.name}`);
+        return;
+      }
+      _triggerLocks.add(bgvLockKey);
+      await processBGVReport(auth, employee, rawMsg).catch(err =>
+        console.error(`[BGV] processBGVReport failed for ${employee.name}: ${err.message}`)
+      );
+      // checklist save and state save are handled inside processBGVReport
+      return;
+    }
 
     default:
       console.log(`[Index] Unhandled reply type: ${replyType}`);
@@ -1055,47 +1397,6 @@ async function onboardEmployee(auth, employee) {
   } else {
     console.log(`[Index] Resuming onboarding for ${employee.name} (${employee.employeeId}) — already started, skipping welcome email`);
 
-    // On resume, check if BGV can be auto-completed (all required docs already verified,
-    // optional docs verified or task already marked done/N/A from a previous run).
-    if (!isTaskDone(employee.checklist, 't25')) {
-      const vr = employee.verificationResults || {};
-      const BGV_REQUIRED_DOCS = ['aadhaar', 'pan', 'marksheet10th', 'marksheet12th', 'degreeCertificate', 'relievingLetter'];
-      const BGV_OPTIONAL_DOCS = ['passportPhoto', 'payslip', 'postgradCertificate'];
-      const BGV_OPTIONAL_TASKS = { passportPhoto: 't56', payslip: 't57', postgradCertificate: 't62' };
-      const requiredAllPassed = BGV_REQUIRED_DOCS.every(d => vr[d] && vr[d].valid);
-      // Optional docs are settled if verified OR task marked done/N/A OR not yet uploaded (grace period not expired)
-      // passportPhoto is optional — BGV proceeds without it if the required docs pass
-      const optionalAllSettled = BGV_OPTIONAL_DOCS.every(d =>
-        (vr[d] && vr[d].valid) || isTaskDone(employee.checklist, BGV_OPTIONAL_TASKS[d]) || !(vr[d])
-      );
-      if (requiredAllPassed && optionalAllSettled) {
-        console.log(`[Index] All documents verified — auto-completing BGV for ${employee.name}`);
-        activityLog.log(employee, 'bgv_report_received', 'Auto-completed — all documents verified by AI');
-        markAndLog(employee, 't25');
-        markAndLog(employee, 't26');
-        await markBGVDone(auth, employee).catch(() => {});
-
-        const bgvRecipient = (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL;
-        await sendEmail({
-          to: bgvRecipient,
-          subject: `BGV Complete — ${employee.name} (${employee.employeeId})`,
-          html: `
-            <p>Hi,</p>
-            <p>Background Verification (BGV) for <strong>${employee.name}</strong> (ID: ${employee.employeeId}) has been automatically completed based on document verification.</p>
-            <p>All required documents (Aadhaar, PAN, 10th marksheet, 12th marksheet, Degree Certificate) have been verified successfully by the automation system.</p>
-            <p>No further action is required for BGV. The onboarding checklist has been updated.</p>
-            <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
-          `,
-        }).catch(err => console.warn(`[Index] BGV completion email failed for ${employee.name}: ${err.message}`));
-
-        await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
-        saveState(employee.employeeId, snapshotEmployee(employee));
-        if (isPhaseComplete(employee.checklist, 'phase2')) {
-          const done = Object.values(employee.checklist.phase2.tasks).map(t => t.label);
-          await sendPhaseCompletionSummary(employee, 'Phase 2 — Before DOJ (Automation)', done).catch(() => {});
-        }
-      }
-    }
   }
 
   // Always start watching the root Drive folder (push or poll)
@@ -1156,10 +1457,10 @@ async function main() {
   }
 
   // ─── Optional config warnings ────────────────────────────────────────────
-  const surveyLink = process.env.ONBOARDING_SURVEY_LINK || '';
-  if (!surveyLink || surveyLink === '#survey-link' || surveyLink.startsWith('#')) {
-    console.warn('[Config] WARNING: ONBOARDING_SURVEY_LINK is not set or is a placeholder.');
-    console.warn('[Config]   Employees on day 25 will receive an email with a broken survey link.');
+  const feedbackFormLink = process.env.EMPLOYEE_FEEDBACK_FORM_LINK || '';
+  if (!feedbackFormLink || feedbackFormLink.startsWith('#') || feedbackFormLink.includes('YOUR_FORM_ID')) {
+    console.warn('[Config] WARNING: EMPLOYEE_FEEDBACK_FORM_LINK is not set or is a placeholder.');
+    console.warn('[Config]   Employees on day 25 will receive an email with a broken feedback form link.');
     console.warn('[Config]   Set a real Google Form URL in .env to fix this.\n');
   }
 
@@ -1232,6 +1533,7 @@ async function main() {
     auth,
     employeeRegistry,
     cancelAllJobs,
+    saveState: (employeeId, emp) => saveState(employeeId, snapshotEmployee(emp)),
     handleNewFile: (a, emp, file) => handleNewFile(a, emp, file),
     handleReply: (classified, rawMsg) => handleReply(auth, classified, rawMsg),
     onNewEmployee: async (data) => {
@@ -1247,12 +1549,15 @@ async function main() {
         milestonesScheduled: saved ? (saved.milestonesScheduled || false) : false,
         statusSheetId: saved ? (saved.statusSheetId || null) : null,
         projectIntroSheetId: saved ? (saved.projectIntroSheetId || null) : null,
+        employeeInfoSheetId: saved ? (saved.employeeInfoSheetId || null) : null,
         verificationResults: saved ? (saved.verificationResults || {}) : {},
+        extractedData: saved ? (saved.extractedData || {}) : {},
         replyTimerExpiry: saved ? (saved.replyTimerExpiry || {}) : {},
         noResponseTimers: {},
         replyTimers: {},
         processedFileIds: new Set(saved && saved.processedFileIds ? saved.processedFileIds : []),
       };
+      persistEmployeeToFile(data);
       await onboardEmployee(auth, employee);
     },
   });
@@ -1289,12 +1594,15 @@ async function main() {
       migrateChecklist(employee.checklist);
       if (!employee.statusSheetId && saved && saved.statusSheetId) employee.statusSheetId = saved.statusSheetId;
       if (!employee.projectIntroSheetId && saved && saved.projectIntroSheetId) employee.projectIntroSheetId = saved.projectIntroSheetId;
+      if (!employee.employeeInfoSheetId && saved && saved.employeeInfoSheetId) employee.employeeInfoSheetId = saved.employeeInfoSheetId;
       if (saved && saved.milestonesScheduled && !employee.milestonesScheduled) employee.milestonesScheduled = true;
       if (saved && saved.verificationResults) employee.verificationResults = saved.verificationResults;
+      if (saved && saved.extractedData) employee.extractedData = saved.extractedData;
       if (saved && saved.replyTimerExpiry) employee.replyTimerExpiry = saved.replyTimerExpiry;
       if (!employee.noResponseTimers) employee.noResponseTimers = {};
       if (!employee.replyTimers) employee.replyTimers = {};
       if (!employee.verificationResults) employee.verificationResults = {};
+      if (!employee.extractedData) employee.extractedData = {};
       employee.processedFileIds = new Set(saved && saved.processedFileIds ? saved.processedFileIds : []);
       // Fall back to .env contacts if employees.json entry has no contacts field
       if (!employee.contacts || !employee.contacts.managerEmail) {

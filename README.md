@@ -5,16 +5,20 @@ Standalone Node.js engine that automates the full employee onboarding lifecycle 
 ## What it does
 
 - Watches a Google Drive folder for new employee documents
-- Verifies documents (Aadhaar, PAN, offer letter, meeting screenshots) using Gemini AI
+- Verifies documents (Aadhaar, PAN, offer letter, marksheets, degree certificate, meeting screenshots) using Gemini AI
+- Extracts structured data from verified documents (Aadhaar number, PAN number, DOB, address, board, marks, college name etc.) and auto-fills the AL_DI_HR_018 Employee Information Sheet
 - Sends automated emails to the employee, HR, manager, IT, and recruiter at every step
 - 3-strike reminder chain (24h / 48h / 72h) to employee for missing or rejected docs; recruiter escalated after 3rd reminder
 - Tracks progress in a live Google Sheet dashboard per employee
-- Schedules 30/60/90-day review reminders and 5-month pre-probation alerts via cron
+- Creates AL_DI_HR_018 Employee Information Sheet (Personal Details + Education & Professional Detail tabs) auto-filled from extracted document data
+- Creates AL_DI_HR_019 Project Introduction Sheet with 5 tracking tabs; links the correct month tab in 30/60/90-day project review reminder emails
+- Schedules 30/60/90-day project review reminders and 5-month pre-probation alerts via cron
 - Sends onboarding survey + employee feedback form at day 25
 - Shares project intro catchup sheet with new joiner
-- Creates calendar invites for HR induction, project intro, 30/60/90-day catchup calls
-- Parses email replies via Gmail Watch + Pub/Sub to advance the checklist automatically
-- Persists all state locally so restarts never repeat completed steps
+- Creates calendar invites for HR induction, project intro, 30/60/90-day review calls
+- Parses email replies via Gmail Watch + Pub/Sub to advance the checklist automatically — with fallback matching by employee name, pending task state, and sender email
+- Persists all state locally (encrypted AES-256-GCM) so restarts never repeat completed steps
+- New employees added via recruiter Google Form are persisted to `employees.json` immediately and survive engine restarts
 
 ## 7 Phases — 71 Tasks
 
@@ -149,15 +153,19 @@ For Gmail reply parsing:
 
 ## Google Forms
 
-Three forms are used in the onboarding flow. Apps Script to create each is in `automation/scripts/`:
+Five forms are used in the onboarding flow. Apps Script to create each is in `automation/scripts/`:
 
 | Form | Script | When sent | `.env` variable |
 |------|--------|-----------|-----------------|
-| Pre-Onboarding Form | `createPreonboardingForm.gs` | Before DOJ — welcome email | `PREONBOARDING_FORM_LINK` |
-| Onboarding Survey | `createOnboardingSurvey.gs` | Day 25 after DOJ | `ONBOARDING_SURVEY_LINK` |
-| Employee Feedback Form | `createEmployeeFeedbackForm.gs` | 30/60/90-day review emails | `EMPLOYEE_FEEDBACK_FORM_LINK` |
+| Pre-Onboarding Form (Fresher) | `createFresherPreonboardingForm.gs` | Before DOJ — welcome email | `PREONBOARDING_FORM_FRESHER_LINK` |
+| Pre-Onboarding Form (Experienced) | `createExperiencedPreonboardingForm.gs` | Before DOJ — welcome email | `PREONBOARDING_FORM_EXPERIENCED_LINK` |
+| Recruiter Form | `createRecruiterForm.gs` | HR/recruiter fills to register a new joinee | `RECRUITER_FORM_LINK` |
+| Onboarding Survey | — | Day 25 after DOJ | `ONBOARDING_SURVEY_LINK` |
+| Employee Feedback Form | `createEmployeeFeedbackForm.gs` | 30/60/90-day project review emails | `EMPLOYEE_FEEDBACK_FORM_LINK` |
 
 To create a form: open [script.google.com](https://script.google.com) → New Project → paste the script → Run → copy the Published URL into `.env`.
+
+The pre-onboarding forms route uploaded files automatically into the correct Drive subfolders (`Marksheet_10th`, `Aadhaar`, `PAN` etc.) using an Apps Script submit trigger. The Employee ID field is filled by the new joinee — the trigger finds the correct Drive folder by searching for the Employee ID in the folder name.
 
 ## Project Intro Sheet (AL_DI_HR_019)
 
@@ -182,9 +190,12 @@ The same sheet is re-shared at the 30-day catchup email — no duplicate is crea
 | `src/driveWatcher.js` | Drive folder polling and push-channel management |
 | `src/gmailWatcher.js` | Gmail Watch subscription and reply parsing |
 | `src/calendarService.js` | Creates Google Calendar events for induction, reviews |
-| `src/statusTracker.js` | Writes/updates per-employee Google Sheet dashboard |
+| `src/statusTracker.js` | Writes/updates per-employee Google Sheet dashboard; creates AL_DI_HR_018 and AL_DI_HR_019 sheets |
 | `src/webhookServer.js` | Express server — push handlers, status pages, debug endpoints |
 | `src/activityLog.js` | Append-only per-employee event log in `logs/<employeeId>.log` |
+| `src/fireMilestones.js` | Dev script — fire all pending milestone callbacks immediately for a given employee (`node src/fireMilestones.js EMP001`) |
+| `src/reExtractDocs.js` | Dev script — re-run Gemini extraction on already-uploaded education documents (`node src/reExtractDocs.js EMP001`) |
+| `src/testInfoSheet.js` | Dev script — recreate the AL_DI_HR_018 info sheet for testing (`node src/testInfoSheet.js EMP001`) |
 | `src/addEmployee.js` | Interactive CLI to register new employees |
 | `src/listEmployees.js` | CLI employee list with progress |
 | `src/removeEmployee.js` | CLI to remove an employee and clean up files |

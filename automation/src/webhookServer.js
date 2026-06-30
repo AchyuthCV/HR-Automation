@@ -71,14 +71,16 @@ let _handleReply = null;        // async (classified, rawMessage) => void
 let _onNewEmployee = null;      // async (employeeData) => void
 
 let _cancelAllJobs = null; // injected by index.js
+let _saveState = null;     // injected by index.js
 
-function init({ auth, employeeRegistry, handleNewFile, handleReply, onNewEmployee, cancelAllJobs }) {
+function init({ auth, employeeRegistry, handleNewFile, handleReply, onNewEmployee, cancelAllJobs, saveState }) {
   _auth = auth;
   _employeeRegistry = employeeRegistry;
   _handleNewFile = handleNewFile;
   _handleReply = handleReply;
   _onNewEmployee = onNewEmployee;
   _cancelAllJobs = cancelAllJobs || null;
+  _saveState = saveState || null;
 }
 
 // Track last-seen file IDs per employee folder — persisted to seen-files.json
@@ -442,6 +444,24 @@ app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
     console.error('[Webhook] /recruiter-form error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Pre-onboarding personal details from form submit ────────────────────────
+// Google Apps Script POSTs here when the new joinee submits their pre-onboarding form.
+// Stores the personal details on the employee object and saves state.
+app.post('/preonboarding-details', async (req, res) => {
+  const { employeeId, personalDetails } = req.body || {};
+  if (!employeeId || !personalDetails) {
+    return res.status(400).json({ error: 'Missing employeeId or personalDetails' });
+  }
+  const emp = _employeeRegistry[employeeId];
+  if (!emp) {
+    return res.status(404).json({ error: `Employee ${employeeId} not found in registry` });
+  }
+  emp.personalDetails = Object.assign(emp.personalDetails || {}, personalDetails);
+  if (_saveState) _saveState(employeeId, emp);
+  console.log(`[Webhook] /preonboarding-details — saved personal details for ${employeeId}`);
+  res.status(200).json({ message: 'Personal details saved' });
 });
 
 // ─── Remove employee from running engine ───────────────────────────────────────

@@ -185,6 +185,122 @@ Only set valid=true if ALL four checks pass.`,
 Only set valid=true if ALL four checks pass.`,
 };
 
+// Extraction prompts — run after successful verification to pull structured data from the doc
+const EXTRACTION_PROMPTS = {
+  aadhaar: `Extract the following fields from this Aadhaar card image and respond ONLY with a JSON object:
+{
+  "aadhaarNumber": "12-digit number or null",
+  "name": "full name as printed or null",
+  "dob": "date of birth in DD/MM/YYYY format or null",
+  "address": "full address as printed or null",
+  "gender": "Male/Female/Other or null"
+}
+If a field is not visible or readable, set it to null. Do not guess.`,
+
+  pan: `Extract the following fields from this PAN card image and respond ONLY with a JSON object:
+{
+  "panNumber": "10-character PAN number or null",
+  "name": "full name as printed or null",
+  "dob": "date of birth in DD/MM/YYYY format or null",
+  "fatherName": "father's name as printed or null"
+}
+If a field is not visible or readable, set it to null. Do not guess.`,
+
+  relievingLetter: `Extract the following fields from this relieving letter or experience letter and respond ONLY with a JSON object:
+{
+  "previousEmployer": "company name or null",
+  "designation": "last held designation or null",
+  "dateOfJoining": "date of joining at previous employer in DD/MM/YYYY or null",
+  "dateOfRelieving": "last working day / date of relieving in DD/MM/YYYY or null"
+}
+If a field is not visible or readable, set it to null. Do not guess.`,
+
+  payslip: `Extract the following fields from this payslip and respond ONLY with a JSON object:
+{
+  "previousEmployer": "company name or null",
+  "grossSalary": "gross salary amount as a string or null",
+  "month": "payslip month and year as printed or null"
+}
+If a field is not visible or readable, set it to null. Do not guess.`,
+
+  marksheet10th: `Extract the following fields from this 10th standard marksheet and respond ONLY with a JSON object:
+{
+  "board": "board name (e.g. CBSE, ICSE, State board name) or null",
+  "yearOfCompletion": "year of passing as a 4-digit string or null",
+  "totalMarks": "total marks or percentage as a string or null",
+  "schoolName": "name of school or null"
+}
+If a field is not visible or readable, set it to null. Do not guess.`,
+
+  marksheet12th: `Extract the following fields from this 12th standard marksheet or diploma certificate and respond ONLY with a JSON object:
+{
+  "board": "board name (e.g. CBSE, State board, University name) or null",
+  "yearOfCompletion": "year of passing as a 4-digit string or null",
+  "totalMarks": "total marks or percentage as a string or null",
+  "schoolName": "name of school or college or null",
+  "specialization": "stream or specialization (e.g. Science, Commerce, ECE) or null"
+}
+If a field is not visible or readable, set it to null. Do not guess.`,
+
+  degreeCertificate: `Extract the following fields from this graduation degree certificate or consolidated marksheet and respond ONLY with a JSON object:
+{
+  "degree": "degree name (e.g. B.Tech, B.Sc, B.Com) or null",
+  "specialization": "branch or specialization (e.g. Computer Science, Mechanical) or null",
+  "yearOfCompletion": "year of passing as a 4-digit string or null",
+  "totalMarks": "CGPA, percentage, or total marks as a string or null",
+  "collegeName": "name of college or university or null"
+}
+If a field is not visible or readable, set it to null. Do not guess.`,
+
+  postgradCertificate: `Extract the following fields from this post-graduation degree certificate or consolidated marksheet and respond ONLY with a JSON object:
+{
+  "degree": "degree name (e.g. M.Tech, MBA, M.Sc) or null",
+  "specialization": "branch or specialization or null",
+  "yearOfCompletion": "year of passing as a 4-digit string or null",
+  "totalMarks": "CGPA, percentage, or total marks as a string or null",
+  "collegeName": "name of college or university or null"
+}
+If a field is not visible or readable, set it to null. Do not guess.`,
+};
+
+// Extract structured data from a document that has already passed verification.
+// Returns an object of extracted fields, or {} if extraction is not configured for this doc type.
+async function extractDocumentData(auth, fileId, filename, mimeType) {
+  const docType = detectDocType(filename);
+  if (!docType || !EXTRACTION_PROMPTS[docType]) return {};
+
+  const genAI = getGenAI();
+  if (!genAI) return {};
+
+  let tempPath = null;
+  try {
+    const { tempPath: tp, downloadMime } = await downloadDriveFile(auth, fileId, mimeType);
+    tempPath = tp;
+    const { base64, mediaType } = fileToBase64(tp, downloadMime);
+
+    const model = genAI.getGenerativeModel({ model: config.geminiModel });
+    const result_raw = await callWithRetry(() => model.generateContent([
+      EXTRACTION_PROMPTS[docType],
+      { inlineData: { data: base64, mimeType: mediaType } },
+    ]));
+
+    const raw = result_raw.response.text().trim();
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn(`[Extract] Non-JSON response for ${filename}`);
+      return {};
+    }
+    const extracted = JSON.parse(jsonMatch[0]);
+    console.log(`[Extract] ${filename} → ${JSON.stringify(extracted)}`);
+    return { docType, fields: extracted };
+  } catch (err) {
+    console.warn(`[Extract] Extraction failed for ${filename}: ${err.message}`);
+    return {};
+  } finally {
+    if (tempPath && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  }
+}
+
 // Map filename keywords to document types
 function detectDocType(filename) {
   const lower = filename.toLowerCase();
@@ -343,4 +459,4 @@ async function verifyAllDocuments(auth, folderFiles) {
   return results;
 }
 
-module.exports = { verifyDocument, verifyAllDocuments, detectDocType };
+module.exports = { verifyDocument, verifyAllDocuments, detectDocType, extractDocumentData };

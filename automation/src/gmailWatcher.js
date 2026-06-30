@@ -156,12 +156,28 @@ async function fetchMessageBody(auth, messageId) {
   }
   extractBody(msg.payload);
 
+  // Extract PDF attachments (for BGV reports)
+  const attachments = [];
+  function extractAttachments(part) {
+    if (part.filename && part.filename.toLowerCase().endsWith('.pdf') && part.body) {
+      attachments.push({
+        filename: part.filename,
+        attachmentId: part.body.attachmentId || null,
+        data: part.body.data || null, // inline base64 data if small enough
+        mimeType: part.mimeType || 'application/pdf',
+      });
+    }
+    for (const sub of part.parts || []) extractAttachments(sub);
+  }
+  extractAttachments(msg.payload);
+
   return {
     id: messageId,
     from: headers['from'] || '',
     subject: headers['subject'] || '',
     body: body.trim(),
     threadId: msg.threadId,
+    attachments,
   };
 }
 
@@ -210,24 +226,27 @@ ${message.body}
 
 Reply type definitions — use the email SUBJECT as the primary signal, then body for confirmation:
 - "official_email_created": Reply to a "Create Official Email" request — must include an actual @company email address in the body
+- "official_email_access_confirmed": Reply from the employee confirming their official email works — subject contains "Confirm Access" or "Official Email" and body contains "confirmed", "working", "yes" or similar positive acknowledgement
+- "official_email_access_failed": Reply from the employee saying their official email is NOT working — body contains "not working", "issue", "can't login", "problem", "error" or similar negative response
 - "manager_allocation": Reply to an "Asset & Seat Allocation" request sent TO a MANAGER — contains supervisor name, office location, asset type. This is the MANAGER confirming allocation plans BEFORE joining. Subject will contain "Asset & Seat Allocation".
 - "it_allocation": Reply to an "IT Asset" request sent TO the IT TEAM — IT confirms assets are physically ready/handed over. Subject will contain "IT Asset" or "IT Team". This happens AFTER manager_allocation.
-- "bgv_report": Reply containing explicit BGV/background verification pass or fail result
+- "bgv_report": Reply to a BGV initiation request — HR/recruiter replying with a SmartScreen or other BGV vendor PDF attached, OR forwarding the vendor report. Subject will contain "BGV" or "Background Verification". Classify as bgv_report if the subject mentions BGV and the email has an attachment, even if the body is brief.
 - "induction_confirmed": Reply confirming HR induction meeting attendance or completion
 - "admin_allocation": Reply from Admin confirming physical seat or access card allocation
+- "catchup25_complete": HR replies "Confirmed" to the 25th day catchup call email — subject contains "25th Day Catchup"
 - "catchup_complete": Confirms a 30-day catchup call was completed
 - "review_complete": Confirms a 60-day or 90-day performance review was completed
 - "pre_probation_result": Confirms probation period outcome
 - "unknown": Related to onboarding but does not clearly match any above type
 
-IMPORTANT: If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". Subject is the strongest signal.
+IMPORTANT: If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". If subject contains "BGV" or "Background Verification" → classify as "bgv_report". If subject contains "Confirm Access to Your Official Email" → classify as "official_email_access_confirmed" or "official_email_access_failed" based on whether the body is positive or negative. If subject contains "25th Day Catchup" → classify as "catchup25_complete". Subject is the strongest signal.
 Simple acknowledgements ("ok", "noted", "will do", "thanks") should be classified with isOnboardingReply=false unless they contain substantive information.
 
 Respond ONLY with a JSON object in this exact format:
 {
   "isOnboardingReply": true/false,
   "replyType": one of the types above or null,
-  "employeeId": "extracted employee ID from subject/body or null",
+  "employeeId": "extracted employee ID (e.g. EMP007) from subject/body — prefer the ID code over the name; look for patterns like EMP followed by digits in the subject line",
   "data": {
     "officialEmail": "extracted official email address or null",
     "assetType": "extracted asset type or null",
@@ -254,6 +273,17 @@ If this is not related to onboarding or is just a simple acknowledgement, set is
   return result;
 }
 
+// Download a Gmail attachment by attachmentId and return as a Buffer
+async function downloadAttachment(auth, messageId, attachmentId) {
+  const gmail = google.gmail({ version: 'v1', auth });
+  const res = await gmail.users.messages.attachments.get({
+    userId: 'me',
+    messageId,
+    id: attachmentId,
+  });
+  return Buffer.from(res.data.data, 'base64');
+}
+
 // Mark a message as read after processing
 async function markAsRead(auth, messageId) {
   const gmail = google.gmail({ version: 'v1', auth });
@@ -264,9 +294,10 @@ async function markAsRead(auth, messageId) {
   });
 }
 
-// In-memory dedup set — prevents the same message from being processed twice
-// in the same session even if Pub/Sub delivers the push multiple times.
+// In-memory dedup sets — prevents the same message from being processed twice
+// even if Pub/Sub delivers the same push multiple times concurrently.
 const processedMessageIds = new Set();
+const processingLocks = new Set(); // IDs currently being processed (in-flight)
 
 // ─── Main entry point called by webhookServer when a Gmail push arrives ───────
 // `onReplyClassified` is a callback: (classified) => void
@@ -291,11 +322,12 @@ async function processGmailPush(auth, pushData, onReplyClassified) {
   console.log(`[Gmail] ${messages.length} new message(s) to process`);
 
   for (const msg of messages) {
-    if (processedMessageIds.has(msg.id)) {
+    if (processedMessageIds.has(msg.id) || processingLocks.has(msg.id)) {
       console.log(`[Gmail] Skipping already-processed message ${msg.id}`);
       continue;
     }
     processedMessageIds.add(msg.id);
+    processingLocks.add(msg.id);
     try {
       const full = await fetchMessageBody(auth, msg.id);
       const classified = await classifyReply(full);
@@ -327,6 +359,8 @@ async function processGmailPush(auth, pushData, onReplyClassified) {
     } catch (err) {
       console.error(`[Gmail] Error processing message ${msg.id}:`, err.message);
       await markAsRead(auth, msg.id).catch(() => {});
+    } finally {
+      processingLocks.delete(msg.id);
     }
     // Brief pause between messages to avoid Gmail API quota bursts
     await new Promise(r => setTimeout(r, 500));
@@ -337,4 +371,5 @@ module.exports = {
   registerGmailWatch,
   renewGmailWatch,
   processGmailPush,
+  downloadAttachment,
 };

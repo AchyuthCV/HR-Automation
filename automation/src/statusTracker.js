@@ -48,21 +48,22 @@ const STATUS = {
 };
 
 const MILESTONES = [
-  'Pre-onboarding initiated',
-  'Documents received',
-  'Documents not ok — re-upload requested',
-  'Documents verified OK',
-  'Official email & greythr login confirmed',
-  'Manager confirmed seat and work location',
-  'IT team confirmed assets',
-  'BGV initiated and completed',
-  'HR induction scheduled',
-  'Project intro meeting scheduled',
-  'Day of Joining — onboarding complete',
-  '30-day catchup completed',
-  '60-day review completed',
-  '90-day review completed',
-  'Pre-probation verification completed',
+  'Pre-onboarding initiated',           // 0
+  'Documents received',                  // 1
+  'Documents not ok — re-upload requested', // 2
+  'Documents verified OK',              // 3
+  'Official email & greythr login confirmed', // 4
+  'Manager confirmed seat and work location', // 5
+  'IT team confirmed assets',           // 6
+  'BGV initiated and completed',        // 7
+  'HR induction scheduled',             // 8
+  'Project intro meeting scheduled',    // 9
+  'Day of Joining — onboarding complete', // 10
+  '25th day catchup call completed',    // 11
+  '30-day catchup completed',           // 12
+  '60-day review completed',            // 13
+  '90-day review completed',            // 14
+  'Pre-probation verification completed', // 15
 ];
 
 function nowIST() {
@@ -114,12 +115,14 @@ async function getOrCreateStatusSheet(auth, employee) {
     fields: 'id, parents',
   });
 
-  // Write header + all 15 milestones + progress bar row at top
+  // Write header + all 16 milestones + progress bar row at top
   const now = nowIST();
   const doneLabel = STATUS.DONE;
-  const countifFormula = '=COUNTIF(B3:B17,"' + doneLabel + '")/15';
-  const pctFormula = '=TEXT(COUNTIF(B3:B17,"' + doneLabel + '")/15,"0%")&" Complete ("&COUNTIF(B3:B17,"' + doneLabel + '")&")/15)"';
-  // Row 1: progress bar  Row 2: column headers  Rows 3-17: milestones
+  const total = MILESTONES.length;
+  const lastRow = 2 + total;
+  const countifFormula = `=COUNTIF(B3:B${lastRow},"${doneLabel}")/${total}`;
+  const pctFormula = `=TEXT(COUNTIF(B3:B${lastRow},"${doneLabel}")/${total},"0%")&" Complete ("&COUNTIF(B3:B${lastRow},"${doneLabel}")&"/${total})"`;
+  // Row 1: progress bar  Row 2: column headers  Rows 3-${lastRow}: milestones
   const rows = [
     ['Onboarding Progress', countifFormula, '', pctFormula],
     ['Milestone', 'Status', 'Last Updated', 'Notes'],
@@ -313,20 +316,24 @@ async function markOnboardingComplete(auth, employee) {
   await updateMilestone(auth, employee, 10, STATUS.DONE);
 }
 
-async function mark30DayDone(auth, employee) {
+async function mark25DayCatchupDone(auth, employee) {
   await updateMilestone(auth, employee, 11, STATUS.DONE);
 }
 
-async function mark60DayDone(auth, employee) {
+async function mark30DayDone(auth, employee) {
   await updateMilestone(auth, employee, 12, STATUS.DONE);
 }
 
-async function mark90DayDone(auth, employee) {
+async function mark60DayDone(auth, employee) {
   await updateMilestone(auth, employee, 13, STATUS.DONE);
 }
 
-async function markPreprobationDone(auth, employee) {
+async function mark90DayDone(auth, employee) {
   await updateMilestone(auth, employee, 14, STATUS.DONE);
+}
+
+async function markPreprobationDone(auth, employee) {
+  await updateMilestone(auth, employee, 15, STATUS.DONE);
   await revokeEmployeeSheetAccess(auth, employee);
 }
 
@@ -383,12 +390,14 @@ module.exports = {
   markHRInductionScheduled,
   markProjectIntroScheduled,
   markOnboardingComplete,
+  mark25DayCatchupDone,
   mark30DayDone,
   mark60DayDone,
   mark90DayDone,
   markPreprobationDone,
   revokeEmployeeSheetAccess,
   createProjectIntroSheet,
+  createEmployeeInfoSheet,
 };
 
 // ─── Project Intro Sheet ───────────────────────────────────────────────────────
@@ -580,6 +589,464 @@ async function createProjectIntroSheet(auth, employee) {
     return sheetUrl;
   } catch (err) {
     console.error(`[Status] createProjectIntroSheet failed for ${name}: ${err.message}`);
+    return null;
+  }
+}
+
+// ─── Employee Info Sheet (AL/DI/HR/018) ──────────────────────────────────────
+// Creates the Onboarding Employee Information sheet with 3 tabs:
+//   1. Document Version history
+//   2. Personal Details
+//   3. Education & Professional Detail
+// AI-extracted fields are pre-filled where available; rest left blank for HR.
+async function createEmployeeInfoSheet(auth, employee) {
+  if (employee.employeeInfoSheetId) {
+    return `https://docs.google.com/spreadsheets/d/${employee.employeeInfoSheetId}`;
+  }
+
+  const drive  = google.drive({ version: 'v3', auth });
+  const sheets = google.sheets({ version: 'v4', auth });
+  const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
+  const ex = employee.extractedData || {};
+  const pd = employee.personalDetails || {};
+
+  // Helper to pull extracted value or blank
+  const v = (val) => (val != null && val !== '' ? String(val) : '');
+
+  // Calculate age from DD/MM/YYYY string
+  function calcAge(dobStr) {
+    if (!dobStr) return '';
+    const parts = dobStr.split('/');
+    if (parts.length !== 3) return '';
+    const dob = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+    if (isNaN(dob)) return '';
+    const now = new Date();
+    let age = now.getFullYear() - dob.getFullYear();
+    if (now.getMonth() < dob.getMonth() || (now.getMonth() === dob.getMonth() && now.getDate() < dob.getDate())) age--;
+    return String(age);
+  }
+
+  const aadhaar  = ex.aadhaar            || {};
+  const pan      = ex.pan                || {};
+  const reliev   = ex.relievingLetter    || {};
+  const m10      = ex.marksheet10th      || {};
+  const m12      = ex.marksheet12th      || {};
+  const degree   = ex.degreeCertificate  || {};
+  const postgrad = ex.postgradCertificate|| {};
+
+  try {
+    // ── Create workbook with 3 tabs ──────────────────────────────────────────
+    const spreadsheet = await apiWithRetry(() => sheets.spreadsheets.create({
+      requestBody: {
+        properties: { title: `AL_DI_HR_018 — Onboarding Employee Information — ${name} (${employeeId})` },
+        sheets: [
+          { properties: { title: 'Document Version history', index: 0 } },
+          { properties: { title: 'Personal Details',         index: 1 } },
+          { properties: { title: 'Education & Professional Detail', index: 2 } },
+        ],
+      },
+    }), 'createEmployeeInfoSheet:create');
+
+    const spreadsheetId = spreadsheet.data.spreadsheetId;
+    const tabIds = {};
+    for (const s of spreadsheet.data.sheets) {
+      tabIds[s.properties.title] = s.properties.sheetId;
+    }
+
+    // ── Tab 1: Document Version history ─────────────────────────────────────
+    await apiWithRetry(() => sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: "'Document Version history'!A1",
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [
+          ['', '', 'Onboarding Employee Information- Template', '', '', '', '', ''],
+          ['', '', 'Revision History', '', '', '', '', ''],
+          [],
+          ['AL/DI/HR/018', '', 'Date: 17.06.2025', '', 'Rev No:', '1.1', 'Date:', '17/06/2025'],
+          ['Revision Number', 'Date', 'Page Number/ Section', 'Description of Changes', 'Basis for Change', 'Author / Prepared by', 'Reviewed By', 'Approved by'],
+          ['1.0', '20-June-2024', 'All', 'First Draft', 'Internal quality audit', 'Divya Rodrigues', 'Rubina Mallick', 'Gagan Mittal'],
+          ['1.1', '17- June-2025', 'Personal Details', 'Personal Details- Nominee details for Group Insurance', 'Internal review', 'Rubina Mallick', 'Divya Rodrigues', 'Gagan Mittal'],
+        ],
+      },
+    }), 'docVersionHistory:values');
+
+    // ── Tab 2: Personal Details ──────────────────────────────────────────────
+    // Column A: row number / label | Column B: field label | Column C: value (AI pre-filled where possible)
+    const personalRows = [
+      ['', 'Personal Details', ''],
+      ['1',  'Name as per PAN',          v(pan.name)],
+      ['2',  'Name as per AADHAAR',      v(aadhaar.name)],
+      ['3',  'Name as per bank records', v(pan.name)],
+      ['4',  'Date of Birth',            v(aadhaar.dob || pan.dob)],
+      ['5',  'Age',                      calcAge(aadhaar.dob || pan.dob)],
+      ['6',  "Father's Name",            v(pan.fatherName)],
+      ['7',  "Mother's Name",            v(pd["Mother's Name"])],
+      ['8',  'Marital Status',           v(pd['Marital Status'])],
+      ['9',  'Name of Spouse',           v(pd['Name of Spouse'])],
+      ['10', 'DOB of Spouse',            v(pd['DOB of Spouse'])],
+      ['11', 'Profession of Spouse',     v(pd['Profession of Spouse'])],
+      ['12', 'No of children',           v(pd['No of Children'])],
+      ['13', 'Name of child',            v(pd['Name of Child'])],
+      ['14', 'DOB of child',             v(pd['DOB of Child'])],
+      ['15', 'Gender of child',          v(pd['Gender of Child'])],
+      ['16', 'Phone No',                 v(employee.phoneNumber)],
+      ['17', 'Emergency Contact no (From Family)', v(pd['Emergency Contact No (From Family)'])],
+      ['18', 'Emergency Contact Person Name and Relationship', v(pd['Emergency Contact Person Name and Relationship'])],
+      ['19', 'Nominee details for Group Insurance', v(pd['Nominee Details for Group Insurance'])],
+      ['20', 'Personal Email ID',        v(personalEmail)],
+      ['21', 'Current Address',          v(aadhaar.address)],
+      ['22', 'Permanent Address',        v(aadhaar.address)],
+      ['23', 'Blood Group',              ''],
+      ['24', 'Knowledge of foreign languages', ''],
+      ['25', 'Personal Bank Account Number\nEmployee Name:\nBank Name:\nBranch:\nIFSC Code:\nAccount Number:', ''],
+      [],
+      ['', 'Documentation List', ''],
+      ['',  'Govt Related',              'Document Number / Details', 'Submitted to HR  (y/n)'],
+      ['26', 'PAN Card',                 v(pan.panNumber),            ''],
+      ['27', 'AADHAAR card',             v(aadhaar.aadhaarNumber),    ''],
+      ['28', 'Passport No',              '',                          'y/n', '', '(Not Mandatory)'],
+      ['29', 'UAN creation via UMANG app', '',                        'y/n', '', '(Not Mandatory)'],
+      ['',  'Company Related',           'Document Number / Details', 'Submitted to HR  (y/n)'],
+      ['30', 'Signed Offer Letter',      '',                          'y/n'],
+      ['',  'Misc',                      '',                          ''],
+      ['32', 'Passport sized photo',     '',                          'y/n'],
+    ];
+
+    await apiWithRetry(() => sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: "'Personal Details'!A1",
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: personalRows },
+    }), 'personalDetails:values');
+
+    // ── Tab 3: Education & Professional Detail ───────────────────────────────
+    const eduRows = [
+      // Education Details header
+      ['Education Details:', '', '', '', '', '', '', ''],
+      ['Education', 'Document Available (y/n)', 'Submitted to HR  (y/n)', 'Board/Degree', 'Specialization', 'Year of Completion', 'Marks', 'School / College name'],
+      ['10th Marksheet',                            'y/n', 'y/n', v(m10.board),    '',                        v(m10.yearOfCompletion), v(m10.totalMarks), v(m10.schoolName)],
+      ['12th/Diploma Marksheet',                    'y/n', 'y/n', v(m12.board),    v(m12.specialization),     v(m12.yearOfCompletion), v(m12.totalMarks), v(m12.schoolName)],
+      ['Graduation Consolidated Marksheet and Degree Certificate', 'y/n', 'y/n', v(degree.degree), v(degree.specialization), v(degree.yearOfCompletion), v(degree.totalMarks), v(degree.collegeName)],
+      ['Post Graduation Consolidated Marksheet and Degree Certificate', 'y/n', 'y/n', v(postgrad.degree), v(postgrad.specialization), v(postgrad.yearOfCompletion), v(postgrad.totalMarks), v(postgrad.collegeName), '(Not Mandatory)'],
+      [],
+      // Internships
+      ['Internships Details:', '', '', '', '', '', '', ''],
+      ['College Internships (if any)', 'Document Available (y/n)', 'Submitted to HR  (y/n)', 'Company Name', '', '', '', ''],
+      ['Internship Start Date',        'y/n', 'y/n', '', '', '', '', ''],
+      ['Internship End Date',          'y/n', 'y/n', '', '', '', '', ''],
+      ['Internship certificate available', 'y/n', 'y/n', '', '', '', '', ''],
+      ['Internships after completion of Education', 'Document Available (y/n)', 'Submitted to HR  (y/n)', 'Company Name', '', '', '', ''],
+      ['Internship Start Date',        'y/n', 'y/n', '', '', '', '', ''],
+      ['Internship End Date',          'y/n', 'y/n', '', '', '', '', ''],
+      ['Internship certificate available', 'y/n', 'y/n', '', '', '', '', ''],
+      ['',                             'y/n', 'y/n', '', '', '', '', ''],
+      [],
+      // Previous Employers
+      ['Previous Employers details (Kindly fill all your experience mention as per your resume)', '', '', '', '', '', '', ''],
+      ['Total Years of Experience:', '', '', '', '', '', '', ''],
+      ['Total Years of Relevant Experience:', '', '', '', '', '', '', ''],
+      ['PF Details (Name of the Trust and PF No):', '', '', '', '', '', '', ''],
+      ['UAN Number:', '', '', '', '', '', '', ''],
+      [],
+      // Employer 1
+      ['Employer 1', 'Document Available (y/n)', 'Submitted to HR  (y/n)', '', '', '', '', ''],
+      ['Name of the Organisation:', v(reliev.previousEmployer), '', '', '', '', '', ''],
+      ['Manager/ Immediate Supervisor Name', '', '', '', '', '', '', ''],
+      ['Manager/ Immediate Supervisor Email Id', '', '', '', '', '', '', ''],
+      ['Manager/ Immediate Supervisor Contact Number', '', '', '', '', '', '', ''],
+      ['Employment Start Date', v(reliev.dateOfJoining), '', '', '', '', '', ''],
+      ['Employment End Date', v(reliev.dateOfRelieving), '', '', '', '', '', ''],
+      ['Relieving/Experience letter Available', 'y/n', 'y/n', '', '', '', '', ''],
+      ['Relieving/Experience letter Submitted', 'y/n', 'y/n', '', '', '', '', ''],
+      ['Full and Final settlement (If not, please specify the submission date)', 'y/n', 'y/n', '', '', '', '', '', '(Not Mandatory if they submitted relieving month payslip also)'],
+      ["Last 3 Month's Payslip", 'y/n', 'y/n', '', '', '', '', ''],
+      [],
+      [],
+      // Employer 2
+      ['Employer 2', 'Document Available (y/n)', 'Submitted to HR  (y/n)', '', '', '', '', ''],
+      ['Name of the Organisation:', '', '', '', '', '', '', ''],
+      ['Manager/ Immediate Supervisor Name', '', '', '', '', '', '', ''],
+      ['Manager/ Immediate Supervisor Email Id', '', '', '', '', '', '', ''],
+      ['Manager/ Immediate Supervisor Contact Number', '', '', '', '', '', '', ''],
+      ['Employment Start Date', '', '', '', '', '', '', ''],
+      ['Employment End Date', '', '', '', '', '', '', ''],
+      ['Relieving/Experience letter Available', 'y/n', 'y/n', '', '', '', '', ''],
+      ['Relieving/Experience letter Submitted', 'y/n', 'y/n', '', '', '', '', ''],
+      ['Full and Final settlement (If not, please specify the submission date)', 'y/n', 'y/n', '', '', '', '', ''],
+      ["Last 3 Month's Payslip", 'y/n', 'y/n', '', '', '', '', ''],
+    ];
+
+    await apiWithRetry(() => sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: "'Education & Professional Detail'!A1",
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: eduRows },
+    }), 'eduProfDetail:values');
+
+    // ── Formatting ───────────────────────────────────────────────────────────
+    const TEAL  = { red: 0.69, green: 0.91, blue: 0.90 };   // header teal (#b0e8e5-ish)
+    const GREEN = { red: 0.0,  green: 0.80, blue: 0.0  };   // bright green (PAN Card row)
+    const YELLOW = { red: 1.0, green: 0.93, blue: 0.0  };   // yellow (UAN row)
+    const WHITE  = { red: 1.0, green: 1.0,  blue: 1.0  };
+    const BOLD   = { bold: true };
+    const formatRequests = [];
+
+    const dvId = tabIds['Document Version history'];
+    const pdId = tabIds['Personal Details'];
+    const epId = tabIds['Education & Professional Detail'];
+
+    // ── Doc Version history formatting ───────────────────────────────────────
+    // Title row (row 1, 0-indexed: 0) — centered bold blue
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: dvId, startRowIndex: 0, endRowIndex: 2 },
+        cell: { userEnteredFormat: {
+          textFormat: { bold: true, fontSize: 13, foregroundColor: { red: 0.12, green: 0.33, blue: 0.71 } },
+          horizontalAlignment: 'CENTER',
+        }},
+        fields: 'userEnteredFormat(textFormat,horizontalAlignment)',
+      },
+    });
+    // Header row (row 4, 0-indexed: 4) — bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: dvId, startRowIndex: 4, endRowIndex: 5 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // Meta row (row 3, 0-indexed: 3) — bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: dvId, startRowIndex: 3, endRowIndex: 4 },
+        cell: { userEnteredFormat: { textFormat: BOLD } },
+        fields: 'userEnteredFormat(textFormat)',
+      },
+    });
+    // Wrap all
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: dvId, startRowIndex: 0, endRowIndex: 10 },
+        cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } },
+        fields: 'userEnteredFormat(wrapStrategy)',
+      },
+    });
+
+    // ── Personal Details formatting ──────────────────────────────────────────
+    // Row 1 (0-indexed: 0) — "Personal Details" header — teal background bold centered
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: pdId, startRowIndex: 0, endRowIndex: 1 },
+        cell: { userEnteredFormat: {
+          textFormat: BOLD,
+          backgroundColor: TEAL,
+          horizontalAlignment: 'CENTER',
+        }},
+        fields: 'userEnteredFormat(textFormat,backgroundColor,horizontalAlignment)',
+      },
+    });
+    // "Documentation List" header row (row 27, 0-indexed: 26) — teal bold centered
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: pdId, startRowIndex: 26, endRowIndex: 27 },
+        cell: { userEnteredFormat: {
+          textFormat: BOLD,
+          backgroundColor: TEAL,
+          horizontalAlignment: 'CENTER',
+        }},
+        fields: 'userEnteredFormat(textFormat,backgroundColor,horizontalAlignment)',
+      },
+    });
+    // "Govt Related" sub-header (row 28, 0-indexed: 27) — teal bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: pdId, startRowIndex: 27, endRowIndex: 28 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // PAN Card row (row 29, 0-indexed: 28) — bright green background
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: pdId, startRowIndex: 28, endRowIndex: 29 },
+        cell: { userEnteredFormat: { backgroundColor: GREEN } },
+        fields: 'userEnteredFormat(backgroundColor)',
+      },
+    });
+    // UAN row (row 32, 0-indexed: 31) — yellow background
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: pdId, startRowIndex: 31, endRowIndex: 32 },
+        cell: { userEnteredFormat: { backgroundColor: YELLOW } },
+        fields: 'userEnteredFormat(backgroundColor)',
+      },
+    });
+    // "Company Related" sub-header (row 33, 0-indexed: 32) — teal bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: pdId, startRowIndex: 32, endRowIndex: 33 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // "Misc" sub-header (row 35, 0-indexed: 34) — teal bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: pdId, startRowIndex: 34, endRowIndex: 35 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // All rows: bold label column (B, index 1)
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: pdId, startRowIndex: 1, endRowIndex: 36, startColumnIndex: 1, endColumnIndex: 2 },
+        cell: { userEnteredFormat: { textFormat: BOLD } },
+        fields: 'userEnteredFormat(textFormat)',
+      },
+    });
+    // Wrap all
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: pdId, startRowIndex: 0, endRowIndex: 36 },
+        cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } },
+        fields: 'userEnteredFormat(wrapStrategy)',
+      },
+    });
+
+    // ── Education & Professional Detail formatting ───────────────────────────
+    // "Education Details:" header row 0 — teal bold centered
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: epId, startRowIndex: 0, endRowIndex: 1 },
+        cell: { userEnteredFormat: {
+          textFormat: BOLD,
+          backgroundColor: TEAL,
+          horizontalAlignment: 'CENTER',
+        }},
+        fields: 'userEnteredFormat(textFormat,backgroundColor,horizontalAlignment)',
+      },
+    });
+    // Column headers row 1 (0-indexed: 1) — teal bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: epId, startRowIndex: 1, endRowIndex: 2 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // "Internships Details:" header row 7 (0-indexed: 7) — teal bold centered
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: epId, startRowIndex: 7, endRowIndex: 8 },
+        cell: { userEnteredFormat: {
+          textFormat: BOLD,
+          backgroundColor: TEAL,
+          horizontalAlignment: 'CENTER',
+        }},
+        fields: 'userEnteredFormat(textFormat,backgroundColor,horizontalAlignment)',
+      },
+    });
+    // "College Internships" header row 8 (0-indexed: 8) — teal bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: epId, startRowIndex: 8, endRowIndex: 9 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // "Internships after completion" header row 12 (0-indexed: 12) — teal bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: epId, startRowIndex: 12, endRowIndex: 13 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // "Previous Employers details" row 18 (0-indexed: 18) — teal bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: epId, startRowIndex: 18, endRowIndex: 19 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // "Employer 1" header row 23 (0-indexed: 23) — teal bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: epId, startRowIndex: 23, endRowIndex: 24 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // "Employer 2" header row 35 (0-indexed: 35) — teal bold
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: epId, startRowIndex: 35, endRowIndex: 36 },
+        cell: { userEnteredFormat: { textFormat: BOLD, backgroundColor: TEAL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+    // Wrap all
+    formatRequests.push({
+      repeatCell: {
+        range: { sheetId: epId, startRowIndex: 0, endRowIndex: 50 },
+        cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } },
+        fields: 'userEnteredFormat(wrapStrategy)',
+      },
+    });
+
+    // Auto-resize all columns on all tabs
+    for (const sid of [dvId, pdId, epId]) {
+      formatRequests.push({
+        autoResizeDimensions: {
+          dimensions: { sheetId: sid, dimension: 'COLUMNS', startIndex: 0, endIndex: 9 },
+        },
+      });
+    }
+
+    await apiWithRetry(() => sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: formatRequests },
+    }), 'employeeInfoSheet:format');
+
+    // ── Move into employee's Drive folder ────────────────────────────────────
+    const fileMeta = await drive.files.get({ fileId: spreadsheetId, fields: 'parents' });
+    const currentParents = (fileMeta.data.parents || []).join(',');
+    await drive.files.update({
+      fileId: spreadsheetId,
+      addParents: employee.driveFolderId,
+      removeParents: currentParents,
+      fields: 'id, parents',
+    });
+
+    // ── Share with HR + recruiter (edit), employee (view) ────────────────────
+    const hrEmail = process.env.HR_EMAIL;
+    const recruiterEmail = (contacts && contacts.recruiterEmail) || null;
+    const joinerEmail = officialEmail || personalEmail;
+    const editList = [hrEmail, recruiterEmail].filter(Boolean);
+    for (const email of [...new Set(editList)]) {
+      await drive.permissions.create({
+        fileId: spreadsheetId,
+        requestBody: { type: 'user', role: 'writer', emailAddress: email },
+        sendNotificationEmail: false,
+      }).catch(() => {});
+    }
+    if (joinerEmail) {
+      await drive.permissions.create({
+        fileId: spreadsheetId,
+        requestBody: { type: 'user', role: 'reader', emailAddress: joinerEmail },
+        sendNotificationEmail: false,
+      }).catch(() => {});
+    }
+
+    employee.employeeInfoSheetId = spreadsheetId;
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+    console.log(`[Status] Employee info sheet (AL/DI/HR/018) created for ${name}: ${sheetUrl}`);
+    return sheetUrl;
+  } catch (err) {
+    console.error(`[Status] createEmployeeInfoSheet failed for ${name}: ${err.message}`);
     return null;
   }
 }
