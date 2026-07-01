@@ -286,6 +286,7 @@ async function sendHRInductionConfirmation(employee, recruiterEmail) {
 async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, dayMark) {
   const { name, employeeId } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
+  const joineeEmail = employee.officialEmail || employee.personalEmail;
 
   // Month tab: 30→Month -1, 60→Month -2, 90→Month -3
   const monthTab = dayMark === 30 ? 'Tracking - Month -1' : dayMark === 60 ? 'Tracking - Month -2' : 'Tracking - Month -3';
@@ -315,13 +316,15 @@ async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail
     ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Tracking Sheet — ${esc(monthTab)}</a></p>`
     : '';
 
+  const toList = [recruiterEmail, managerEmail, joineeEmail].filter(Boolean).join(', ');
+
   return sendEmail({
-    to: `${recruiterEmail}, ${managerEmail}`,
-    subject: `Reminder — ${dayMark}-Day Project Review for ${esc(name)} (${esc(employeeId)})`,
+    to: toList,
+    subject: `${dayMark}-Day Project Review — ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due.</p>
-      <p>Please schedule and conduct the review. After the call:</p>
+      <p>The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due. Please check your calendar for the meeting invite.</p>
+      <p><strong>Recruiter / Manager</strong> — after the call, please:</p>
       <ol>
         <li>Fill in the <strong>${esc(monthTab)}</strong> tab in the tracking sheet below</li>
         <li>Reply to this email confirming the review was completed</li>
@@ -785,7 +788,8 @@ async function sendReviewSummaryRequest(employee, dayMark) {
   const { name, employeeId, contacts } = employee;
   const recruiterEmail = contacts && contacts.recruiterEmail;
   const managerEmail = contacts && contacts.managerEmail;
-  const toEmail = [recruiterEmail, managerEmail].filter(Boolean).join(', ');
+  const joineeEmail = employee.officialEmail || employee.personalEmail;
+  const toEmail = [recruiterEmail, managerEmail, joineeEmail].filter(Boolean).join(', ');
   const co = esc(process.env.COMPANY_NAME || '');
 
   // Month tab mapping: 30-day → Month -1, 60-day → Month -2, 90-day → Month -3
