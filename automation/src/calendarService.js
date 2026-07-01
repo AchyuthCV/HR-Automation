@@ -36,6 +36,30 @@ function toGoogleDateTime(date, hour, minute) {
   };
 }
 
+// Parse a preferred time string like "10:00 AM", "14:30", "2 PM" into { hour, minute }
+// Returns null if it can't be parsed — caller falls back to config default
+function parsePreferredTime(str) {
+  if (!str || typeof str !== 'string') return null;
+  str = str.trim();
+
+  // Match formats: "10:30 AM", "2:00 PM", "14:30", "10 AM", "2PM"
+  const match = str.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return null;
+
+  let hour = parseInt(match[1], 10);
+  const minute = match[2] ? parseInt(match[2], 10) : 0;
+  const ampm = match[3] ? match[3].toUpperCase() : null;
+
+  if (ampm === 'PM' && hour < 12) hour += 12;
+  if (ampm === 'AM' && hour === 12) hour = 0;
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  // Reject unreasonable times (before 7 AM or after 7 PM)
+  if (hour < 7 || hour > 19) return null;
+
+  return { hour, minute };
+}
+
 // ─── Exported calendar functions ───────────────────────────────────────────────
 
 /**
@@ -66,13 +90,18 @@ async function createHRInductionEvent(auth, employee) {
       .map(email => ({ email }));
 
     const cfg = config.calendarEvents.hrInduction;
-    const endMins = cfg.minute + cfg.durationMins;
+    const pd = employee.personalDetails || {};
+    const preferred = parsePreferredTime(pd['Preferred Time for HR Induction']);
+    const startHour = preferred ? preferred.hour : cfg.hour;
+    const startMin  = preferred ? preferred.minute : cfg.minute;
+    const endMins = startMin + cfg.durationMins;
+    if (preferred) console.log(`[Calendar] HR Induction using preferred time ${startHour}:${String(startMin).padStart(2,'0')} for ${employee.name}`);
     const event = {
       summary: `HR Induction — ${employee.name}`,
       description: `HR Induction session for ${employee.name} (${employee.employeeId}).\n\nAgenda:\n• Company policies and culture\n• Tools and systems walkthrough\n• Greythr login setup\n• Team introductions\n\nConducted by: Recruiter / HR Team\n\nNote: You can propose a new time using the calendar invite if this slot does not work.`,
       location: 'Office / As communicated by HR',
-      start: toGoogleDateTime(inductionDate, cfg.hour, cfg.minute),
-      end: toGoogleDateTime(inductionDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
+      start: toGoogleDateTime(inductionDate, startHour, startMin),
+      end: toGoogleDateTime(inductionDate, startHour + Math.floor(endMins / 60), endMins % 60),
       attendees,
       guestsCanModify: false,
       guestsCanSeeOtherGuests: true,
@@ -121,12 +150,17 @@ async function createProjectIntroEvent(auth, employee) {
       .map(email => ({ email }));
 
     const cfg = config.calendarEvents.projectIntro;
-    const endMins = cfg.minute + cfg.durationMins;
+    const pd = employee.personalDetails || {};
+    const preferred = parsePreferredTime(pd['Preferred Time for Project Intro Meeting']);
+    const startHour = preferred ? preferred.hour : cfg.hour;
+    const startMin  = preferred ? preferred.minute : cfg.minute;
+    const endMins = startMin + cfg.durationMins;
+    if (preferred) console.log(`[Calendar] Project Intro using preferred time ${startHour}:${String(startMin).padStart(2,'0')} for ${employee.name}`);
     const event = {
       summary: `Project Intro Meeting — ${employee.name}`,
       description: `Project introduction meeting for ${employee.name} (${employee.employeeId}) with their reporting manager.\n\nAgenda:\n• Role overview and expectations\n• Key projects and initial goals\n• Team and buddy introduction\n• Q&A\n\nNote: If this post-lunch slot does not work, you can propose a new time using the calendar invite.`,
-      start: toGoogleDateTime(eventDate, cfg.hour, cfg.minute),
-      end: toGoogleDateTime(eventDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
+      start: toGoogleDateTime(eventDate, startHour, startMin),
+      end: toGoogleDateTime(eventDate, startHour + Math.floor(endMins / 60), endMins % 60),
       attendees,
       guestsCanModify: false,
       guestsCanSeeOtherGuests: true,

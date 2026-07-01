@@ -40,6 +40,21 @@ function createFresherPreonboardingForm() {
     .setHelpText('Full address including city, state and PIN code')
     .setRequired(true);
 
+  // ── Section 1b: Meeting Preferences ──────────────────────────────────────
+  form.addSectionHeaderItem()
+    .setTitle('Section 1b — Meeting Time Preferences')
+    .setHelpText('We will try our best to schedule your DOJ meetings at your preferred times. Leave blank to use the default slots.');
+
+  form.addTextItem()
+    .setTitle('Preferred Time for HR Induction')
+    .setHelpText('Default: 9:30 AM on your Date of Joining. Enter your preferred time e.g. 10:00 AM, 11:30 AM')
+    .setRequired(false);
+
+  form.addTextItem()
+    .setTitle('Preferred Time for Project Intro Meeting')
+    .setHelpText('Default: 2:00 PM on your Date of Joining. Enter your preferred time e.g. 3:00 PM, 4:00 PM')
+    .setRequired(false);
+
   // ── Section 2: Identity Documents ────────────────────────────────────────
   form.addSectionHeaderItem()
     .setTitle('Section 2 — Identity Documents')
