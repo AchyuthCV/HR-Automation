@@ -233,13 +233,14 @@ Reply type definitions — use the email SUBJECT as the primary signal, then bod
 - "bgv_report": Reply to a BGV initiation request — HR/recruiter replying with a SmartScreen or other BGV vendor PDF attached, OR forwarding the vendor report. Subject will contain "BGV" or "Background Verification". Classify as bgv_report if the subject mentions BGV and the email has an attachment, even if the body is brief.
 - "induction_confirmed": Reply confirming HR induction meeting attendance or completion
 - "admin_allocation": Reply from Admin confirming physical seat or access card allocation
+- "meeting_time_preference": New joinee replies to the welcome email with preferred meeting times — subject contains "Pre-Onboarding Form" and body mentions times for induction or project intro
 - "catchup25_complete": HR replies "Confirmed" to the 25th day catchup call email — subject contains "25th Day Catchup"
 - "catchup_complete": Confirms a 30-day catchup call was completed
 - "review_complete": Confirms a 60-day or 90-day performance review was completed
 - "pre_probation_result": Confirms probation period outcome
 - "unknown": Related to onboarding but does not clearly match any above type
 
-IMPORTANT: If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". If subject contains "BGV" or "Background Verification" → classify as "bgv_report". If subject contains "Confirm Access to Your Official Email" → classify as "official_email_access_confirmed" or "official_email_access_failed" based on whether the body is positive or negative. If subject contains "25th Day Catchup" → classify as "catchup25_complete". Subject is the strongest signal.
+IMPORTANT: If the subject contains "Pre-Onboarding Form" and the body mentions preferred times for meetings → classify as "meeting_time_preference" and extract inductionTime and projectIntroTime into data. If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". If subject contains "BGV" or "Background Verification" → classify as "bgv_report". If subject contains "Confirm Access to Your Official Email" → classify as "official_email_access_confirmed" or "official_email_access_failed" based on whether the body is positive or negative. If subject contains "25th Day Catchup" → classify as "catchup25_complete". Subject is the strongest signal.
 Simple acknowledgements ("ok", "noted", "will do", "thanks") should be classified with isOnboardingReply=false unless they contain substantive information.
 
 Respond ONLY with a JSON object in this exact format:
@@ -253,6 +254,8 @@ Respond ONLY with a JSON object in this exact format:
     "officeLocation": "extracted office location or null",
     "supervisorName": "extracted supervisor/buddy name or null",
     "bgvStatus": "extracted BGV status or null",
+    "inductionTime": "preferred HR Induction time if mentioned e.g. '10:00 AM' or null",
+    "projectIntroTime": "preferred Project Intro Meeting time if mentioned e.g. '3:00 PM' or null",
     "notes": "any other relevant details"
   },
   "confidence": "high/medium/low"

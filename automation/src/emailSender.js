@@ -75,7 +75,7 @@ async function sendPreOnboardingForm(employee) {
     : `<p><a href="${esc(formLink)}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Complete Pre-Onboarding Form</a></p>`;
   return sendEmail({
     to: personalEmail,
-    subject: `Welcome to ${process.env.COMPANY_NAME}! Action Required — Pre-Onboarding Form`,
+    subject: `Welcome to ${process.env.COMPANY_NAME}! Action Required — Pre-Onboarding Form (${esc(employeeId)})`,
     html: `
       <p>Dear ${esc(name)},</p>
       <p>We are delighted to welcome you to <strong>${esc(process.env.COMPANY_NAME)}</strong>!</p>
@@ -83,6 +83,14 @@ async function sendPreOnboardingForm(employee) {
       <p>Your <strong>Employee ID</strong> is: <strong style="font-size:16px;">${esc(employeeId)}</strong> — you will need to enter this in the form.</p>
       ${formSection}
       <p>Please submit within <strong>24 hours</strong> of receiving this email.</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:20px 0;"/>
+      <p><strong>Your DOJ meetings are scheduled as follows:</strong></p>
+      <ul>
+        <li><strong>HR Induction</strong> — 9:30 AM on ${esc(doj)}</li>
+        <li><strong>Project Intro Meeting</strong> — 2:00 PM on ${esc(doj)}</li>
+      </ul>
+      <p>If either time does not work for you, simply <strong>reply to this email</strong> with your preferred times.<br/>
+      For example: <em>"I prefer HR Induction at 11:00 AM and Project Intro at 3:00 PM"</em></p>
       <p>Looking forward to having you on board!<br/>HR Team, ${esc(process.env.COMPANY_NAME)}</p>
     `,
   });

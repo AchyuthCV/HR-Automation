@@ -1020,6 +1020,21 @@ async function handleReply(auth, classified, rawMsg) {
   activityLog.log(employee, 'reply_received', replyType);
 
   switch (replyType) {
+    case 'meeting_time_preference': {
+      const pd = employee.personalDetails || {};
+      if (data.inductionTime) {
+        pd['Preferred Time for HR Induction'] = data.inductionTime;
+        console.log(`[Index] HR Induction preferred time set to ${data.inductionTime} for ${employee.name}`);
+      }
+      if (data.projectIntroTime) {
+        pd['Preferred Time for Project Intro Meeting'] = data.projectIntroTime;
+        console.log(`[Index] Project Intro preferred time set to ${data.projectIntroTime} for ${employee.name}`);
+      }
+      employee.personalDetails = pd;
+      saveState(employee.employeeId, snapshotEmployee(employee));
+      break;
+    }
+
     case 'official_email_created':
       if (isTaskDone(checklist, 't15')) {
         console.log(`[Index] Skipping duplicate official_email_created for ${employee.name} — t15 already done`);
