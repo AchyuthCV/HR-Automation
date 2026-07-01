@@ -316,15 +316,14 @@ async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail
     ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Tracking Sheet — ${esc(monthTab)}</a></p>`
     : '';
 
-  const toList = [recruiterEmail, managerEmail, joineeEmail].filter(Boolean).join(', ');
-
-  return sendEmail({
-    to: toList,
-    subject: `${dayMark}-Day Project Review — ${esc(name)} (${esc(employeeId)})`,
+  // Email to recruiter + manager — internal instructions
+  await sendEmail({
+    to: [recruiterEmail, managerEmail].filter(Boolean).join(', '),
+    subject: `Reminder — ${dayMark}-Day Project Review for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due. Please check your calendar for the meeting invite.</p>
-      <p><strong>Recruiter / Manager</strong> — after the call, please:</p>
+      <p>The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due.</p>
+      <p>Please schedule and conduct the review. After the call:</p>
       <ol>
         <li>Fill in the <strong>${esc(monthTab)}</strong> tab in the tracking sheet below</li>
         <li>Reply to this email confirming the review was completed</li>
@@ -334,6 +333,20 @@ async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail
       <p>Regards,<br/>${co} HR Automation</p>
     `,
   });
+
+  // Separate simple email to new joinee — same style as 30-day
+  if (joineeEmail) {
+    await sendEmail({
+      to: joineeEmail,
+      subject: `${dayMark}-Day Project Review — ${esc(name)} (${esc(employeeId)})`,
+      html: `
+        <p>Hi,</p>
+        <p>It has been ${dayMark} days since <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) joined ${co}. Time for the <strong>${dayMark}-day project review!</strong></p>
+        <p>Please check your calendar for the review meeting invite and come prepared to discuss progress, challenges, and next steps.</p>
+        <p>Regards,<br/>${co} HR Automation</p>
+      `,
+    });
+  }
 }
 
 // Template 11: Pre-probation reminder (5 months)
@@ -788,8 +801,7 @@ async function sendReviewSummaryRequest(employee, dayMark) {
   const { name, employeeId, contacts } = employee;
   const recruiterEmail = contacts && contacts.recruiterEmail;
   const managerEmail = contacts && contacts.managerEmail;
-  const joineeEmail = employee.officialEmail || employee.personalEmail;
-  const toEmail = [recruiterEmail, managerEmail, joineeEmail].filter(Boolean).join(', ');
+  const toEmail = [recruiterEmail, managerEmail].filter(Boolean).join(', ');
   const co = esc(process.env.COMPANY_NAME || '');
 
   // Month tab mapping: 30-day → Month -1, 60-day → Month -2, 90-day → Month -3
