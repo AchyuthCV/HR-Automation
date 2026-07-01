@@ -202,10 +202,6 @@ function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, m
     if (employee._auth) await createReviewEvent(employee._auth, employee, 60).catch(err =>
       console.warn(`[Cron] 60-day calendar event failed for ${name} — email still sent. (${err.message})`)
     );
-
-    // t46: send review summary request (replaces "call transcribed")
-    await sendReviewSummaryRequest(employee, 60);
-    console.log(`[Cron] 60-day review summary request sent for ${name} (${employeeId})`);
     if (markTaskFn) markTaskFn('t46');
 
     if (employee._auth) await mark60DayDone(employee._auth, employee).catch(() => {});
@@ -239,10 +235,6 @@ function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, m
     if (employee._auth) await createReviewEvent(employee._auth, employee, 90).catch(err =>
       console.warn(`[Cron] 90-day calendar event failed for ${name} — email still sent. (${err.message})`)
     );
-
-    // t49: send review summary request (replaces "call transcribed")
-    await sendReviewSummaryRequest(employee, 90);
-    console.log(`[Cron] 90-day review summary request sent for ${name} (${employeeId})`);
     if (markTaskFn) markTaskFn('t49');
 
     if (employee._auth) await mark90DayDone(employee._auth, employee).catch(() => {});
