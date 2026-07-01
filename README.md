@@ -15,7 +15,9 @@ Standalone Node.js engine that automates the full employee onboarding lifecycle 
 - Schedules 30/60/90-day project review reminders and 5-month pre-probation alerts via cron
 - Sends onboarding survey + employee feedback form at day 25
 - Shares project intro catchup sheet with new joiner
-- Creates calendar invites for HR induction, project intro, 30/60/90-day review calls
+- Creates calendar invites for HR induction, project intro, 25-day catchup, 30/60/90-day review calls
+- Sends 25-day feedback form email to new joinee — includes the scheduled catchup call date/time and a calendar invite link
+- Sends 25-day catchup notification email to HR + recruiter (not new joinee) with full employee details table
 - Parses email replies via Gmail Watch + Pub/Sub to advance the checklist automatically — with fallback matching by employee name, pending task state, and sender email
 - Persists all state locally (encrypted AES-256-GCM) so restarts never repeat completed steps
 - New employees added via recruiter Google Form are persisted to `employees.json` immediately and survive engine restarts
@@ -137,6 +139,7 @@ Content-Type: application/json
 | `POST /employee` | Register a new employee and start onboarding |
 | `POST /drive-push` | Google Drive push notification receiver |
 | `POST /gmail-push` | Gmail Pub/Sub push notification receiver |
+| `POST /preonboarding-details` | Receives personal details from pre-onboarding form submit trigger |
 
 ## Real-time Push (optional)
 
@@ -167,6 +170,15 @@ To create a form: open [script.google.com](https://script.google.com) → New Pr
 
 The pre-onboarding forms route uploaded files automatically into the correct Drive subfolders (`Marksheet_10th`, `Aadhaar`, `PAN` etc.) using an Apps Script submit trigger. The Employee ID field is filled by the new joinee — the trigger finds the correct Drive folder by searching for the Employee ID in the folder name.
 
+On submit, the trigger also POSTs personal details (Mother's Name, Marital Status, Spouse, Children, Emergency Contact, Nominee etc.) to the engine via `/preonboarding-details` webhook so they are auto-filled in the AL_DI_HR_018 sheet.
+
+**Apps Script setup (required once per form):**
+1. Open the form in Google Forms → Responses → Script Editor (or open [script.google.com](https://script.google.com) and find the bound script)
+2. Paste the latest code from the corresponding `.gs` file
+3. Project Settings → Script Properties → Add `ENGINE_WEBHOOK_URL` = your ngrok/engine HTTPS URL
+4. Triggers → Add Trigger → `onExperiencedFormSubmit` / `onFresherFormSubmit` → From form → On form submit
+5. Click Run once (on any function) to trigger the OAuth permission dialog for `UrlFetchApp`
+
 ## Project Intro Sheet (AL_DI_HR_019)
 
 Each employee gets an `AL_DI_HR_019 Project Introduction` Google Sheet created automatically on their joining day with 5 tabs:
@@ -189,7 +201,7 @@ The same sheet is re-shared at the 30-day catchup email — no duplicate is crea
 | `src/cronJobs.js` | Milestone scheduling (survey, 30/60/90-day, 5-month) |
 | `src/driveWatcher.js` | Drive folder polling and push-channel management |
 | `src/gmailWatcher.js` | Gmail Watch subscription and reply parsing |
-| `src/calendarService.js` | Creates Google Calendar events for induction, reviews |
+| `src/calendarService.js` | Creates Google Calendar events for induction, 25-day catchup, 30/60/90-day reviews |
 | `src/statusTracker.js` | Writes/updates per-employee Google Sheet dashboard; creates AL_DI_HR_018 and AL_DI_HR_019 sheets |
 | `src/webhookServer.js` | Express server — push handlers, status pages, debug endpoints |
 | `src/activityLog.js` | Append-only per-employee event log in `logs/<employeeId>.log` |
@@ -214,7 +226,7 @@ Degree_Certificate / Postgrad_Certificate / BGV /
 Meeting_Screenshots / Reports
 ```
 
-An `UPLOAD_INSTRUCTIONS.txt` file is placed in the employee's folder explaining exactly what to upload and where.
+The Drive folder is shared with the recruiter only — the new joinee does not have direct Drive access. Documents are collected via the pre-onboarding Google Form which routes files to the correct subfolders automatically.
 
 ## Required Documents
 
