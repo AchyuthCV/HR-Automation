@@ -1310,9 +1310,6 @@ async function onboardEmployee(auth, employee) {
     activityLog.log(employee, 'scaffold_failed', `driveFolderId: ${employee.driveFolderId} — ${err.message}`);
     return; // cannot continue without a working Drive folder
   }
-  await uploadInstructions(auth, employee.driveFolderId, employee.name).catch(err =>
-    console.warn(`[Index] Could not upload instructions file for ${employee.name}: ${err.message}`)
-  );
 
   const alreadyStarted = isTaskDone(employee.checklist, 't4');
 

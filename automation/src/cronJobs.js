@@ -2,7 +2,7 @@ const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-const { create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
+const { create25DayCatchupEvent, create30DayCatchupEvent, createReviewEvent } = require('./calendarService');
 const {
   sendPeriodicReviewReminder,
   sendPreProbationReminder,
@@ -86,6 +86,7 @@ function scheduleOnce(targetDate, label, fn) {
 
 // Schedule the employee feedback form to be sent on the 25th calendar day after DOJ,
 // adjusted to the next working day if it falls on a weekend.
+// Also creates a 25-day catchup calendar event and mentions it in the email.
 function scheduleOnboardingSurvey(employee, markTaskFn) {
   const { name, employeeId, officialEmail, doj } = employee;
   const dojDate = new Date(doj);
@@ -93,10 +94,35 @@ function scheduleOnboardingSurvey(employee, markTaskFn) {
 
   return scheduleOnce(surveyDate, `Feedback Form — ${name}`, async () => {
     const { sendEmail } = require('./emailSender');
+
+    // Create 25-day catchup calendar event and get back the event link + date
+    let catchupCalendarLink = null;
+    let catchupDateStr = null;
+    if (employee._auth) {
+      const calResult = await create25DayCatchupEvent(employee._auth, employee).catch(err => {
+        console.warn(`[Cron] 25-day calendar event failed for ${name} — email still sent. (${err.message})`);
+        return null;
+      });
+      if (calResult) {
+        catchupCalendarLink = calResult.htmlLink;
+        const cfg = config.calendarEvents.catchup25day;
+        const d = calResult.eventDate;
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const hour = cfg.hour > 12 ? cfg.hour - 12 : cfg.hour;
+        const ampm = cfg.hour >= 12 ? 'PM' : 'AM';
+        catchupDateStr = `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} at ${hour}:${String(cfg.minute).padStart(2,'0')} ${ampm} IST`;
+      }
+    }
+
+    const catchupSection = catchupDateStr
+      ? `<p>You also have a <strong>25-Day Catchup Call</strong> scheduled on <strong>${catchupDateStr}</strong> with your HR/Recruiter. Please check your calendar for the invite${catchupCalendarLink ? ` or <a href="${catchupCalendarLink}">view the event here</a>` : ''}.`
+      : `<p>Your HR team will be in touch to schedule a 25-day catchup call with you soon.</p>`;
+
     const feedbackFormLink = process.env.EMPLOYEE_FEEDBACK_FORM_LINK;
     const formSection = feedbackFormLink
       ? `<p><a href="${feedbackFormLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;display:inline-block;">Employee Feedback Form</a></p>`
       : `<p style="color:#e65100;"><strong>Note:</strong> The feedback form link has not been configured yet. HR will share it with you separately.</p>`;
+
     await sendEmail({
       to: officialEmail || employee.personalEmail,
       subject: `Employee Feedback Form — ${process.env.COMPANY_NAME}`,
@@ -104,6 +130,7 @@ function scheduleOnboardingSurvey(employee, markTaskFn) {
         <p>Dear ${name},</p>
         <p>You've been with us for 25 days! Please take a moment to fill in the employee feedback form:</p>
         ${formSection}
+        ${catchupSection}
         <p>Regards,<br/>HR Team, ${process.env.COMPANY_NAME}</p>
       `,
     });

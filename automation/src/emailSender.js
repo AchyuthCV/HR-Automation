@@ -860,19 +860,37 @@ async function send30DayTechnicalReview(employee) {
 
 // Template 18c: Day 25 catchup call notification — sent to HR + new joiner on day 25
 async function send25DayCatchupEmail(employee) {
-  const { name, employeeId } = employee;
+  const { name, employeeId, doj, isFresher } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
   const hrEmail = process.env.HR_EMAIL;
-  const joineeEmail = employee.officialEmail || employee.personalEmail;
-  const toEmail = [hrEmail, joineeEmail].filter(Boolean).join(', ');
+  const recruiterEmail = (employee.contacts || {}).recruiterEmail || '';
+  const toEmail = [hrEmail, recruiterEmail].filter(Boolean).join(', ');
   const sheetLink = process.env.CATCHUP_TRACKING_SHEET_LINK || '#';
+  const contacts = employee.contacts || {};
+  const managerEmail = contacts.managerEmail || '';
+  const managerName  = contacts.managerName  || managerEmail;
+  const location     = employee.officeLocation || '';
+  const assetRequired = employee.assetRequired || '';
+  const fresherLabel  = isFresher ? 'Yes (Fresher)' : 'No (Experienced)';
 
   return sendEmail({
     to: toEmail,
     subject: `25th Day Catchup Call — ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>This is a reminder that the <strong>25th day catchup call</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due. Please check your calendar for the invite.</p>
+      <p>This is a reminder that the <strong>25th day catchup call</strong> for <strong>${esc(name)}</strong> is due today. Please schedule or confirm the call.</p>
+      <table style="border-collapse:collapse;font-size:14px;">
+        <tr><td style="padding:4px 12px 4px 0;color:#555;"><strong>Employee Name</strong></td><td>${esc(name)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#555;"><strong>Employee ID</strong></td><td>${esc(employeeId)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#555;"><strong>Date of Joining</strong></td><td>${esc(doj || '')}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#555;"><strong>Official Email</strong></td><td>${esc(employee.officialEmail || employee.personalEmail || '')}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#555;"><strong>Reporting Manager</strong></td><td>${esc(managerName)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#555;"><strong>Manager Email</strong></td><td>${esc(managerEmail)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#555;"><strong>Location</strong></td><td>${esc(location)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#555;"><strong>Asset Required</strong></td><td>${esc(assetRequired)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#555;"><strong>Fresher</strong></td><td>${esc(fresherLabel)}</td></tr>
+      </table>
+      <br/>
       <p>Recruiter — please fill in the <a href="${sheetLink}">catchup tracking sheet</a> after the call.</p>
       <p>HR — once the call is done, reply to this email with <strong>"Confirmed"</strong> to update the checklist.</p>
       <p>Regards,<br/>${co} HR Automation</p>

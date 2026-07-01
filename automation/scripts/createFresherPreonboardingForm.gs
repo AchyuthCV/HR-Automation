@@ -125,11 +125,14 @@ var FOLDER_MAP = {
 // Update this if the root folder changes
 var ALETHEA_ONBOARDING_ROOT_ID = '1faqP459a9quQ3w29On8yH3Hpq95zVdZe';
 
+var ENGINE_WEBHOOK_URL = PropertiesService.getScriptProperties().getProperty('ENGINE_WEBHOOK_URL') || '';
+
 function onFresherFormSubmit(e) {
   var responses = e.response.getItemResponses();
   var driveFolderId = '';
   var employeeId = '';
   var fileResponses = {};
+  var personalDetails = {};
 
   for (var i = 0; i < responses.length; i++) {
     var title = responses[i].getItem().getTitle();
@@ -137,6 +140,21 @@ function onFresherFormSubmit(e) {
     if (title === 'Drive Folder ID' || title === 'Drive Folder ID( Pre-filled by HR — do not edit)') driveFolderId = value;
     else if (title === 'Employee ID' || title === 'Employee ID( Pre-filled by HR — do not edit)') employeeId = value;
     else if (FOLDER_MAP[title]) fileResponses[title] = value;
+    else personalDetails[title] = value;
+  }
+
+  if (ENGINE_WEBHOOK_URL && employeeId) {
+    try {
+      UrlFetchApp.fetch(ENGINE_WEBHOOK_URL + '/preonboarding-details', {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ employeeId: employeeId, personalDetails: personalDetails }),
+        muteHttpExceptions: true,
+      });
+      Logger.log('✅ Personal details sent to engine for: ' + employeeId);
+    } catch (err) {
+      Logger.log('⚠️ Could not send personal details to engine: ' + err.message);
+    }
   }
 
   // If Drive Folder ID not pre-filled, search for the employee folder by Employee ID

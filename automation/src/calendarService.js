@@ -147,6 +147,52 @@ async function createProjectIntroEvent(auth, employee) {
 }
 
 /**
+ * Create 25-Day Catchup event on working day 25 at 11:00–11:30 AM IST.
+ * Sent to new joinee + recruiter. Returns { htmlLink, eventDate } or null on failure.
+ */
+async function create25DayCatchupEvent(auth, employee) {
+  try {
+    const calendar = google.calendar({ version: 'v3', auth });
+    const dojDate = new Date(employee.doj);
+    if (!employee.doj || isNaN(dojDate.getTime())) {
+      console.error(`[Calendar] create25DayCatchupEvent: invalid DOJ "${employee.doj}" for ${employee.name}`);
+      return null;
+    }
+    const eventDate = ensureWorkingDay(addDays(dojDate, config.milestones.surveyday));
+
+    const attendees = [
+      employee.officialEmail || employee.personalEmail,
+      employee.contacts && employee.contacts.recruiterEmail,
+      employee.contacts && employee.contacts.managerEmail,
+    ]
+      .filter(Boolean)
+      .map(email => ({ email }));
+
+    const cfg = config.calendarEvents.catchup25day;
+    const endMins = cfg.minute + cfg.durationMins;
+    const event = {
+      summary: `25-Day Catchup — ${employee.name}`,
+      description: `25-day onboarding catchup call for ${employee.name} (${employee.employeeId}).\n\nAgenda:\n• Onboarding experience so far\n• Any challenges or blockers\n• Role clarity check\n• Initial feedback from the team`,
+      start: toGoogleDateTime(eventDate, cfg.hour, cfg.minute),
+      end: toGoogleDateTime(eventDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
+      attendees,
+    };
+
+    const res = await calendar.events.insert({
+      calendarId: 'primary',
+      resource: event,
+      sendUpdates: 'all',
+    });
+
+    console.log(`[Calendar] 25-Day Catchup event created for ${employee.name}: ${res.data.htmlLink}`);
+    return { htmlLink: res.data.htmlLink, eventDate };
+  } catch (err) {
+    console.error('[Calendar] error: create25DayCatchupEvent failed:', err.message);
+    return null;
+  }
+}
+
+/**
  * Create 30-Day Catchup event on working day 30 at 11:00–11:30 AM IST.
  * Returns the event htmlLink, or null on failure.
  */
@@ -242,6 +288,7 @@ async function createReviewEvent(auth, employee, dayMark) {
 module.exports = {
   createHRInductionEvent,
   createProjectIntroEvent,
+  create25DayCatchupEvent,
   create30DayCatchupEvent,
   createReviewEvent,
 };
