@@ -324,23 +324,25 @@ async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail
     ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Tracking Sheet — ${esc(monthTab)}</a></p>`
     : '';
 
-  // Email to recruiter + manager — internal instructions
-  await sendEmail({
-    to: [recruiterEmail, managerEmail].filter(Boolean).join(', '),
-    subject: `Reminder — ${dayMark}-Day Project Review for ${esc(name)} (${esc(employeeId)})`,
-    html: `
-      <p>Hi,</p>
-      <p>The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due.</p>
-      <p>Please schedule and conduct the review. After the call:</p>
-      <ol>
-        <li>Fill in the <strong>${esc(monthTab)}</strong> tab in the tracking sheet below</li>
-        <li>Reply to this email confirming the review was completed</li>
-      </ol>
-      ${sheetSection}
-      <p>If the call cannot happen soon, reply with the new proposed date.</p>
-      <p>Regards,<br/>${co} HR Automation</p>
-    `,
-  });
+  // Email to manager only — tracking sheet link + instructions
+  if (managerEmail) {
+    await sendEmail({
+      to: managerEmail,
+      subject: `Reminder — ${dayMark}-Day Project Review for ${esc(name)} (${esc(employeeId)})`,
+      html: `
+        <p>Hi,</p>
+        <p>The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due.</p>
+        <p>Please schedule and conduct the review. After the call:</p>
+        <ol>
+          <li>Fill in the <strong>${esc(monthTab)}</strong> tab in the tracking sheet below</li>
+          <li>Reply to this email confirming the review was completed</li>
+        </ol>
+        ${sheetSection}
+        <p>If the call cannot happen soon, reply with the new proposed date.</p>
+        <p>Regards,<br/>${co} HR Automation</p>
+      `,
+    });
+  }
 
   // Separate simple email to new joinee — same style as 30-day
   if (joineeEmail) {
@@ -862,24 +864,70 @@ async function sendReviewSummaryRequest(employee, dayMark) {
   });
 }
 
-// Template 18c2: Day 30 technical review — simple email to manager + new joiner
+// Template 18c2: Day 30 technical review
 async function send30DayTechnicalReview(employee) {
   const { name, employeeId, contacts } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
   const joineeEmail = employee.officialEmail || employee.personalEmail;
   const managerEmail = contacts && contacts.managerEmail;
-  const toEmail = [managerEmail, joineeEmail].filter(Boolean).join(', ');
+  const monthTab = 'Tracking - Month -1';
 
-  return sendEmail({
-    to: toEmail,
-    subject: `30-Day Project Review — ${esc(name)} (${esc(employeeId)})`,
-    html: `
-      <p>Hi,</p>
-      <p>It has been 30 days since <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) joined ${co}. Time for the <strong>30-day project review!</strong></p>
-      <p>Please check your calendar for the review meeting invite and come prepared to discuss progress, challenges, and next steps.</p>
-      <p>Regards,<br/>${co} HR Automation</p>
-    `,
-  });
+  // Find tracking sheet URL
+  let sheetUrl = employee.projectIntroSheetId
+    ? `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`
+    : null;
+  if (!sheetUrl && employee._auth && employee.driveFolderId) {
+    try {
+      const drive = google.drive({ version: 'v3', auth: employee._auth });
+      const res = await drive.files.list({
+        q: `'${employee.driveFolderId}' in parents and name contains 'New Joinee' and trashed=false`,
+        fields: 'files(id)',
+        pageSize: 5,
+      });
+      if (res.data.files.length > 0) {
+        sheetUrl = `https://docs.google.com/spreadsheets/d/${res.data.files[0].id}`;
+      }
+    } catch (err) {
+      console.warn(`[Email] Could not look up tracking sheet for ${name}: ${err.message}`);
+    }
+  }
+  const sheetSection = sheetUrl
+    ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Tracking Sheet — ${esc(monthTab)}</a></p>`
+    : '';
+
+  // Manager email — with tracking sheet
+  if (managerEmail) {
+    await sendEmail({
+      to: managerEmail,
+      subject: `Reminder — 30-Day Project Review for ${esc(name)} (${esc(employeeId)})`,
+      html: `
+        <p>Hi,</p>
+        <p>The <strong>30-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due.</p>
+        <p>Please schedule and conduct the review. After the call:</p>
+        <ol>
+          <li>Fill in the <strong>${esc(monthTab)}</strong> tab in the tracking sheet below</li>
+          <li>Reply to this email confirming the review was completed</li>
+        </ol>
+        ${sheetSection}
+        <p>If the call cannot happen soon, reply with the new proposed date.</p>
+        <p>Regards,<br/>${co} HR Automation</p>
+      `,
+    });
+  }
+
+  // Joinee email — simple notification
+  if (joineeEmail) {
+    await sendEmail({
+      to: joineeEmail,
+      subject: `30-Day Project Review — ${esc(name)} (${esc(employeeId)})`,
+      html: `
+        <p>Hi,</p>
+        <p>It has been 30 days since you joined ${co}. Time for your <strong>30-day project review!</strong></p>
+        <p>Please check your calendar for the review meeting invite and come prepared to discuss progress, challenges, and next steps.</p>
+        <p>Regards,<br/>${co} HR Automation</p>
+      `,
+    });
+  }
 }
 
 // Template 18c: Day 25 catchup call notification — sent to HR + new joiner on day 25

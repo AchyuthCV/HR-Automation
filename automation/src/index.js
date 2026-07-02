@@ -632,17 +632,15 @@ async function triggerNextStep(auth, employee, docType) {
         _triggerLocks.delete(reportLockKey);
       }
 
-      // Create AL/DI/HR/018 Employee Info Sheet with AI-extracted data pre-filled
-      if (!employee.employeeInfoSheetId) {
-        createEmployeeInfoSheet(auth, employee).then(url => {
-          if (url) {
-            console.log(`[Index] Employee info sheet created for ${employee.name}: ${url}`);
-            saveState(employee.employeeId, snapshotEmployee(employee));
-          }
-        }).catch(err => {
-          console.warn(`[Index] Employee info sheet creation failed for ${employee.name}: ${err.message}`);
-        });
-      }
+      // Create or update AL/DI/HR/018 Employee Info Sheet with AI-extracted data pre-filled
+      createEmployeeInfoSheet(auth, employee).then(url => {
+        if (url) {
+          console.log(`[Index] Employee info sheet created/updated for ${employee.name}: ${url}`);
+          saveState(employee.employeeId, snapshotEmployee(employee));
+        }
+      }).catch(err => {
+        console.warn(`[Index] Employee info sheet creation failed for ${employee.name}: ${err.message}`);
+      });
 
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));
@@ -1231,14 +1229,23 @@ async function handleReply(auth, classified, rawMsg) {
 
     case 'bgv_report': {
       const bgvLockKey = `${employee.employeeId}:bgv_report`;
-      if (_triggerLocks.has(bgvLockKey) || isTaskDone(checklist, 't25')) {
-        console.log(`[BGV] Skipping duplicate bgv_report for ${employee.name}`);
+      if (isTaskDone(checklist, 't25')) {
+        console.log(`[BGV] Skipping duplicate bgv_report for ${employee.name} — already done`);
+        return;
+      }
+      if (_triggerLocks.has(bgvLockKey)) {
+        console.log(`[BGV] Skipping duplicate bgv_report for ${employee.name} — in flight`);
         return;
       }
       _triggerLocks.add(bgvLockKey);
-      await processBGVReport(auth, employee, rawMsg).catch(err =>
-        console.error(`[BGV] processBGVReport failed for ${employee.name}: ${err.message}`)
-      );
+      try {
+        await processBGVReport(auth, employee, rawMsg);
+      } catch (err) {
+        console.error(`[BGV] processBGVReport failed for ${employee.name}: ${err.message}`);
+      } finally {
+        // Clear lock so a retry with a different email (e.g. actual PDF reply) can proceed
+        if (!isTaskDone(employee.checklist, 't25')) _triggerLocks.delete(bgvLockKey);
+      }
       // checklist save and state save are handled inside processBGVReport
       return;
     }

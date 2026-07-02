@@ -1,0 +1,51 @@
+// One-shot: fire Day of Joining milestone for an employee.
+// Usage: node src/fireDOJ.js EMP008
+require('dotenv').config();
+const path = require('path');
+const fs   = require('fs');
+const { google } = require('googleapis');
+const { decrypt } = require('./encryption');
+const { sendPhaseCompletionSummary } = require('./emailSender');
+const { markOnboardingComplete } = require('./statusTracker');
+
+const employeeId = process.argv[2];
+if (!employeeId) { console.error('Usage: node src/fireDOJ.js <employeeId>'); process.exit(1); }
+
+const STATE_DIR = path.join(__dirname, '..');
+const stateFile = path.join(STATE_DIR, `state-${employeeId}.json`);
+if (!fs.existsSync(stateFile)) { console.error(`No state file for ${employeeId}`); process.exit(1); }
+
+const raw  = fs.readFileSync(stateFile, 'utf8');
+const data = JSON.parse(raw);
+const state = data.ciphertext ? JSON.parse(decrypt(raw)) : data;
+
+const empList = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'employees.json'), 'utf8'));
+const empBase = empList.find(e => e.employeeId === employeeId);
+if (!empBase) { console.error(`${employeeId} not found in employees.json`); process.exit(1); }
+
+const employee = { ...empBase, ...state, employeeId };
+
+const credsPath = path.join(__dirname, '..', 'credentials.json');
+const tokenPath = path.join(__dirname, '..', 'token.json');
+const creds = JSON.parse(fs.readFileSync(credsPath));
+const { client_id, client_secret, redirect_uris } = creds.installed || creds.web;
+const auth = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+auth.setCredentials(JSON.parse(fs.readFileSync(tokenPath)));
+
+async function run() {
+  console.log(`\nFiring Day of Joining for ${employee.name} (${employeeId})...`);
+
+  // Send phase completion summary email
+  const phase3Tasks = Object.values(employee.checklist?.phase3?.tasks || {}).map(t => t.label).filter(Boolean);
+  await sendPhaseCompletionSummary(employee, 'Phase 3 — Day of Joining', phase3Tasks)
+    .catch(e => console.warn('  Phase completion email failed:', e.message));
+  console.log('  ✓ Phase completion summary email sent');
+
+  // Mark sheet milestone Done
+  await markOnboardingComplete(auth, employee);
+  console.log('  ✓ Sheet: Day of Joining → Done');
+
+  console.log('\nDone. Check your email and the status sheet.');
+}
+
+run().catch(err => { console.error('Fatal:', err.message); process.exit(1); });

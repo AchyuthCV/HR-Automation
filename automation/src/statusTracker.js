@@ -283,6 +283,7 @@ async function markDocumentsVerifiedOk(auth, employee) {
       await updateMilestone(auth, employee, 2, STATUS.DONE, 'Issue resolved — all documents verified');
     }
   } catch { /* fall through */ }
+  await updateMilestone(auth, employee, 1, STATUS.DONE);
   await updateMilestone(auth, employee, 3, STATUS.DONE);
 }
 
@@ -600,15 +601,40 @@ async function createProjectIntroSheet(auth, employee) {
 //   3. Education & Professional Detail
 // AI-extracted fields are pre-filled where available; rest left blank for HR.
 async function createEmployeeInfoSheet(auth, employee) {
-  if (employee.employeeInfoSheetId) {
-    return `https://docs.google.com/spreadsheets/d/${employee.employeeInfoSheetId}`;
-  }
-
-  const drive  = google.drive({ version: 'v3', auth });
   const sheets = google.sheets({ version: 'v4', auth });
   const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
   const ex = employee.extractedData || {};
   const pd = employee.personalDetails || {};
+
+  // If sheet already exists, just update the education tab with newly extracted data
+  if (employee.employeeInfoSheetId) {
+    try {
+      const m10      = ex.marksheet10th      || {};
+      const m12      = ex.marksheet12th      || {};
+      const degree   = ex.degreeCertificate  || {};
+      const postgrad = ex.postgradCertificate|| {};
+      const v = (val) => (val != null && val !== '' ? String(val) : '');
+      // Update only the education data rows (rows 3-6, 0-indexed: A3:H6)
+      const eduDataRows = [
+        ['10th Marksheet',                            'y/n', 'y/n', v(m10.board),    '',                        v(m10.yearOfCompletion), v(m10.totalMarks), v(m10.schoolName)],
+        ['12th/Diploma Marksheet',                    'y/n', 'y/n', v(m12.board),    v(m12.specialization),     v(m12.yearOfCompletion), v(m12.totalMarks), v(m12.schoolName)],
+        ['Graduation Consolidated Marksheet and Degree Certificate', 'y/n', 'y/n', v(degree.degree), v(degree.specialization), v(degree.yearOfCompletion), v(degree.totalMarks), v(degree.collegeName)],
+        ['Post Graduation Consolidated Marksheet and Degree Certificate', 'y/n', 'y/n', v(postgrad.degree), v(postgrad.specialization), v(postgrad.yearOfCompletion), v(postgrad.totalMarks), v(postgrad.collegeName), '(Not Mandatory)'],
+      ];
+      await apiWithRetry(() => sheets.spreadsheets.values.update({
+        spreadsheetId: employee.employeeInfoSheetId,
+        range: `'Education & Professional Detail'!A3:H6`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: eduDataRows },
+      }), 'updateEducationTab');
+      console.log(`[Status] Education tab updated for ${name}`);
+    } catch (err) {
+      console.warn(`[Status] Could not update education tab for ${name}: ${err.message}`);
+    }
+    return `https://docs.google.com/spreadsheets/d/${employee.employeeInfoSheetId}`;
+  }
+
+  const drive = google.drive({ version: 'v3', auth });
 
   // Helper to pull extracted value or blank
   const v = (val) => (val != null && val !== '' ? String(val) : '');

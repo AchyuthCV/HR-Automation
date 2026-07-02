@@ -1,0 +1,40 @@
+// One-shot: mark "Documents received" as Done in the status sheet for an employee.
+// Usage: node src/fixDocsReceived.js EMP008
+require('dotenv').config();
+const path = require('path');
+const fs   = require('fs');
+const { google } = require('googleapis');
+const { decrypt } = require('./encryption');
+const { markDocumentsReceived, markDocumentsVerifiedOk } = require('./statusTracker');
+
+const employeeId = process.argv[2];
+if (!employeeId) { console.error('Usage: node src/fixDocsReceived.js <employeeId>'); process.exit(1); }
+
+const STATE_DIR = path.join(__dirname, '..');
+const stateFile = path.join(STATE_DIR, `state-${employeeId}.json`);
+if (!fs.existsSync(stateFile)) { console.error(`No state file for ${employeeId}`); process.exit(1); }
+
+const raw  = fs.readFileSync(stateFile, 'utf8');
+const data = JSON.parse(raw);
+const state = data.ciphertext ? JSON.parse(decrypt(raw)) : data;
+
+const empList = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'employees.json'), 'utf8'));
+const empBase = empList.find(e => e.employeeId === employeeId);
+if (!empBase) { console.error(`${employeeId} not found in employees.json`); process.exit(1); }
+
+const employee = { ...empBase, ...state, employeeId };
+
+const credsPath = path.join(__dirname, '..', 'credentials.json');
+const tokenPath = path.join(__dirname, '..', 'token.json');
+const creds = JSON.parse(fs.readFileSync(credsPath));
+const { client_id, client_secret, redirect_uris } = creds.installed || creds.web;
+const auth = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+auth.setCredentials(JSON.parse(fs.readFileSync(tokenPath)));
+
+async function run() {
+  console.log(`Fixing "Documents received" → Done for ${employeeId}...`);
+  await markDocumentsVerifiedOk(auth, employee);
+  console.log('Done.');
+}
+
+run().catch(err => { console.error('Fatal:', err.message); process.exit(1); });
