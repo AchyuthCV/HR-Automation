@@ -1,7 +1,7 @@
 require('dotenv').config();
 const config = require('./config');
 const { encrypt, decrypt, isEncryptionEnabled } = require('./encryption');
-const { getAuthClient, watchFolder, watchFolderPolling, scaffoldEmployeeFolder, uploadChecklist, uploadInstructions, listFolderFiles } = require('./driveWatcher');
+const { getAuthClient, watchFolder, watchFolderPolling, scaffoldEmployeeFolder, lockEmployeeFolder, uploadChecklist, uploadInstructions, listFolderFiles } = require('./driveWatcher');
 const { verifyDocument, detectDocType, extractDocumentData } = require('./documentVerifier');
 const {
   sendEmail,
@@ -1331,6 +1331,16 @@ async function onboardEmployee(auth, employee) {
     console.error(`[Index] ✖ Could not scaffold Drive folder for ${employee.name} — check driveFolderId "${employee.driveFolderId}" is correct and accessible. (${err.message})`);
     activityLog.log(employee, 'scaffold_failed', `driveFolderId: ${employee.driveFolderId} — ${err.message}`);
     return; // cannot continue without a working Drive folder
+  }
+
+  // Lock the employee folder to recruiter-only access.
+  // The joinee uploads via Google Form (not directly to Drive), so they need no folder access.
+  // All other inherited permissions from the root onboarding folder are removed.
+  {
+    const recruiterEmail = (employee.contacts && employee.contacts.recruiterEmail) || null;
+    lockEmployeeFolder(auth, employee.driveFolderId, recruiterEmail, employee.name).catch(err =>
+      console.warn(`[Index] lockEmployeeFolder failed for ${employee.name}: ${err.message}`)
+    );
   }
 
   const alreadyStarted = isTaskDone(employee.checklist, 't4');

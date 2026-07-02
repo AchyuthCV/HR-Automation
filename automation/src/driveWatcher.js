@@ -269,6 +269,57 @@ async function scaffoldEmployeeFolder(auth, rootFolderId, employeeName, employee
   return folderMap;
 }
 
+// Lock the employee Drive folder so only their recruiter can access it.
+// Joinee uploads happen via Google Form (engine receives them), so the joinee
+// never needs direct Drive folder access. All other inherited permissions from
+// the root onboarding folder are revoked.
+async function lockEmployeeFolder(auth, folderId, recruiterEmail, employeeName) {
+  const drive = google.drive({ version: 'v3', auth });
+
+  // Fetch all current permissions on the folder
+  let existingPerms = [];
+  try {
+    const res = await apiWithRetry(() => drive.permissions.list({
+      fileId: folderId,
+      fields: 'permissions(id, emailAddress, role)',
+      supportsAllDrives: true,
+    }), `lockEmployeeFolder:list:${folderId}`);
+    existingPerms = res.data.permissions || [];
+  } catch (err) {
+    console.warn(`[Drive] Could not list permissions for ${employeeName} folder: ${err.message}`);
+  }
+
+  // Only the recruiter is allowed — remove everyone else (except the engine account owner)
+  const allowSet = new Set([recruiterEmail].filter(Boolean).map(e => e.toLowerCase()));
+
+  for (const perm of existingPerms) {
+    if (!perm.emailAddress) continue; // skip 'anyone' or domain-wide perms
+    if (perm.role === 'owner') continue; // never remove owner
+    if (allowSet.has(perm.emailAddress.toLowerCase())) continue; // keep recruiter
+    try {
+      await drive.permissions.delete({ fileId: folderId, permissionId: perm.id, supportsAllDrives: true });
+      console.log(`[Drive] Removed folder access for ${perm.emailAddress} on ${employeeName} folder`);
+    } catch (err) {
+      console.warn(`[Drive] Could not remove permission ${perm.id} (${perm.emailAddress}) on ${employeeName} folder: ${err.message}`);
+    }
+  }
+
+  // Grant recruiter write access
+  if (recruiterEmail) {
+    try {
+      await drive.permissions.create({
+        fileId: folderId,
+        requestBody: { type: 'user', role: 'writer', emailAddress: recruiterEmail },
+        sendNotificationEmail: false,
+        supportsAllDrives: true,
+      });
+      console.log(`[Drive] Folder locked — only recruiter has access: ${recruiterEmail}`);
+    } catch (err) {
+      console.warn(`[Drive] Could not grant folder access to recruiter ${recruiterEmail}: ${err.message}`);
+    }
+  }
+}
+
 // ─── Drive Push Notifications ─────────────────────────────────────────────────
 // Drive push channels expire after at most 1 week (604800s). We renew 1h before
 // expiry. Each channel targets one folder and posts to WEBHOOK_BASE_URL/drive-push.
@@ -442,6 +493,7 @@ module.exports = {
   uploadChecklist,
   uploadInstructions,
   scaffoldEmployeeFolder,
+  lockEmployeeFolder,
   watchFolder,
   watchFolderPolling,
   registerDrivePushChannel,
