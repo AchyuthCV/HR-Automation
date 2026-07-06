@@ -1189,6 +1189,57 @@ async function sendOnboardingCompletionReport(employee) {
   });
 }
 
+async function sendDOJScreenshotRequest(employee) {
+  const { name, employeeId, doj, driveFolderId, contacts } = employee;
+  const co  = esc(process.env.COMPANY_NAME || 'Alethea');
+  const recruiterEmail = (contacts && contacts.recruiterEmail) || process.env.HR_EMAIL;
+  if (!recruiterEmail) return;
+
+  const dojFormatted = doj
+    ? new Date(doj).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
+    : '—';
+  const folderUrl = driveFolderId
+    ? `https://drive.google.com/drive/folders/${driveFolderId}`
+    : null;
+
+  await sendEmail({
+    to: recruiterEmail,
+    subject: `Action Required — Upload Meeting Screenshot for ${esc(name)} (${esc(employeeId)})`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;color:#1C1C1E;">
+        <div style="background:#0F1923;padding:22px 26px;border-radius:6px 6px 0 0;">
+          <p style="margin:0;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#3A7CA5;">Day of Joining — ${dojFormatted}</p>
+          <p style="margin:8px 0 0;font-size:20px;font-weight:700;color:#fff;">${esc(name)}</p>
+          <p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.55);">${esc(employeeId)}</p>
+        </div>
+        <div style="background:#fff;border:1px solid #E5E5E0;border-top:none;padding:24px 26px;border-radius:0 0 6px 6px;">
+          <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#1C1C1E;">
+            Today is <strong>${esc(name)}'s</strong> Date of Joining. Once the <strong>HR Induction</strong> and
+            <strong>Project Intro Meeting</strong> are done, please upload a screenshot of either meeting
+            to their Drive folder to confirm attendance.
+          </p>
+          <p style="margin:0 0 8px;font-size:13px;color:#4A5A6A;">The screenshot can be from Google Meet, Zoom, Teams, or a photo of a physical meeting. Any image that shows the meeting took place is accepted.</p>
+          <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#1C1C1E;">Name the file with one of these keywords so the system recognises it:</p>
+          <p style="margin:0 0 20px;font-size:13px;color:#4A5A6A;font-family:monospace;background:#F5F5F5;padding:10px 14px;border-radius:4px;">
+            meeting_screenshot.jpg &nbsp;|&nbsp; induction_photo.jpg &nbsp;|&nbsp; intro_meeting.png
+          </p>
+          ${folderUrl ? `
+          <a href="${folderUrl}" style="display:inline-block;background:#0D7F7F;color:#fff;text-decoration:none;padding:11px 22px;border-radius:4px;font-size:14px;font-weight:600;">
+            Open ${esc(name)}'s Drive Folder
+          </a>
+          ` : ''}
+          <p style="margin:20px 0 0;font-size:12px;color:#9CA3AF;line-height:1.6;">
+            Upload the screenshot directly into the employee's root Drive folder (not a subfolder).<br>
+            The system will automatically confirm attendance and complete the Day of Joining milestone.
+          </p>
+          <hr style="border:none;border-top:1px solid #E5E5E0;margin:20px 0;">
+          <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR Automation</p>
+        </div>
+      </div>
+    `,
+  });
+}
+
 module.exports = {
   sendEmail,
   sendPreOnboardingForm,
@@ -1214,4 +1265,5 @@ module.exports = {
   sendReviewSummaryRequest,
   sendNoReplyEscalation,
   sendOnboardingCompletionReport,
+  sendDOJScreenshotRequest,
 };

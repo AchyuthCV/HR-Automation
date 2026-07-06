@@ -22,6 +22,7 @@ const {
   sendReviewSummaryRequest,
   sendAdminSeatAllocationRequest,
   send25DayCatchupEmail,
+  sendDOJScreenshotRequest,
 } = require('./emailSender');
 const {
   scheduleAllMilestones,
@@ -302,6 +303,7 @@ function buildDefaultChecklist() {
     phase3: {
       label: 'Phase 3 — Day of Joining',
       tasks: {
+        t64: { label: 'DOJ screenshot upload request sent to recruiter', done: false },
         t33: { label: 'Recruiter conducts HR induction', done: false },
         t34: { label: 'Automation confirms HR induction attendance', done: false },
         t35: { label: 'IT team confirms asset and access card allocation', done: false },
@@ -433,13 +435,14 @@ const DOC_TASK_MAP = {
 const OPTIONAL_DOCS = new Set(['payslip', 'postgradCertificate']);
 
 // ─── Handler: new file detected in Drive folder ────────────────────────────────
-async function handleNewFile(auth, employee, file) {
+async function handleNewFile(auth, employee, file, subfolderHint) {
   // Skip folders — only process actual files
   if (file.mimeType === 'application/vnd.google-apps.folder') {
     return true;
   }
 
-  const docType = detectDocType(file.name);
+  // Use subfolder name as fallback hint when filename doesn't contain a recognisable keyword
+  const docType = detectDocType(file.name) || (subfolderHint ? detectDocType(subfolderHint) : null);
   if (!docType) {
     console.log(`[Index] Skipping unrecognised file: ${file.name}`);
     return true; // not an error — file is intentionally ignored, keep in seenFileIds
@@ -1428,6 +1431,37 @@ async function onboardEmployee(auth, employee) {
 
   }
 
+  // On DOJ morning — send screenshot upload request to recruiter (fires once)
+  if (!isTaskDone(employee.checklist, 't64')) {
+    const dojDate = new Date(employee.doj);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const dojStr   = employee.doj ? employee.doj.split('T')[0] : '';
+    if (dojStr === todayStr) {
+      await sendDOJScreenshotRequest(employee).catch(err =>
+        console.warn(`[Index] DOJ screenshot request email failed for ${employee.name}: ${err.message}`)
+      );
+      markAndLog(employee, 't64');
+      await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
+      saveState(employee.employeeId, snapshotEmployee(employee));
+      console.log(`[Index] DOJ screenshot request sent to recruiter for ${employee.name}`);
+    } else if (dojDate > new Date()) {
+      // DOJ is in the future — schedule the email for midnight of DOJ
+      const msUntilDOJ = dojDate.getTime() - Date.now();
+      setTimeout(async () => {
+        if (!isTaskDone(employee.checklist, 't64')) {
+          await sendDOJScreenshotRequest(employee).catch(err =>
+            console.warn(`[Index] DOJ screenshot request email failed for ${employee.name}: ${err.message}`)
+          );
+          markAndLog(employee, 't64');
+          await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
+          saveState(employee.employeeId, snapshotEmployee(employee));
+          console.log(`[Index] DOJ screenshot request sent to recruiter for ${employee.name}`);
+        }
+      }, msUntilDOJ);
+      console.log(`[Index] DOJ screenshot request scheduled for ${employee.name} on ${dojStr}`);
+    }
+  }
+
   // Always start watching the root Drive folder (push or poll)
   await watchFolder(auth, employee.driveFolderId, employee.employeeId,
     (file) => handleNewFile(auth, employee, file)
@@ -1445,7 +1479,7 @@ async function onboardEmployee(auth, employee) {
       });
       if (res.data.files && res.data.files.length > 0) {
         const subFolderId = res.data.files[0].id;
-        watchFolderPolling(auth, subFolderId, (file) => handleNewFile(auth, employee, file));
+        watchFolderPolling(auth, subFolderId, (file) => handleNewFile(auth, employee, file, subfolderName));
         console.log(`[Index] Polling subfolder "${subfolderName}" for ${employee.name}`);
       }
     } catch (err) {

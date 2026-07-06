@@ -20,6 +20,7 @@ const {
   sendReviewSummaryRequest,
   sendAdminSeatAllocationRequest,
   sendHRInductionConfirmation,
+  sendOnboardingCompletionReport,
 } = require('./emailSender');
 const {
   mark25DayCatchupDone,
@@ -142,7 +143,8 @@ async function run() {
     await mark25DayCatchupDone(auth, employee).catch(() => {});
     markDone('t63');
   } else {
-    console.log('\n[4] t63 already done — skipping');
+    console.log('\n[4] t63 already done — updating sheet');
+    await mark25DayCatchupDone(auth, employee).catch(() => {});
   }
 
   // ── Feedback form (t38) ────────────────────────────────────────────────────
@@ -173,7 +175,8 @@ async function run() {
     await mark30DayDone(auth, employee).catch(() => {});
     markDone('t43');
   } else {
-    console.log('\n[6] t43 already done — skipping');
+    console.log('\n[6] t43 already done — updating sheet');
+    await mark30DayDone(auth, employee).catch(() => {});
   }
 
   // ── 60-day review ──────────────────────────────────────────────────────────
@@ -209,10 +212,18 @@ async function run() {
     console.log('\n[9] Firing: Pre-probation reminder (t52)');
     await sendPreProbationReminder(employee, contacts.managerEmail)
       .catch(e => console.warn('  Pre-probation email failed:', e.message));
+    await markPreprobationDone(auth, employee).catch(() => {});
     markDone('t52');
   } else {
-    console.log('\n[9] t52 already done — skipping');
+    console.log('\n[9] t52 already done — updating sheet');
+    await markPreprobationDone(auth, employee).catch(() => {});
   }
+
+  // ── Final onboarding completion report ────────────────────────────────────
+  console.log('\n[10] Firing: Final onboarding completion report');
+  employee._auth = auth;
+  await sendOnboardingCompletionReport(employee)
+    .catch(e => console.warn('  Completion report failed:', e.message));
 
   // ── Save updated checklist ─────────────────────────────────────────────────
   saveState();
