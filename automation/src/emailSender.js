@@ -1,5 +1,7 @@
-const nodemailer = require('nodemailer');
 require('dotenv').config();
+const { google } = require('googleapis');
+const path = require('path');
+const fs   = require('fs');
 
 // Escape user-controlled strings before embedding in HTML email bodies
 function esc(str) {
@@ -11,25 +13,45 @@ function esc(str) {
     .replace(/'/g, '&#39;');
 }
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-});
+// Build an OAuth2 client from credentials.json + token.json (same as the rest of the engine)
+function getGmailAuth() {
+  const credsPath  = path.join(__dirname, '..', 'credentials.json');
+  const tokenPath  = path.join(__dirname, '..', 'token.json');
+  const creds = JSON.parse(fs.readFileSync(credsPath));
+  const { client_id, client_secret, redirect_uris } = creds.installed || creds.web;
+  const auth = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+  auth.setCredentials(JSON.parse(fs.readFileSync(tokenPath)));
+  return auth;
+}
 
+// Send via Gmail API using OAuth — no app password or 2FA required
 async function sendEmail({ to, subject, html }, retries = 3) {
+  const sender = process.env.GMAIL_USER;
+  const fromName = process.env.COMPANY_NAME ? `${process.env.COMPANY_NAME} HR` : 'HR Team';
+
+  // RFC 2822 raw message
+  const raw = [
+    `From: "${fromName}" <${sender}>`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: text/html; charset=UTF-8`,
+    ``,
+    html,
+  ].join('\r\n');
+
+  const encoded = Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const info = await transporter.sendMail({
-        from: `"${process.env.COMPANY_NAME} HR Automation" <${process.env.GMAIL_USER}>`,
-        to,
-        subject,
-        html,
+      const auth  = getGmailAuth();
+      const gmail = google.gmail({ version: 'v1', auth });
+      const res = await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: { raw: encoded },
       });
-      console.log(`[Email] Sent to ${to} — ${subject} (${info.messageId})`);
-      return info;
+      console.log(`[Email] Sent to ${to} — ${subject} (${res.data.id})`);
+      return res.data;
     } catch (err) {
       if (attempt === retries) {
         console.error(`[Email] Failed after ${retries} attempts — ${subject} to ${to}: ${err.message}`);
