@@ -389,8 +389,8 @@ app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
     driveFolderId, recruiterEmail,
   } = req.body || {};
 
-  // Required field validation
-  const required = { name, employeeId, personalEmail, doj, managerEmail, itEmail, driveFolderId };
+  // Required field validation — driveFolderId is optional; falls back to ONBOARDING_ROOT_FOLDER_ID from .env
+  const required = { name, employeeId, personalEmail, doj, managerEmail, itEmail };
   const missing = Object.entries(required).filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) {
     return res.status(400).json({ error: `Missing fields: ${missing.join(', ')}` });
@@ -407,8 +407,11 @@ app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
   if (!doj || isNaN(new Date(doj).getTime())) {
     return res.status(400).json({ error: 'Invalid doj — use YYYY-MM-DD format.' });
   }
-  if (!/^[A-Za-z0-9_-]{10,60}$/.test(driveFolderId)) {
-    return res.status(400).json({ error: 'Invalid driveFolderId format.' });
+
+  // Resolve Drive folder ID — form value takes priority, falls back to env
+  const resolvedFolderId = (driveFolderId && driveFolderId.trim()) || process.env.ONBOARDING_ROOT_FOLDER_ID;
+  if (!resolvedFolderId || !/^[A-Za-z0-9_-]{10,60}$/.test(resolvedFolderId)) {
+    return res.status(400).json({ error: 'No valid Drive folder ID — provide one in the form or set ONBOARDING_ROOT_FOLDER_ID in .env.' });
   }
 
   if (_employeeRegistry[employeeId]) {
@@ -422,7 +425,7 @@ app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
     personalEmail,
     phoneNumber: phoneNumber || '',
     doj,
-    driveFolderId,
+    driveFolderId: resolvedFolderId,
     designation: designation || '',
     officeLocation: officeLocation || '',
     isFresher: isFresher === true || isFresher === 'true',
