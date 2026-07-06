@@ -1006,6 +1006,162 @@ async function sendNoReplyEscalation(employee, recipientType, originalRecipient)
   });
 }
 
+// Template 19: Onboarding completion report — sent to HR + recruiter when probation is cleared
+async function sendOnboardingCompletionReport(employee) {
+  const { name, employeeId, doj, designation, contacts } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
+  const recruiterEmail = contacts && contacts.recruiterEmail;
+  const hrEmail = process.env.HR_EMAIL;
+  const toList = [hrEmail, recruiterEmail].filter(Boolean);
+  if (!toList.length) return;
+
+  const ex = employee.extractedData || {};
+  const vr = employee.verificationResults || {};
+
+  // ── Document verification summary ────────────────────────────────────────
+  const docLabels = {
+    aadhaar:              'Aadhaar Card',
+    pan:                  'PAN Card',
+    offerLetter:          'Signed Offer Letter',
+    passportPhoto:        'Passport Size Photo',
+    marksheet10th:        '10th Marksheet',
+    marksheet12th:        '12th / Diploma Marksheet',
+    degreeCertificate:    'Degree Certificate',
+    postgradCertificate:  'Post Graduation Certificate',
+    relievingLetter:      'Relieving Letter',
+    payslip:              'Last Payslip',
+  };
+
+  const docRows = Object.entries(docLabels).map(([key, label]) => {
+    const result = vr[key];
+    if (!result) return null;
+    const passed = result.valid === true;
+    const color  = passed ? '#2D7D46' : '#C0392B';
+    const status = passed ? 'Verified' : 'Failed';
+    return `<tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #E5E5E0;">${label}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #E5E5E0;color:${color};font-weight:600;">${status}</td>
+    </tr>`;
+  }).filter(Boolean).join('');
+
+  // ── BGV result ────────────────────────────────────────────────────────────
+  const bgvLog = (employee.activityEvents || []).find(e => e.event === 'bgv_report_received');
+  let bgvResult = '—';
+  if (bgvLog) {
+    bgvResult = bgvLog.detail || '—';
+  } else {
+    // Fall back to scanning the activity log file
+    try {
+      const { readLog } = require('./activityLog');
+      const logs = readLog(employeeId);
+      const entry = logs.find(e => e.event === 'bgv_report_received');
+      if (entry) bgvResult = entry.detail || '—';
+    } catch { /* non-fatal */ }
+  }
+  const bgvColor = bgvResult.toLowerCase().includes('passed') ? '#2D7D46' : bgvResult === '—' ? '#6B7280' : '#C0392B';
+
+  // ── Milestone completion summary ──────────────────────────────────────────
+  const milestones = [
+    { label: 'Documents Verified',       taskId: 't14' },
+    { label: 'BGV Complete',             taskId: 't25' },
+    { label: 'Day of Joining',           taskId: 't42' },
+    { label: '25-Day Catchup',           taskId: 't64' },
+    { label: '30-Day Review',            taskId: 't44' },
+    { label: '60-Day Review',            taskId: 't46' },
+    { label: '90-Day Review',            taskId: 't49' },
+    { label: 'Pre-Probation Verified',   taskId: 't52' },
+  ];
+
+  function isTaskDoneInChecklist(checklist, taskId) {
+    if (!checklist) return false;
+    for (const phase of Object.values(checklist)) {
+      if (phase.tasks && phase.tasks[taskId]) return phase.tasks[taskId].done;
+    }
+    return false;
+  }
+
+  const milestoneRows = milestones.map(m => {
+    const done = isTaskDoneInChecklist(employee.checklist, m.taskId);
+    const color  = done ? '#2D7D46' : '#C0392B';
+    const status = done ? 'Complete' : 'Pending';
+    return `<tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #E5E5E0;">${m.label}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #E5E5E0;color:${color};font-weight:600;">${status}</td>
+    </tr>`;
+  }).join('');
+
+  // ── Escalation count from activity log ───────────────────────────────────
+  let escalationCount = 0;
+  try {
+    const { readLog } = require('./activityLog');
+    const logs = readLog(employeeId);
+    escalationCount = logs.filter(e => e.event && e.event.includes('escalat')).length;
+  } catch { /* non-fatal */ }
+
+  const escalationNote = escalationCount > 0
+    ? `<p style="margin:0 0 8px;color:#6B7280;font-size:13px;">${escalationCount} escalation(s) were raised during onboarding. Review the activity log for details.</p>`
+    : `<p style="margin:0 0 8px;color:#2D7D46;font-size:13px;">No escalations were raised during onboarding.</p>`;
+
+  const dojFormatted = doj ? new Date(doj).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+
+  await sendEmail({
+    to: toList.join(', '),
+    subject: `Onboarding Complete — ${esc(name)} (${esc(employeeId)})`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:620px;color:#1C1C1E;">
+        <div style="background:#0F1923;padding:24px 28px;border-radius:6px 6px 0 0;">
+          <p style="margin:0;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#3A7CA5;">Onboarding Complete</p>
+          <p style="margin:8px 0 0;font-size:22px;font-weight:700;color:#fff;">${esc(name)}</p>
+          <p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.55);">${esc(employeeId)} &nbsp;·&nbsp; ${esc(designation || '—')} &nbsp;·&nbsp; DOJ: ${dojFormatted}</p>
+        </div>
+
+        <div style="background:#fff;border:1px solid #E5E5E0;border-top:none;padding:24px 28px;border-radius:0 0 6px 6px;">
+
+          <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#4A5A6A;">
+            The onboarding process for <strong>${esc(name)}</strong> has been completed successfully.
+            Pre-probation has been verified and all milestones are closed.
+            This is the final automated summary for your records.
+          </p>
+
+          <!-- BGV -->
+          <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B7280;">Background Verification</p>
+          <p style="margin:0 0 20px;font-size:15px;font-weight:700;color:${bgvColor};">${esc(bgvResult)}</p>
+
+          <!-- Escalations -->
+          <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B7280;">Escalations</p>
+          ${escalationNote}
+
+          <!-- Milestones -->
+          <p style="margin:20px 0 8px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B7280;">Milestone Summary</p>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
+            <thead>
+              <tr style="background:#F2F5F8;">
+                <th style="padding:8px 12px;text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6B7280;">Milestone</th>
+                <th style="padding:8px 12px;text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6B7280;">Status</th>
+              </tr>
+            </thead>
+            <tbody>${milestoneRows}</tbody>
+          </table>
+
+          <!-- Documents -->
+          <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B7280;">Document Verification</p>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
+            <thead>
+              <tr style="background:#F2F5F8;">
+                <th style="padding:8px 12px;text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6B7280;">Document</th>
+                <th style="padding:8px 12px;text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6B7280;">Result</th>
+              </tr>
+            </thead>
+            <tbody>${docRows || '<tr><td colspan="2" style="padding:8px 12px;color:#6B7280;">No document results recorded.</td></tr>'}</tbody>
+          </table>
+
+          <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR Automation</p>
+        </div>
+      </div>
+    `,
+  });
+}
+
 module.exports = {
   sendEmail,
   sendPreOnboardingForm,
@@ -1030,4 +1186,5 @@ module.exports = {
   sendCatchupXLSEmail,
   sendReviewSummaryRequest,
   sendNoReplyEscalation,
+  sendOnboardingCompletionReport,
 };

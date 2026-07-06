@@ -336,6 +336,10 @@ async function mark90DayDone(auth, employee) {
 async function markPreprobationDone(auth, employee) {
   await updateMilestone(auth, employee, 15, STATUS.DONE);
   await revokeEmployeeSheetAccess(auth, employee);
+  const { sendOnboardingCompletionReport } = require('./emailSender');
+  sendOnboardingCompletionReport(employee).catch(err =>
+    console.warn(`[Status] Completion report failed for ${employee.name}: ${err.message}`)
+  );
 }
 
 // Revoke the employee's view access to their status sheet once onboarding is fully complete
