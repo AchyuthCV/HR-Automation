@@ -164,7 +164,7 @@ var FOLDER_MAP = {
 };
 
 // Root onboarding folder ID — the "Alethea Onboarding" folder in Drive
-var ALETHEA_ONBOARDING_ROOT_ID = '1faqP459a9quQ3w29On8yH3Hpq95zVdZe';
+var ALETHEA_ONBOARDING_ROOT_ID = '1iRrIbE2POIxQVSjbVDlHt1QjVM6LLnob';
 
 var ENGINE_WEBHOOK_URL = PropertiesService.getScriptProperties().getProperty('ENGINE_WEBHOOK_URL') || '';
 

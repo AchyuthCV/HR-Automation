@@ -24,6 +24,11 @@ function getGmailAuth() {
   return auth;
 }
 
+// Encode subject for RFC 2047 so special chars (—, é, etc.) survive email transit
+function encodeSubject(subject) {
+  return `=?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`;
+}
+
 // Send via Gmail API using OAuth — no app password or 2FA required
 async function sendEmail({ to, subject, html }, retries = 3) {
   const sender = process.env.GMAIL_USER;
@@ -33,7 +38,7 @@ async function sendEmail({ to, subject, html }, retries = 3) {
   const raw = [
     `From: "${fromName}" <${sender}>`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeSubject(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/html; charset=UTF-8`,
     ``,
@@ -75,10 +80,10 @@ async function sendPreOnboardingForm(employee) {
     : (process.env.PREONBOARDING_FORM_EXPERIENCED_LINK || process.env.PREONBOARDING_FORM_LINK || '');
 
   // Entry IDs for "Employee ID" and "Drive Folder ID" hidden fields in each form
-  const FRESHER_EMPLOYEE_ID_ENTRY  = 'entry.1858648165';
-  const FRESHER_FOLDER_ID_ENTRY    = 'entry.39415210';
-  const EXPERIENCED_EMPLOYEE_ID_ENTRY = 'entry.477970624';
-  const EXPERIENCED_FOLDER_ID_ENTRY   = 'entry.1455195850';
+  const FRESHER_EMPLOYEE_ID_ENTRY  = 'entry.2053877771';
+  const FRESHER_FOLDER_ID_ENTRY    = 'entry.744388872';
+  const EXPERIENCED_EMPLOYEE_ID_ENTRY = 'entry.2039881686';
+  const EXPERIENCED_FOLDER_ID_ENTRY   = 'entry.1556025136';
 
   const empEntry    = employee.isFresher ? FRESHER_EMPLOYEE_ID_ENTRY  : EXPERIENCED_EMPLOYEE_ID_ENTRY;
   const folderEntry = employee.isFresher ? FRESHER_FOLDER_ID_ENTRY    : EXPERIENCED_FOLDER_ID_ENTRY;
