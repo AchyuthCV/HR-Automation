@@ -63,6 +63,11 @@ function createRecruiterForm() {
     .setHelpText('Email of the IT person who will set up assets')
     .setRequired(true);
 
+  form.addTextItem()
+    .setTitle('HR Email ID')
+    .setHelpText('Email of the HR person handling this joinee\'s onboarding')
+    .setRequired(true);
+
   // ── Section 3: Location & Assets ─────────────────────────────────────────
   form.addSectionHeaderItem()
     .setTitle('Section 3 — Location & Asset Details');
@@ -122,6 +127,7 @@ function onRecruiterFormSubmit(e) {
     else if (title === 'Reporting Manager\'s Full Name') data.managerName = value;
     else if (title === 'Reporting Manager\'s Email ID')  data.managerEmail = value;
     else if (title === 'IT Team Email ID')           data.itEmail = value;
+    else if (title === 'HR Email ID')                data.hrEmail = value;
     else if (title === 'Work Location')              data.officeLocation = value;
     else if (title === 'Asset Required?')            data.assetRequired = value;
     else if (title === 'Designation / Role')         data.designation = value;

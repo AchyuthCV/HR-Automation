@@ -3,6 +3,12 @@ const { google } = require('googleapis');
 const path = require('path');
 const fs   = require('fs');
 
+// Resolve HR email for a specific employee — uses per-employee hrEmail from recruiter form,
+// falling back to the global HR_EMAIL env var.
+function resolveHrEmail(employee) {
+  return (employee && employee.contacts && employee.contacts.hrEmail) || process.env.HR_EMAIL;
+}
+
 // Escape user-controlled strings before embedding in HTML email bodies
 function esc(str) {
   return String(str == null ? '' : str)
@@ -191,7 +197,7 @@ async function sendOfficialEmailCreationRequest(employee) {
   const { name, employeeId, doj, personalEmail } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
-    to: process.env.HR_EMAIL,
+    to: resolveHrEmail(employee),
     subject: `Action Required — Create Official Email & Greythr Login for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi HR Team,</p>
@@ -391,7 +397,7 @@ async function sendPreProbationReminder(employee, managerEmail) {
   const { name, employeeId } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
-    to: `${process.env.HR_EMAIL}, ${managerEmail}`,
+    to: `${resolveHrEmail(employee)}, ${managerEmail}`,
     subject: `Action Required — Pre-Probation Verification for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
@@ -415,7 +421,7 @@ async function sendPhaseCompletionSummary(employee, phase, completedTasks) {
   const co = esc(process.env.COMPANY_NAME || '');
   const taskList = completedTasks.map(t => `<li>${esc(String(t))}</li>`).join('');
   return sendEmail({
-    to: process.env.HR_EMAIL,
+    to: resolveHrEmail(employee),
     subject: `Onboarding Update — ${esc(phase)} Completed for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi HR Team,</p>
@@ -982,9 +988,9 @@ async function send30DayTechnicalReview(employee) {
 async function send25DayCatchupEmail(employee) {
   const { name, employeeId, doj, isFresher } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
-  const hrEmail = process.env.HR_EMAIL;
+  const hrEmailAddr = resolveHrEmail(employee);
   const recruiterEmail = (employee.contacts || {}).recruiterEmail || '';
-  const toEmail = [hrEmail, recruiterEmail].filter(Boolean).join(', ');
+  const toEmail = [hrEmailAddr, recruiterEmail].filter(Boolean).join(', ');
   const sheetLink = process.env.CATCHUP_TRACKING_SHEET_LINK || '#';
   const contacts = employee.contacts || {};
   const managerEmail = contacts.managerEmail || '';
@@ -1022,7 +1028,7 @@ async function send25DayCatchupEmail(employee) {
 async function sendAdminSeatAllocationRequest(employee) {
   const { name, employeeId, doj } = employee;
   return sendEmail({
-    to: process.env.HR_EMAIL,
+    to: resolveHrEmail(employee),
     subject: `Action Required — Seat Allocation Confirmation for ${name} (${employeeId})`,
     html: `
       <p>Hi Admin Team,</p>
@@ -1042,7 +1048,7 @@ async function sendAdminSeatAllocationRequest(employee) {
 async function sendNoReplyEscalation(employee, recipientType, originalRecipient) {
   const { name, employeeId } = employee;
   return sendEmail({
-    to: process.env.HR_EMAIL,
+    to: resolveHrEmail(employee),
     subject: `ESCALATION — No Reply from ${esc(recipientType)} for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi HR Team,</p>
@@ -1059,8 +1065,8 @@ async function sendOnboardingCompletionReport(employee) {
   const { name, employeeId, doj, designation, contacts } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
   const recruiterEmail = contacts && contacts.recruiterEmail;
-  const hrEmail = process.env.HR_EMAIL;
-  const toList = [hrEmail, recruiterEmail].filter(Boolean);
+  const hrEmailAddr = resolveHrEmail(employee);
+  const toList = [hrEmailAddr, recruiterEmail].filter(Boolean);
   if (!toList.length) return;
 
   const ex = employee.extractedData || {};
@@ -1262,9 +1268,9 @@ async function sendJoineeOnboardingComplete(employee) {
 async function sendDocumentCrossCheckAlert(employee, mismatches) {
   const { name, employeeId, contacts } = employee;
   const co = esc(process.env.COMPANY_NAME || 'Alethea');
-  const hrEmail = process.env.HR_EMAIL;
+  const hrEmailAddr = resolveHrEmail(employee);
   const recruiterEmail = contacts && contacts.recruiterEmail;
-  const toList = [hrEmail, recruiterEmail].filter(Boolean);
+  const toList = [hrEmailAddr, recruiterEmail].filter(Boolean);
   if (!toList.length || !mismatches.length) return;
 
   const rows = mismatches.map(m => `

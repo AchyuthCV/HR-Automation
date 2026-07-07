@@ -62,6 +62,12 @@ const {
 } = require('./statusTracker');
 const { updateMasterDashboard } = require('./masterDashboard');
 
+// Resolve the HR email for a specific employee — uses the per-employee hrEmail captured
+// from the recruiter form, falling back to the global HR_EMAIL env var.
+function hrEmail(employee) {
+  return (employee && employee.contacts && employee.contacts.hrEmail) || process.env.HR_EMAIL;
+}
+
 // ─── Employee registry ────────────────────────────────────────────────────────
 // In production this would come from a database or a Google Sheet.
 // For now it reads from employees.json in the project root if present,
@@ -453,11 +459,16 @@ async function handleNewFile(auth, employee, file, subfolderHint) {
     return true;
   }
 
-  // Use subfolder name as fallback hint when filename doesn't contain a recognisable keyword
-  const docType = detectDocType(file.name) || (subfolderHint ? detectDocType(subfolderHint) : null);
+  // Classify document type — content-first, filename as last resort
+  const docType = await detectDocType(auth, file.id, file.name, file.mimeType);
   if (!docType) {
-    console.log(`[Index] Skipping unrecognised file: ${file.name}`);
-    return true; // not an error — file is intentionally ignored, keep in seenFileIds
+    console.log(`[Index] Could not classify file: ${file.name} — sending re-upload request`);
+    activityLog.log(employee, 'document_rejected', `${file.name} — Could not identify document type from content or filename. Please re-upload a valid HR document.`);
+    await sendDocumentRejection(employee, file.name, 'We could not identify what type of document this is. Please re-upload the correct document (Aadhaar, PAN, offer letter, marksheet, etc.).').catch(() => {});
+    if (!employee.processedFileIds) employee.processedFileIds = new Set();
+    employee.processedFileIds.add(file.id);
+    saveState(employee.employeeId, snapshotEmployee(employee));
+    return true;
   }
 
   // Skip files already processed in a previous run (pass or fail) — prevents
@@ -598,25 +609,29 @@ async function triggerNextStep(auth, employee, docType) {
     const lockKey = `${employee.employeeId}:t14`;
     if (bothVerified && !isTaskDone(checklist, 't14') && !_triggerLocks.has(lockKey)) {
       _triggerLocks.add(lockKey);
+      // Mark t14 and persist to disk immediately — before any await — so concurrent
+      // poll cycles that pass the isTaskDone check above will see it done on next read.
+      markAndLog(employee, 't14');
+      saveState(employee.employeeId, snapshotEmployee(employee));
       await markDocumentsVerifiedOk(auth, employee).catch(() => {});
       await sendOfficialEmailCreationRequest(employee);
-      markAndLog(employee, 't14');
       await uploadChecklist(auth, employee.driveFolderId, checklist);
 
       // Simultaneously send asset allocation request to manager (t17)
       // IT asset request (t20) is sent AFTER manager replies with allocation details
       // so IT receives the full asset type, location, and supervisor info — not an empty request.
+      markAndLog(employee, 't17');
+      markAndLog(employee, 't23');
+      markAndLog(employee, 't24');
+      saveState(employee.employeeId, snapshotEmployee(employee));
       await sendAssetAllocationRequest(employee, contacts.managerEmail).catch(err =>
         console.warn(`[Index] Asset allocation request email failed for ${employee.name}: ${err.message}`)
       );
-      markAndLog(employee, 't17');
 
-      // BGV is initiated — send request to recruiter, mark t23/t24
+      // BGV is initiated — send request to recruiter
       await sendBGVRequest(employee, contacts.recruiterEmail).catch(err =>
         console.warn(`[Index] BGV request email failed for ${employee.name}: ${err.message}`)
       );
-      markAndLog(employee, 't23');
-      markAndLog(employee, 't24');
 
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));
@@ -624,7 +639,7 @@ async function triggerNextStep(auth, employee, docType) {
       // Schedule 48h reply-deadline timers for HR and manager.
       // IT timer is started after the manager replies and the IT email is actually sent.
       employee.replyTimers = employee.replyTimers || {};
-      employee.replyTimers.hr = scheduleReplyDeadline(employee, 'HR Team', process.env.HR_EMAIL);
+      employee.replyTimers.hr = scheduleReplyDeadline(employee, 'HR Team', hrEmail(employee));
       employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', contacts.managerEmail);
       // Persist immediately so these escalation timers survive a restart
       saveState(employee.employeeId, snapshotEmployee(employee));
@@ -644,9 +659,10 @@ async function triggerNextStep(auth, employee, docType) {
     const allCoreDone = ALL_DOCS.every(d => vr[d] && (vr[d].valid || vr[d].valid === false));
     if (allCoreDone) {
       _triggerLocks.add(reportLockKey);
+      markAndLog(employee, 't9');
+      saveState(employee.employeeId, snapshotEmployee(employee));
       try {
         await sendVerificationReport(employee, vr);
-        markAndLog(employee, 't9');
         console.log(`[Index] Consolidated doc verification report sent for ${employee.name}`);
       } catch (err) {
         console.warn(`[Index] Could not send consolidated verification report: ${err.message}`);
@@ -685,6 +701,8 @@ async function triggerNextStep(auth, employee, docType) {
     const inductionLockKey = `${employee.employeeId}:t33`;
     if (!isTaskDone(checklist, 't33') && !_triggerLocks.has(inductionLockKey)) {
       _triggerLocks.add(inductionLockKey);
+      markAndLog(employee, 't33');
+      saveState(employee.employeeId, snapshotEmployee(employee));
       await sendHRInductionConfirmation(employee, contacts.recruiterEmail);
       // Schedule 48h escalation if recruiter never confirms induction attendance
       employee.replyTimers = employee.replyTimers || {};
@@ -697,13 +715,14 @@ async function triggerNextStep(auth, employee, docType) {
     const calLockKey = `${employee.employeeId}:t27`;
     if (!isTaskDone(checklist, 't27') && !_triggerLocks.has(calLockKey)) {
       _triggerLocks.add(calLockKey);
+      markAndLog(employee, 't27');
+      markAndLog(employee, 't28');
+      saveState(employee.employeeId, snapshotEmployee(employee));
       await sendInductionCalendarInvite(employee);
       await createHRInductionEvent(auth, employee).catch(err => {
         console.warn(`[Index] HR induction calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
         activityLog.log(employee, 'calendar_event_failed', `HR induction: ${err.message}`);
       });
-      markAndLog(employee, 't27');
-      markAndLog(employee, 't28');
       await markHRInductionScheduled(auth, employee).catch(() => {});
     }
 
@@ -716,7 +735,10 @@ async function triggerNextStep(auth, employee, docType) {
         console.warn(`[Index] Project intro sheet creation failed for ${employee.name}: ${err.message}`);
         return null;
       });
-      // Save sheetId immediately so it survives restart
+      markAndLog(employee, 't29');
+      markAndLog(employee, 't30');
+      markAndLog(employee, 't31');
+      markAndLog(employee, 't32');
       saveState(employee.employeeId, snapshotEmployee(employee));
 
       await sendProjectIntroInvite(employee, sheetUrl);
@@ -724,10 +746,6 @@ async function triggerNextStep(auth, employee, docType) {
         console.warn(`[Index] Project intro calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
         activityLog.log(employee, 'calendar_event_failed', `Project intro: ${err.message}`);
       });
-      markAndLog(employee, 't29');
-      markAndLog(employee, 't30');
-      markAndLog(employee, 't31');
-      markAndLog(employee, 't32');
       await markProjectIntroScheduled(auth, employee).catch(() => {});
 
       // Revoke employee's edit access to the sheet after 48 hours —
@@ -783,29 +801,23 @@ async function triggerNextStep(auth, employee, docType) {
 
     // t40: Send catchup XLS tracker email to recruiter + manager
     if (!isTaskDone(checklist, 't40')) {
-      await sendCatchupXLSEmail(employee);
       markAndLog(employee, 't40');
-      await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));
+      await sendCatchupXLSEmail(employee);
+      await uploadChecklist(auth, employee.driveFolderId, checklist);
     }
 
-    // t35/t36: Send seat allocation request to Admin and IT, schedule 48h escalation timers
+    // t36: Send seat allocation request to Admin on DOJ
     employee.replyTimers = employee.replyTimers || {};
-    if (!isTaskDone(checklist, 't35') && !isTaskDone(checklist, 't20')) {
-      // Only send DOJ IT email if the pre-DOJ IT email (t20) was not already sent
-      await sendITAssetRequest(employee, contacts.itEmail, employee.assetDetails || {}).catch(err =>
-        console.warn(`[Index] IT asset request email failed for ${employee.name}: ${err.message}`)
-      );
-      employee.replyTimers.itDoj = scheduleReplyDeadline(
-        employee, 'IT Team (DOJ Assets)', contacts.itEmail
-      );
-    }
     if (!isTaskDone(checklist, 't36')) {
+      // Mark and persist before sending to prevent duplicate emails on concurrent poll cycles
+      markAndLog(employee, 't36');
+      saveState(employee.employeeId, snapshotEmployee(employee));
       await sendAdminSeatAllocationRequest(employee).catch(err =>
         console.warn(`[Index] Admin seat allocation email failed for ${employee.name}: ${err.message}`)
       );
       employee.replyTimers.admin = scheduleReplyDeadline(
-        employee, 'Admin (Seat Allocation)', process.env.HR_EMAIL
+        employee, 'Admin (Seat Allocation)', hrEmail(employee)
       );
     }
     saveState(employee.employeeId, snapshotEmployee(employee));
@@ -903,7 +915,7 @@ Respond ONLY with this JSON:
 
   if (!bgvResult) {
     await sendEmail({
-      to: process.env.HR_EMAIL,
+      to: hrEmail(employee),
       subject: `BGV Report Received — Manual Review Required (${employee.name})`,
       html: `<p>Hi HR,</p><p>A BGV report was received for <strong>${employee.name} (${employee.employeeId})</strong> but the automation could not parse it. Please review it manually.</p><p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
     }).catch(() => {});
@@ -957,7 +969,7 @@ Respond ONLY with this JSON:
   // Notify HR
   const resultColor = passed ? '#2e7d32' : '#c62828';
   await sendEmail({
-    to: process.env.HR_EMAIL,
+    to: hrEmail(employee),
     subject: `BGV Report — ${bgvResult.overallResult} — ${employee.name} (${employee.employeeId})`,
     html: `
       <p>Hi HR Team,</p>
@@ -1101,7 +1113,7 @@ async function handleReply(auth, classified, rawMsg) {
         console.warn(`[Index] official_email_created reply for ${employee.name} had no email address extracted — reply was consumed but checklist not advanced.`);
         activityLog.log(employee, 'official_email_parse_failed', 'Gemini could not extract email from reply');
         await sendEmail({
-          to: process.env.HR_EMAIL,
+          to: hrEmail(employee),
           subject: `HR Automation — Official Email Reply Unreadable (${employee.name})`,
           html: `<p>Hi HR,</p><p>A reply to the official email creation request for <strong>${employee.name} (${employee.employeeId})</strong> was received but the automation could not extract the email address from it.</p><p>Please reply manually or use the status dashboard to mark task t15/t16 once the official email is confirmed.</p><p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
         }).catch(err => console.warn('[Index] Could not send official-email parse-failure alert:', err.message));
@@ -1114,7 +1126,7 @@ async function handleReply(auth, classified, rawMsg) {
       console.log(`[Index] Official email access confirmed by ${employee.name}`);
       await markOfficialEmailConfirmed(auth, employee, employee.officialEmail).catch(() => {});
       await sendEmail({
-        to: process.env.HR_EMAIL,
+        to: hrEmail(employee),
         subject: `Official Email Access Confirmed — ${employee.name} (${employee.employeeId})`,
         html: `<p>Hi HR,</p><p><strong>${employee.name}</strong> (${employee.employeeId}) has confirmed access to their official email address <strong>${employee.officialEmail || ''}</strong>. The onboarding checklist has been updated.</p><p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
       }).catch(() => {});
@@ -1124,7 +1136,7 @@ async function handleReply(auth, classified, rawMsg) {
       activityLog.log(employee, 'official_email_access_failed', employee.officialEmail || '');
       console.warn(`[Index] Official email access issue reported by ${employee.name}`);
       await sendEmail({
-        to: process.env.HR_EMAIL,
+        to: hrEmail(employee),
         subject: `Action Required — Official Email Issue for ${employee.name} (${employee.employeeId})`,
         html: `
           <p>Hi HR,</p>
@@ -1148,18 +1160,18 @@ async function handleReply(auth, classified, rawMsg) {
         }
         // Send IT asset request with full allocation details (t20) and start its reply timer
         if (!isTaskDone(employee.checklist, 't20')) {
-          await sendITAssetRequest(employee, employee.contacts.itEmail, data);
           markAndLog(employee, 't20');
+          saveState(employee.employeeId, snapshotEmployee(employee));
+          await sendITAssetRequest(employee, employee.contacts.itEmail, data);
           employee.replyTimers = employee.replyTimers || {};
           employee.replyTimers.it = scheduleReplyDeadline(employee, 'IT Team', employee.contacts.itEmail);
-          // Persist immediately so the IT escalation timer survives a restart
           saveState(employee.employeeId, snapshotEmployee(employee));
         }
       } else {
         console.warn(`[Index] manager_allocation reply for ${employee.name} had no allocation data extracted — checklist not advanced.`);
         activityLog.log(employee, 'manager_allocation_parse_failed', 'Gemini could not extract allocation details from reply');
         await sendEmail({
-          to: process.env.HR_EMAIL,
+          to: hrEmail(employee),
           subject: `HR Automation — Manager Reply Unreadable (${employee.name})`,
           html: `<p>Hi HR,</p><p>A reply to the asset allocation request for <strong>${employee.name} (${employee.employeeId})</strong> was received but the automation could not extract allocation details from it.</p><p>Please ask the manager to reply again with: Asset Type, Office Location, and Supervisor Name — or manually mark tasks t18/t19/t20 via the status dashboard.</p><p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
         }).catch(err => console.warn('[Index] Could not send manager parse-failure alert:', err.message));

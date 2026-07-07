@@ -266,7 +266,7 @@ If a field is not visible or readable, set it to null. Do not guess.`,
 // Extract structured data from a document that has already passed verification.
 // Returns an object of extracted fields, or {} if extraction is not configured for this doc type.
 async function extractDocumentData(auth, fileId, filename, mimeType) {
-  const docType = detectDocType(filename);
+  const docType = await detectDocType(auth, fileId, filename, mimeType);
   if (!docType || !EXTRACTION_PROMPTS[docType]) return {};
 
   const genAI = getGenAI();
@@ -301,8 +301,8 @@ async function extractDocumentData(auth, fileId, filename, mimeType) {
   }
 }
 
-// Map filename keywords to document types
-function detectDocType(filename) {
+// Map filename keywords to document types — fast path before falling back to Gemini
+function detectDocTypeFromFilename(filename) {
   const lower = filename.toLowerCase();
   if (lower.includes('aadhaar') || lower.includes('aadhar') || lower.includes('uid')) return 'aadhaar';
   if (lower.includes('pan') || lower.includes('pancard') || lower.includes('pan_card')) return 'pan';
@@ -312,10 +312,74 @@ function detectDocType(filename) {
   if (lower.includes('payslip') || lower.includes('pay_slip') || lower.includes('salary') || lower.includes('salary_slip')) return 'payslip';
   if (lower.includes('relieving') || lower.includes('relieve') || lower.includes('experience') || lower.includes('relieving_letter')) return 'relievingLetter';
   if (lower.includes('10th') || lower.includes('10_th') || lower.includes('tenth') || lower.includes('sslc') || lower.includes('matriculation') || lower.includes('marksheet_10')) return 'marksheet10th';
-  if (lower.includes('12th') || lower.includes('12_th') || lower.includes('twelfth') || lower.includes('hsc') || lower.includes('diploma') || lower.includes('intermediate') || lower.includes('marksheet_12')) return 'marksheet12th';
+  if (lower.includes('12th') || lower.includes('12_th') || lower.includes('twelfth') || lower.includes('hsc') || lower.includes('puc') || lower.includes('diploma') || lower.includes('intermediate') || lower.includes('marksheet_12')) return 'marksheet12th';
   if (lower.includes('postgrad') || lower.includes('post_grad') || lower.includes('mtech') || lower.includes('msc') || lower.includes('mba') || lower.includes('mca') || lower.includes('phd') || lower.includes('masters') || lower.includes('pg_')) return 'postgradCertificate';
   if (lower.includes('degree') || lower.includes('graduation') || lower.includes('consolidated') || lower.includes('btech') || lower.includes('bsc') || lower.includes('bcom') || lower.includes('bca') || lower.includes('bba')) return 'degreeCertificate';
   return null;
+}
+
+// Detect document type from content using Gemini — used when filename gives no clue
+async function detectDocTypeFromContent(auth, fileId, mimeType) {
+  const genAI = getGenAI();
+  if (!genAI) return null;
+
+  let tempPath = null;
+  try {
+    const { tempPath: tp, downloadMime } = await downloadDriveFile(auth, fileId, mimeType);
+    tempPath = tp;
+    const mediaType = downloadMime || mimeType;
+    const base64 = fs.readFileSync(tempPath).toString('base64');
+
+    const model = genAI.getGenerativeModel({ model: config.geminiModel });
+    const result_raw = await callWithRetry(() => model.generateContent([
+      `Look at this document and identify what type of HR document it is. Respond ONLY with a JSON object in this exact format:
+{
+  "docType": one of: "aadhaar", "pan", "offerLetter", "meetingScreenshot", "passportPhoto", "payslip", "relievingLetter", "marksheet10th", "marksheet12th", "degreeCertificate", "postgradCertificate", or null if none match,
+  "confidence": "high" / "medium" / "low"
+}
+
+Document type descriptions:
+- aadhaar: Indian Aadhaar card with 12-digit UID number
+- pan: Indian PAN card with 10-character alphanumeric code
+- offerLetter: Employment offer letter or appointment letter
+- meetingScreenshot: Screenshot of a video call or meeting (Zoom, Teams, Meet etc.)
+- passportPhoto: Passport-size portrait photograph
+- payslip: Salary slip or payslip from an employer
+- relievingLetter: Relieving letter or experience letter from previous employer
+- marksheet10th: 10th standard / SSLC / SSC / Matriculation marksheet
+- marksheet12th: 12th standard / HSC / PUC / Intermediate / Diploma marksheet
+- degreeCertificate: Graduation degree certificate or consolidated marksheet (BE/BTech/BSc/BBA/BCA/BCom etc.)
+- postgradCertificate: Post-graduation certificate (MTech/MBA/MSc/MCA/PhD etc.)
+
+Respond with null docType if the document does not match any of the above.`,
+      { inlineData: { data: base64, mimeType: mediaType } },
+    ]));
+
+    const raw = result_raw.response.text().trim();
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const result = JSON.parse(jsonMatch[0]);
+    if (result.docType && result.confidence !== 'low') {
+      console.log(`[Verify] Content-based doc type detected: ${result.docType} (confidence: ${result.confidence})`);
+      return result.docType;
+    }
+    return null;
+  } catch (err) {
+    console.warn(`[Verify] Content-based doc type detection failed: ${err.message}`);
+    return null;
+  } finally {
+    if (tempPath && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  }
+}
+
+// Detect document type — content analysis is primary; filename is a fallback if Gemini is unsure
+async function detectDocType(auth, fileId, filename, mimeType) {
+  const fromContent = await detectDocTypeFromContent(auth, fileId, mimeType);
+  if (fromContent) return fromContent;
+  // Gemini couldn't confidently classify — try filename as last resort
+  const fromFilename = detectDocTypeFromFilename(filename);
+  if (fromFilename) console.log(`[Verify] Content detection inconclusive — fell back to filename hint: ${fromFilename}`);
+  return fromFilename || null;
 }
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB — enough for any ID/offer document
@@ -399,13 +463,13 @@ async function callWithRetry(fn, maxRetries = 4) {
 
 // Core verification function — returns { valid, docType, checks, failureReasons, summary }
 async function verifyDocument(auth, fileId, filename, mimeType) {
-  const docType = detectDocType(filename);
+  const docType = await detectDocType(auth, fileId, filename, mimeType);
   if (!docType) {
     return {
       valid: false,
       docType: 'Unknown',
       checks: {},
-      failureReasons: [`Could not determine document type from filename: "${filename}". Please rename the file to include a keyword: aadhaar, pan, offer, photo, payslip, relieving, 10th, 12th, degree, or postgrad.`],
+      failureReasons: [`Could not determine document type for "${filename}" — even after reading the content. Please ensure this is a valid HR document.`],
       summary: 'Unknown document type.',
     };
   }
@@ -451,8 +515,6 @@ async function verifyDocument(auth, fileId, filename, mimeType) {
 async function verifyAllDocuments(auth, folderFiles) {
   const results = {};
   for (const file of folderFiles) {
-    const docType = detectDocType(file.name);
-    if (!docType) continue; // skip unrecognised files silently
     console.log(`[Verify] Checking ${file.name} (${file.id})`);
     results[file.name] = await verifyDocument(auth, file.id, file.name, file.mimeType);
   }

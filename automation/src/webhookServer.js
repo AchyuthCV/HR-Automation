@@ -384,7 +384,7 @@ app.post('/employee', employeeCreateLimiter, async (req, res) => {
 app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
   const {
     name, employeeId, personalEmail, phoneNumber, doj, isFresher,
-    managerName, managerEmail, itEmail,
+    managerName, managerEmail, itEmail, hrEmail,
     officeLocation, assetRequired, designation,
     driveFolderId, recruiterEmail,
   } = req.body || {};
@@ -401,6 +401,9 @@ app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
   if (!isValidEmail(personalEmail))  return res.status(400).json({ error: 'Invalid personalEmail format.' });
   if (!isValidEmail(managerEmail))   return res.status(400).json({ error: 'Invalid managerEmail format.' });
   if (!isValidEmail(itEmail))        return res.status(400).json({ error: 'Invalid itEmail format.' });
+  if (hrEmail && !isValidEmail(hrEmail)) {
+    return res.status(400).json({ error: 'Invalid hrEmail format.' });
+  }
   if (recruiterEmail && !isValidEmail(recruiterEmail)) {
     return res.status(400).json({ error: 'Invalid recruiterEmail format.' });
   }
@@ -435,6 +438,7 @@ app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
       managerName: managerName || '',
       managerEmail,
       itEmail,
+      hrEmail: hrEmail || process.env.HR_EMAIL,
     },
   };
 
