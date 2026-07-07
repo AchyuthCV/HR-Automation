@@ -524,36 +524,57 @@ async function sendInductionCalendarInvite(employee) {
   });
 }
 
-// Template 15: Project intro meeting invite + intro sheet to manager + employee (t29/t31)
+// Template 15: Project intro meeting invite
+// - Simple notification to the employee (no sheet link)
+// - Sheet link only to manager + recruiter
 async function sendProjectIntroInvite(employee, sheetUrl) {
   const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
   const managerEmail = contacts && contacts.managerEmail;
   const recruiterEmail = contacts && contacts.recruiterEmail;
-  const toEmail = [officialEmail || personalEmail, managerEmail, recruiterEmail].filter(Boolean).join(', ');
+  const joineeEmail = officialEmail || personalEmail;
+  const displayDoj = doj ? new Date(doj).toDateString() : 'your Date of Joining';
 
-  const sheetSection = sheetUrl
-    ? `<p style="margin:16px 0;">
-        <a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">
-          Open Project Intro Sheet
-        </a>
-      </p>
-      <p style="color:#555;font-size:13px;">
-        <strong>Manager:</strong> Please open the sheet and fill in Key Projects, Initial Goals, Buddy/Mentor, and Team Name before the meeting.<br/>
-        <strong>Note:</strong> Employee access to this sheet will be removed after 48 hours — manager and recruiter retain access.
-      </p>`
-    : `<p style="color:#e65100;font-size:13px;">The project intro sheet could not be created automatically — please contact HR.</p>`;
+  // Simple email to joinee — no sheet link
+  if (joineeEmail) {
+    await sendEmail({
+      to: joineeEmail,
+      subject: `Project Intro Meeting — ${name} (${employeeId})`,
+      html: `
+        <p>Hi ${esc(name)},</p>
+        <p>A project introduction meeting has been scheduled for you on <strong>${displayDoj}</strong> (post-lunch).</p>
+        <p>The meeting will cover your initial project context, goals, team introductions, and buddy/mentor assignment.</p>
+        <p>Your manager will be present. Please be available after lunch on your Date of Joining.</p>
+        <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
+      `,
+    });
+  }
 
-  return sendEmail({
-    to: toEmail,
-    subject: `Project Intro Meeting Scheduled — ${name} (${employeeId})`,
-    html: `
-      <p>Hi,</p>
-      <p>A project introduction meeting has been scheduled for <strong>${name}</strong> (ID: ${employeeId}) at <strong>${process.env.COMPANY_NAME}</strong>.</p>
-      <p>The meeting will take place on the day of joining (post-lunch) and will cover initial project context, goals, team introductions, and buddy assignment.</p>
-      ${sheetSection}
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
-    `,
-  });
+  // Sheet link email to manager + recruiter only
+  const internalTo = [managerEmail, recruiterEmail].filter(Boolean).join(', ');
+  if (internalTo) {
+    const sheetSection = sheetUrl
+      ? `<p style="margin:16px 0;">
+          <a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">
+            Open Project Intro Sheet
+          </a>
+        </p>
+        <p style="color:#555;font-size:13px;">
+          <strong>Manager:</strong> Please fill in Key Projects, Initial Goals, Buddy/Mentor, and Team Name before the meeting.<br/>
+          <strong>Note:</strong> Employee access to this sheet will be removed after 48 hours.
+        </p>`
+      : '';
+
+    await sendEmail({
+      to: internalTo,
+      subject: `Project Intro Meeting Scheduled — ${name} (${employeeId})`,
+      html: `
+        <p>Hi,</p>
+        <p>A project introduction meeting has been scheduled for <strong>${esc(name)}</strong> (${employeeId}) on <strong>${displayDoj}</strong> (post-lunch).</p>
+        ${sheetSection}
+        <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
+      `,
+    });
+  }
 }
 
 // Template 16: 30-day catchup tracker — creates a Google Sheet in Drive + emails link to recruiter + manager (t40)
@@ -1189,6 +1210,27 @@ async function sendOnboardingCompletionReport(employee) {
   });
 }
 
+// Simple onboarding complete email to the new joinee
+async function sendJoineeOnboardingComplete(employee) {
+  const { name, officialEmail, personalEmail } = employee;
+  const co = esc(process.env.COMPANY_NAME || 'Alethea');
+  const to = officialEmail || personalEmail;
+  if (!to) return;
+
+  return sendEmail({
+    to,
+    subject: `Welcome Aboard — Your Onboarding is Complete!`,
+    html: `
+      <p>Hi ${esc(name)},</p>
+      <p>Congratulations! Your onboarding at <strong>${co}</strong> is now complete.</p>
+      <p>All your documents have been verified, your pre-probation has been cleared, and you are now a confirmed member of the team.</p>
+      <p>We are excited to have you with us. If you have any questions, feel free to reach out to HR at any time.</p>
+      <p>Welcome to the ${co} family!</p>
+      <p>Regards,<br/>${co} HR</p>
+    `,
+  });
+}
+
 async function sendDocumentCrossCheckAlert(employee, mismatches) {
   const { name, employeeId, contacts } = employee;
   const co = esc(process.env.COMPANY_NAME || 'Alethea');
@@ -1319,6 +1361,7 @@ module.exports = {
   sendReviewSummaryRequest,
   sendNoReplyEscalation,
   sendOnboardingCompletionReport,
+  sendJoineeOnboardingComplete,
   sendDOJScreenshotRequest,
   sendDocumentCrossCheckAlert,
 };

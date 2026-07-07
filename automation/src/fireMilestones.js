@@ -21,6 +21,7 @@ const {
   sendAdminSeatAllocationRequest,
   sendHRInductionConfirmation,
   sendOnboardingCompletionReport,
+  sendJoineeOnboardingComplete,
 } = require('./emailSender');
 const {
   mark25DayCatchupDone,
@@ -224,6 +225,8 @@ async function run() {
   employee._auth = auth;
   await sendOnboardingCompletionReport(employee)
     .catch(e => console.warn('  Completion report failed:', e.message));
+  await sendJoineeOnboardingComplete(employee)
+    .catch(e => console.warn('  Joinee completion email failed:', e.message));
 
   // ── Save updated checklist ─────────────────────────────────────────────────
   saveState();
