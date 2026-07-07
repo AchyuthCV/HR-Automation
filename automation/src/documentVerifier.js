@@ -459,4 +459,83 @@ async function verifyAllDocuments(auth, folderFiles) {
   return results;
 }
 
-module.exports = { verifyDocument, verifyAllDocuments, detectDocType, extractDocumentData };
+// Cross-check extracted data across documents for name/identity mismatches.
+// Returns array of mismatch objects: { field, doc1, val1, doc2, val2 }
+function crossCheckDocuments(extractedData) {
+  const mismatches = [];
+  const ex = extractedData || {};
+
+  // Normalise names for fuzzy comparison — lowercase, strip punctuation, collapse spaces
+  function norm(s) {
+    if (!s) return '';
+    return s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  // Check Aadhaar name vs PAN name
+  const aadhaarName = norm(ex.aadhaar && ex.aadhaar.name);
+  const panName     = norm(ex.pan && ex.pan.name);
+  if (aadhaarName && panName && aadhaarName !== panName) {
+    mismatches.push({
+      field: 'Full Name',
+      doc1: 'Aadhaar', val1: (ex.aadhaar && ex.aadhaar.name) || '',
+      doc2: 'PAN Card', val2: (ex.pan && ex.pan.name) || '',
+    });
+  }
+
+  // Check Aadhaar DOB vs PAN DOB
+  function normDate(s) {
+    if (!s) return '';
+    // normalise DD/MM/YYYY, YYYY-MM-DD, etc. → just digits
+    return s.replace(/[^0-9]/g, '');
+  }
+  const aadhaarDob = normDate(ex.aadhaar && ex.aadhaar.dob);
+  const panDob     = normDate(ex.pan && ex.pan.dob);
+  if (aadhaarDob && panDob && aadhaarDob !== panDob) {
+    mismatches.push({
+      field: 'Date of Birth',
+      doc1: 'Aadhaar', val1: (ex.aadhaar && ex.aadhaar.dob) || '',
+      doc2: 'PAN Card', val2: (ex.pan && ex.pan.dob) || '',
+    });
+  }
+
+  // Check 10th school name vs 12th school name (should match or be related)
+  // Only flag if both present and completely different (not substring of each other)
+  const school10 = norm(ex.marksheet10th && ex.marksheet10th.schoolName);
+  const school12 = norm(ex.marksheet12th && ex.marksheet12th.schoolName);
+  if (school10 && school12 && school10 !== school12) {
+    // Allow if one contains the other (same school, slightly different name on docs)
+    if (!school10.includes(school12) && !school12.includes(school10)) {
+      mismatches.push({
+        field: 'School Name',
+        doc1: '10th Marksheet', val1: (ex.marksheet10th && ex.marksheet10th.schoolName) || '',
+        doc2: '12th Marksheet', val2: (ex.marksheet12th && ex.marksheet12th.schoolName) || '',
+        note: 'Different schools on 10th and 12th marksheets — verify if student changed schools',
+      });
+    }
+  }
+
+  // Check year of completion — 12th should be after 10th
+  const year10 = parseInt(ex.marksheet10th && ex.marksheet10th.yearOfCompletion);
+  const year12 = parseInt(ex.marksheet12th && ex.marksheet12th.yearOfCompletion);
+  const yearDeg = parseInt(ex.degreeCertificate && ex.degreeCertificate.yearOfCompletion);
+  if (year10 && year12 && year12 < year10) {
+    mismatches.push({
+      field: 'Year of Completion',
+      doc1: '10th Marksheet', val1: String(year10),
+      doc2: '12th Marksheet', val2: String(year12),
+      note: '12th completion year is before 10th — possible data entry error',
+    });
+  }
+  if (year12 && yearDeg && yearDeg < year12) {
+    mismatches.push({
+      field: 'Year of Completion',
+      doc1: '12th Marksheet', val1: String(year12),
+      doc2: 'Degree Certificate', val2: String(yearDeg),
+      note: 'Degree completion year is before 12th — possible data entry error',
+    });
+  }
+
+  return mismatches;
+}
+
+module.exports = { verifyDocument, verifyAllDocuments, detectDocType, extractDocumentData, crossCheckDocuments };

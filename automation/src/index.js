@@ -2,7 +2,7 @@ require('dotenv').config();
 const config = require('./config');
 const { encrypt, decrypt, isEncryptionEnabled } = require('./encryption');
 const { getAuthClient, watchFolder, watchFolderPolling, scaffoldEmployeeFolder, lockEmployeeFolder, uploadChecklist, uploadInstructions, listFolderFiles } = require('./driveWatcher');
-const { verifyDocument, detectDocType, extractDocumentData } = require('./documentVerifier');
+const { verifyDocument, detectDocType, extractDocumentData, crossCheckDocuments } = require('./documentVerifier');
 const {
   sendEmail,
   sendPreOnboardingForm,
@@ -23,6 +23,7 @@ const {
   sendAdminSeatAllocationRequest,
   send25DayCatchupEmail,
   sendDOJScreenshotRequest,
+  sendDocumentCrossCheckAlert,
 } = require('./emailSender');
 const {
   scheduleAllMilestones,
@@ -639,6 +640,17 @@ async function triggerNextStep(auth, employee, docType) {
       } catch (err) {
         console.warn(`[Index] Could not send consolidated verification report: ${err.message}`);
         _triggerLocks.delete(reportLockKey);
+      }
+
+      // Cross-check extracted data across documents for mismatches
+      const mismatches = crossCheckDocuments(employee.extractedData);
+      if (mismatches.length > 0) {
+        console.log(`[Index] ${mismatches.length} document mismatch(es) found for ${employee.name} — alerting HR`);
+        sendDocumentCrossCheckAlert(employee, mismatches).catch(err =>
+          console.warn(`[Index] Cross-check alert email failed for ${employee.name}: ${err.message}`)
+        );
+      } else {
+        console.log(`[Index] Document cross-check passed for ${employee.name} — no mismatches`);
       }
 
       // Create or update AL/DI/HR/018 Employee Info Sheet with AI-extracted data pre-filled

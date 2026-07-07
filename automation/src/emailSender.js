@@ -1189,6 +1189,60 @@ async function sendOnboardingCompletionReport(employee) {
   });
 }
 
+async function sendDocumentCrossCheckAlert(employee, mismatches) {
+  const { name, employeeId, contacts } = employee;
+  const co = esc(process.env.COMPANY_NAME || 'Alethea');
+  const hrEmail = process.env.HR_EMAIL;
+  const recruiterEmail = contacts && contacts.recruiterEmail;
+  const toList = [hrEmail, recruiterEmail].filter(Boolean);
+  if (!toList.length || !mismatches.length) return;
+
+  const rows = mismatches.map(m => `
+    <tr>
+      <td style="padding:10px 12px;border-bottom:1px solid #E5E5E0;font-weight:600;color:#1C1C1E;">${esc(m.field)}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #E5E5E0;color:#C0392B;">${esc(m.doc1)}: <strong>${esc(m.val1)}</strong></td>
+      <td style="padding:10px 12px;border-bottom:1px solid #E5E5E0;color:#C0392B;">${esc(m.doc2)}: <strong>${esc(m.val2)}</strong></td>
+    </tr>
+    ${m.note ? `<tr><td colspan="3" style="padding:4px 12px 10px;border-bottom:1px solid #E5E5E0;font-size:12px;color:#6B7280;font-style:italic;">${esc(m.note)}</td></tr>` : ''}
+  `).join('');
+
+  await sendEmail({
+    to: toList.join(', '),
+    subject: `Document Mismatch Detected — ${esc(name)} (${esc(employeeId)})`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:620px;color:#1C1C1E;">
+        <div style="background:#7B1C1C;padding:22px 26px;border-radius:6px 6px 0 0;">
+          <p style="margin:0;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#F5A0A0;">Document Cross-Check Alert</p>
+          <p style="margin:8px 0 0;font-size:20px;font-weight:700;color:#fff;">${esc(name)}</p>
+          <p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.6);">${esc(employeeId)}</p>
+        </div>
+        <div style="background:#fff;border:1px solid #E5E5E0;border-top:none;padding:24px 26px;border-radius:0 0 6px 6px;">
+          <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#1C1C1E;">
+            The following <strong>${mismatches.length} mismatch${mismatches.length > 1 ? 'es were' : ' was'} detected</strong> when cross-checking
+            <strong>${esc(name)}'s</strong> submitted documents. Please review before proceeding with onboarding.
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #E5E5E0;border-radius:4px;overflow:hidden;">
+            <thead>
+              <tr style="background:#F5F5F5;">
+                <th style="padding:10px 12px;text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6B7280;">Field</th>
+                <th style="padding:10px 12px;text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6B7280;">Document 1</th>
+                <th style="padding:10px 12px;text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6B7280;">Document 2</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <p style="margin:20px 0 0;font-size:13px;color:#4A5A6A;line-height:1.6;">
+            These discrepancies may indicate a data entry error, a name change, or a document belonging to a different person.
+            Please verify with the employee and request corrected documents if needed.
+          </p>
+          <hr style="border:none;border-top:1px solid #E5E5E0;margin:20px 0;">
+          <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR Automation</p>
+        </div>
+      </div>
+    `,
+  });
+}
+
 async function sendDOJScreenshotRequest(employee) {
   const { name, employeeId, doj, driveFolderId, contacts } = employee;
   const co  = esc(process.env.COMPANY_NAME || 'Alethea');
@@ -1266,4 +1320,5 @@ module.exports = {
   sendNoReplyEscalation,
   sendOnboardingCompletionReport,
   sendDOJScreenshotRequest,
+  sendDocumentCrossCheckAlert,
 };
