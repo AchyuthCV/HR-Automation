@@ -516,6 +516,12 @@ async function handleNewFile(auth, employee, file, subfolderHint) {
         employee.extractedData = employee.extractedData || {};
         employee.extractedData[extracted.docType] = extracted.fields;
         console.log(`[Index] Extracted data stored for ${extracted.docType} — ${employee.name}`);
+        // Update info sheet immediately if it already exists
+        if (employee.employeeInfoSheetId) {
+          createEmployeeInfoSheet(auth, employee).catch(err =>
+            console.warn(`[Index] Info sheet update failed after extraction for ${employee.name}: ${err.message}`)
+          );
+        }
       }
     } catch (err) {
       console.warn(`[Index] Extraction failed for ${file.name}: ${err.message}`);
