@@ -181,7 +181,7 @@ async function sendNoResponseAlert(employee, recruiterEmail) {
       <p>This is an automated alert. <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) has not responded to the pre-onboarding request for more than <strong>24 hours</strong>.</p>
       <p><strong>Personal Email:</strong> ${esc(personalEmail)}</p>
       <p>Please follow up directly with the candidate to ensure they complete the required steps before their Date of Joining.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
     `,
   });
 }
@@ -207,7 +207,7 @@ async function sendOfficialEmailCreationRequest(employee) {
         <li>Date of Joining: ${esc(doj)}</li>
       </ul>
       <p>Please reply with the official email ID and Greythr confirmation so we can proceed.</p>
-      <p>Regards,<br/>${co} HR Automation</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -225,7 +225,7 @@ async function sendOfficialEmailAccessTest(employee) {
       <p>To confirm that you can access this inbox, simply <strong>reply to this email</strong> with the word <strong>"Confirmed"</strong>.</p>
       <p>Once we receive your confirmation, your onboarding checklist will be updated automatically.</p>
       <p>If you face any issues logging in, please contact HR immediately.</p>
-      <p>Regards,<br/>${co} HR Automation</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -246,7 +246,7 @@ async function sendAssetAllocationRequest(employee, managerEmail) {
         <li>Supervisor / buddy allocation</li>
       </ol>
       <p>Please reply with the above details so we can coordinate with IT and Admin.</p>
-      <p>Regards,<br/>${co} HR Automation</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -296,7 +296,7 @@ async function sendBGVRequest(employee, recruiterEmail) {
       </ol>
       <p>The automation system will read the PDF, classify the result as BGV Passed or Failed, move the report to the employee's Drive folder, and notify you — no manual entry needed.</p>
       <p style="color:#555;font-size:13px;">(The engine monitors replies to this email at ${engineEmail})</p>
-      <p>Regards,<br/>${co} HR Automation</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -312,7 +312,7 @@ async function sendHRInductionConfirmation(employee, recruiterEmail) {
       <p>Hi,</p>
       <p>Please confirm that the HR induction session for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) has been completed.</p>
       <p>Reply with <strong>"Confirmed"</strong> to mark this step complete in the onboarding checklist.</p>
-      <p>Regards,<br/>${co} HR Automation</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -366,7 +366,7 @@ async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail
         </ol>
         ${sheetSection}
         <p>If the call cannot happen soon, reply with the new proposed date.</p>
-        <p>Regards,<br/>${co} HR Automation</p>
+        <p>Regards,<br/>${co} HR</p>
       `,
     });
   }
@@ -380,7 +380,7 @@ async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail
         <p>Hi,</p>
         <p>It has been ${dayMark} days since <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) joined ${co}. Time for the <strong>${dayMark}-day project review!</strong></p>
         <p>Please check your calendar for the review meeting invite and come prepared to discuss progress, challenges, and next steps.</p>
-        <p>Regards,<br/>${co} HR Automation</p>
+        <p>Regards,<br/>${co} HR</p>
       `,
     });
   }
@@ -404,7 +404,7 @@ async function sendPreProbationReminder(employee, managerEmail) {
         <li>Communicate decision to employee</li>
       </ul>
       <p>Reply to this email with <strong>"Pre-probation verification complete for [Employee ID]"</strong> once done. The system will automatically close this milestone.</p>
-      <p>Regards,<br/>${co} HR Automation</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -423,7 +423,7 @@ async function sendPhaseCompletionSummary(employee, phase, completedTasks) {
       <p><strong>Phase: ${esc(phase)}</strong></p>
       <ul>${taskList}</ul>
       <p>The system will now automatically proceed to the next phase.</p>
-      <p>Regards,<br/>${co} HR Automation</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -475,7 +475,7 @@ async function sendVerificationReport(employee, verificationResults) {
         </tbody>
       </table>
       <p style="margin-top:16px;">If any document has <strong>FAILED</strong>, the system has already sent a re-upload request to the candidate. Please follow up if no response is received within 24 hours.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
     `,
   });
 }
@@ -519,7 +519,7 @@ async function sendInductionCalendarInvite(employee) {
       <p><strong>${name}</strong> — please be present at the office by <strong>9:30 AM</strong> on your Date of Joining. The recruiter will conduct the induction covering company policies, tools, and culture.</p>
       <p>A calendar invite has been sent to all participants. If the timing does not work, you can <strong>propose a new time</strong> directly from the calendar invite.</p>
       <p><strong>Recruiter</strong> — please confirm attendance by replying to this email once the induction is complete.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
     `,
   });
 }
@@ -551,7 +551,7 @@ async function sendProjectIntroInvite(employee, sheetUrl) {
       <p>A project introduction meeting has been scheduled for <strong>${name}</strong> (ID: ${employeeId}) at <strong>${process.env.COMPANY_NAME}</strong>.</p>
       <p>The meeting will take place on the day of joining (post-lunch) and will cover initial project context, goals, team introductions, and buddy assignment.</p>
       ${sheetSection}
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
     `,
   });
 }
@@ -812,7 +812,7 @@ async function sendCatchupXLSEmail(employee) {
       </ul>
       ${sheetSection}
       <p>Please fill in the relevant month tab after each catchup call (30-day, 60-day, and 90-day reviews).</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
     `,
   });
 
@@ -886,7 +886,7 @@ async function sendReviewSummaryRequest(employee, dayMark) {
       <p style="color:#555;border-left:4px solid #ffa000;padding:8px 16px;background:#fffde7;">
         Once the review is done, reply to this email with <strong>"Confirmed"</strong> to update the onboarding checklist.
       </p>
-      <p>Regards,<br/>${co} HR Automation</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -937,7 +937,7 @@ async function send30DayTechnicalReview(employee) {
         </ol>
         ${sheetSection}
         <p>If the call cannot happen soon, reply with the new proposed date.</p>
-        <p>Regards,<br/>${co} HR Automation</p>
+        <p>Regards,<br/>${co} HR</p>
       `,
     });
   }
@@ -951,7 +951,7 @@ async function send30DayTechnicalReview(employee) {
         <p>Hi,</p>
         <p>It has been 30 days since you joined ${co}. Time for your <strong>30-day project review!</strong></p>
         <p>Please check your calendar for the review meeting invite and come prepared to discuss progress, challenges, and next steps.</p>
-        <p>Regards,<br/>${co} HR Automation</p>
+        <p>Regards,<br/>${co} HR</p>
       `,
     });
   }
@@ -992,7 +992,7 @@ async function send25DayCatchupEmail(employee) {
       <br/>
       <p>Recruiter — please fill in the <a href="${sheetLink}">catchup tracking sheet</a> after the call.</p>
       <p>HR — once the call is done, reply to this email with <strong>"Confirmed"</strong> to update the checklist.</p>
-      <p>Regards,<br/>${co} HR Automation</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -1012,7 +1012,7 @@ async function sendAdminSeatAllocationRequest(employee) {
         <li>Date of Joining: ${doj}</li>
       </ul>
       <p>Please reply to this email confirming the seat allocation so the onboarding checklist can be updated.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
+      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
     `,
   });
 }
@@ -1028,7 +1028,7 @@ async function sendNoReplyEscalation(employee, recipientType, originalRecipient)
       <p>This is an automated escalation notice.</p>
       <p><strong>${esc(recipientType)}</strong> (<code>${esc(originalRecipient)}</code>) has <strong>not replied</strong> to the automated onboarding request sent <strong>48 hours ago</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}).</p>
       <p>Please follow up manually with <strong>${esc(recipientType)}</strong> to ensure the required action is completed before the candidate's onboarding is impacted.</p>
-      <p>Regards,<br/>${esc(process.env.COMPANY_NAME)} HR Automation</p>
+      <p>Regards,<br/>${esc(process.env.COMPANY_NAME)} HR</p>
     `,
   });
 }
@@ -1182,7 +1182,7 @@ async function sendOnboardingCompletionReport(employee) {
             <tbody>${docRows || '<tr><td colspan="2" style="padding:8px 12px;color:#6B7280;">No document results recorded.</td></tr>'}</tbody>
           </table>
 
-          <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR Automation</p>
+          <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR</p>
         </div>
       </div>
     `,
@@ -1236,7 +1236,7 @@ async function sendDocumentCrossCheckAlert(employee, mismatches) {
             Please verify with the employee and request corrected documents if needed.
           </p>
           <hr style="border:none;border-top:1px solid #E5E5E0;margin:20px 0;">
-          <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR Automation</p>
+          <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR</p>
         </div>
       </div>
     `,
@@ -1287,7 +1287,7 @@ async function sendDOJScreenshotRequest(employee) {
             The system will automatically confirm attendance and complete the Day of Joining milestone.
           </p>
           <hr style="border:none;border-top:1px solid #E5E5E0;margin:20px 0;">
-          <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR Automation</p>
+          <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR</p>
         </div>
       </div>
     `,
