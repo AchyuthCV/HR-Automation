@@ -655,8 +655,80 @@ app.get('/status/:employeeId', statusLimiter, (req, res) => {
 // ─── All-employees dashboard ───────────────────────────────────────────────────
 app.get('/status', statusLimiter, (_req, res) => {
   const employees = Object.values(_employeeRegistry);
+  const now = Date.now();
 
-  const rows = employees.map(emp => {
+  // The 16 milestone labels shown on the status sheet
+  const MILESTONE_LABELS = [
+    'Pre-onboarding initiated',
+    'Documents received',
+    'Documents not ok — re-upload requested',
+    'Documents verified OK',
+    'Official email & greythr login confirmed',
+    'Manager confirmed seat and work location',
+    'IT team confirmed assets',
+    'BGV initiated and completed',
+    'HR induction scheduled',
+    'Project intro meeting scheduled',
+    'Day of Joining — onboarding complete',
+    '25th day catchup call completed',
+    '30-day catchup completed',
+    '60-day review completed',
+    '90-day review completed',
+    'Pre-probation verification completed',
+  ];
+
+  // Map milestone label → task IDs that mark it done
+  const MILESTONE_TASK_MAP = {
+    'Pre-onboarding initiated':               ['t4'],
+    'Documents received':                     ['t5'],
+    'Documents not ok — re-upload requested': ['t10'],
+    'Documents verified OK':                  ['t9'],
+    'Official email & greythr login confirmed':['t15'],
+    'Manager confirmed seat and work location':['t18'],
+    'IT team confirmed assets':               ['t21'],
+    'BGV initiated and completed':            ['t25'],
+    'HR induction scheduled':                 ['t27'],
+    'Project intro meeting scheduled':        ['t29'],
+    'Day of Joining — onboarding complete':   ['t42'],
+    '25th day catchup call completed':        ['t63'],
+    '30-day catchup completed':               ['t43'],
+    '60-day review completed':                ['t46'],
+    '90-day review completed':                ['t49'],
+    'Pre-probation verification completed':   ['t52'],
+  };
+
+  function isTaskDoneInChecklist(checklist, taskId) {
+    for (const phase of Object.values(checklist || {})) {
+      if (phase.tasks && phase.tasks[taskId]) return phase.tasks[taskId].done;
+    }
+    return false;
+  }
+
+  function getPendingActions(emp) {
+    const pending = [];
+    const cl = emp.checklist || {};
+    const vr = emp.verificationResults || {};
+    const dojDate = new Date(emp.doj);
+    const daysUntilDoj = Math.ceil((dojDate - now) / (1000 * 60 * 60 * 24));
+    const daysSinceDoj = Math.floor((now - dojDate) / (1000 * 60 * 60 * 24));
+
+    if (!isTaskDoneInChecklist(cl, 't5'))  pending.push({ label: 'Awaiting document upload', urgency: daysUntilDoj < 3 ? 'high' : 'medium' });
+    if (!isTaskDoneInChecklist(cl, 't9') && isTaskDoneInChecklist(cl, 't5'))  pending.push({ label: 'Documents pending verification', urgency: 'medium' });
+    if (!isTaskDoneInChecklist(cl, 't15') && isTaskDoneInChecklist(cl, 't9')) pending.push({ label: 'Official email not yet confirmed', urgency: daysUntilDoj < 5 ? 'high' : 'medium' });
+    if (!isTaskDoneInChecklist(cl, 't18') && isTaskDoneInChecklist(cl, 't9')) pending.push({ label: 'Manager allocation pending', urgency: daysUntilDoj < 5 ? 'high' : 'medium' });
+    if (!isTaskDoneInChecklist(cl, 't21') && isTaskDoneInChecklist(cl, 't18')) pending.push({ label: 'IT assets not confirmed', urgency: daysUntilDoj < 3 ? 'high' : 'low' });
+    if (!isTaskDoneInChecklist(cl, 't25') && isTaskDoneInChecklist(cl, 't9')) pending.push({ label: 'BGV not completed', urgency: 'medium' });
+    if (!isTaskDoneInChecklist(cl, 't42') && daysSinceDoj >= 0 && daysSinceDoj < 7) pending.push({ label: 'DOJ not marked complete', urgency: 'high' });
+    if (!isTaskDoneInChecklist(cl, 't52') && daysSinceDoj > 150) pending.push({ label: 'Pre-probation overdue', urgency: 'high' });
+
+    // Doc rejections
+    const failedDocs = Object.entries(vr).filter(([, v]) => v && v.valid === false).map(([k]) => k);
+    if (failedDocs.length) pending.push({ label: `Doc re-upload needed: ${failedDocs.join(', ')}`, urgency: 'high' });
+
+    return pending;
+  }
+
+  const cards = employees.map(emp => {
     let total = 0, done = 0;
     for (const phase of Object.values(emp.checklist || {})) {
       const tasks = Object.values(phase.tasks || {});
@@ -664,26 +736,111 @@ app.get('/status', statusLimiter, (_req, res) => {
       done += tasks.filter(t => t.done).length;
     }
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    let currentPhase = 'Complete';
-    for (const phase of Object.values(emp.checklist || {})) {
-      if (phase.tasks && Object.values(phase.tasks).some(t => !t.done)) {
-        currentPhase = phase.label;
-        break;
-      }
+
+    // Current stage — first incomplete milestone
+    let currentStage = 'Complete';
+    let stageIndex = MILESTONE_LABELS.length;
+    for (let i = 0; i < MILESTONE_LABELS.length; i++) {
+      const label = MILESTONE_LABELS[i];
+      const taskIds = MILESTONE_TASK_MAP[label] || [];
+      const isDone = taskIds.every(tid => isTaskDoneInChecklist(emp.checklist, tid));
+      if (!isDone) { currentStage = label; stageIndex = i; break; }
     }
-    const bar = `<div style="background:#e0e0e0;border-radius:6px;height:10px;width:120px;display:inline-block;vertical-align:middle;"><div style="background:#2e7d32;border-radius:6px;height:100%;width:${pct}%;"></div></div>`;
-    return `<tr>
-      <td style="padding:8px 12px;"><a href="/status/${emp.employeeId}" style="color:#1a73e8;text-decoration:none;">${emp.employeeId}</a></td>
-      <td style="padding:8px 12px;">${emp.name}</td>
-      <td style="padding:8px 12px;">${emp.doj}</td>
-      <td style="padding:8px 12px;">${bar} <span style="font-size:13px;color:#555;margin-left:6px;">${pct}% (${done}/${total})</span></td>
-      <td style="padding:8px 12px;color:#555;font-size:13px;">${currentPhase}</td>
-    </tr>`;
+
+    const dojDate = new Date(emp.doj);
+    const daysUntilDoj = Math.ceil((dojDate - now) / (1000 * 60 * 60 * 24));
+    const daysSinceDoj = Math.floor((now - dojDate) / (1000 * 60 * 60 * 24));
+    const isPreDOJ = daysUntilDoj > 0;
+    const dojLabel = isPreDOJ
+      ? (daysUntilDoj === 1 ? 'Tomorrow' : `DOJ in ${daysUntilDoj}d`)
+      : (daysSinceDoj === 0 ? 'DOJ Today' : `${daysSinceDoj}d since DOJ`);
+    const dojUrgent = daysUntilDoj <= 3 && daysUntilDoj > 0;
+
+    // Overall card urgency
+    const pending = getPendingActions(emp);
+    const hasHigh = pending.some(p => p.urgency === 'high');
+    const hasMed  = pending.some(p => p.urgency === 'medium');
+    const cardColor = pct === 100 ? '#0D7F7F' : hasHigh ? '#B91C1C' : hasMed ? '#B45309' : '#1D4ED8';
+    const cardBg    = pct === 100 ? '#F0FAFA' : hasHigh ? '#FEF2F2' : hasMed ? '#FFFBEB' : '#EFF6FF';
+    const urgencyTag = pct === 100
+      ? '<span style="background:#0D7F7F;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;letter-spacing:.05em;">COMPLETE</span>'
+      : hasHigh
+      ? '<span style="background:#B91C1C;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;letter-spacing:.05em;">ACTION NEEDED</span>'
+      : hasMed
+      ? '<span style="background:#B45309;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;letter-spacing:.05em;">IN PROGRESS</span>'
+      : '<span style="background:#1D4ED8;color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;letter-spacing:.05em;">ON TRACK</span>';
+
+    // Milestone pipeline dots
+    const dots = MILESTONE_LABELS.map((label, i) => {
+      const taskIds = MILESTONE_TASK_MAP[label] || [];
+      const isDone = taskIds.every(tid => isTaskDoneInChecklist(emp.checklist, tid));
+      const isCurrent = i === stageIndex;
+      const color = isDone ? '#0D7F7F' : isCurrent ? cardColor : '#D1D5DB';
+      const title = label.length > 30 ? label.substring(0, 30) + '…' : label;
+      return `<span title="${label}" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin:0 2px;${isCurrent ? 'box-shadow:0 0 0 2px #fff,0 0 0 3px ' + color : ''}"></span>`;
+    }).join('');
+
+    // Pending action pills
+    const pendingPills = pending.slice(0, 3).map(p => {
+      const bg = p.urgency === 'high' ? '#FEE2E2' : p.urgency === 'medium' ? '#FEF9C3' : '#F3F4F6';
+      const col = p.urgency === 'high' ? '#991B1B' : p.urgency === 'medium' ? '#92400E' : '#4B5563';
+      return `<div style="background:${bg};color:${col};font-size:11px;padding:3px 8px;border-radius:4px;margin-bottom:4px;">${p.label}</div>`;
+    }).join('');
+    const morePending = pending.length > 3 ? `<div style="font-size:11px;color:#6B7280;">+${pending.length - 3} more</div>` : '';
+
+    const fresherBadge = emp.isFresher !== undefined
+      ? `<span style="font-size:10px;background:#E0E7FF;color:#3730A3;padding:1px 7px;border-radius:10px;margin-left:6px;">${emp.isFresher ? 'Fresher' : 'Experienced'}</span>`
+      : '';
+
+    return `
+    <div style="background:${cardBg};border:1px solid ${cardColor}22;border-left:4px solid ${cardColor};border-radius:8px;padding:16px 18px;margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+        <div>
+          <a href="/status/${emp.employeeId}" style="font-size:16px;font-weight:700;color:${cardColor};text-decoration:none;">${emp.name}</a>
+          ${fresherBadge}
+          <div style="font-size:12px;color:#6B7280;margin-top:2px;">${emp.employeeId} &nbsp;·&nbsp; DOJ: ${emp.doj} &nbsp;·&nbsp; <span style="color:${dojUrgent ? '#B91C1C' : '#6B7280'};font-weight:${dojUrgent ? '600' : '400'}">${dojLabel}</span></div>
+        </div>
+        <div style="text-align:right;">
+          ${urgencyTag}
+          <div style="font-size:13px;font-weight:700;color:${cardColor};margin-top:4px;">${pct}%</div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div style="background:#E5E7EB;border-radius:4px;height:6px;margin-bottom:10px;">
+        <div style="background:${cardColor};border-radius:4px;height:100%;width:${pct}%;transition:width .3s;"></div>
+      </div>
+
+      <!-- Milestone dots -->
+      <div style="margin-bottom:10px;">${dots}</div>
+
+      <!-- Current stage + pending -->
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+        <div style="flex:1;min-width:180px;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9CA3AF;margin-bottom:4px;">Current Stage</div>
+          <div style="font-size:13px;color:#1C1C1E;">${currentStage}</div>
+        </div>
+        ${pending.length ? `<div style="flex:1;min-width:180px;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9CA3AF;margin-bottom:4px;">Pending</div>
+          ${pendingPills}${morePending}
+        </div>` : ''}
+      </div>
+    </div>`;
   }).join('');
 
-  const empty = employees.length === 0
-    ? '<tr><td colspan="5" style="padding:16px;color:#888;text-align:center;">No employees registered yet.</td></tr>'
+  const emptyState = employees.length === 0
+    ? '<div style="text-align:center;padding:48px;color:#9CA3AF;">No employees registered yet.</div>'
     : '';
+
+  // Summary counts
+  const total = employees.length;
+  const complete = employees.filter(e => {
+    let t = 0, d = 0;
+    for (const p of Object.values(e.checklist || {})) { const ts = Object.values(p.tasks || {}); t += ts.length; d += ts.filter(x => x.done).length; }
+    return t > 0 && d === t;
+  }).length;
+  const actionNeeded = employees.filter(e => getPendingActions(e).some(p => p.urgency === 'high')).length;
+  const onTrack = total - complete - actionNeeded;
 
   res.setHeader('Content-Type', 'text/html');
   res.send(`<!DOCTYPE html>
@@ -691,24 +848,40 @@ app.get('/status', statusLimiter, (_req, res) => {
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>HR Automation — All Employees</title>
+  <title>Alethea HR — Onboarding Dashboard</title>
+  <meta http-equiv="refresh" content="30"/>
   <style>
-    body{font-family:sans-serif;max-width:960px;margin:40px auto;padding:0 20px;color:#333;}
-    h1{margin-bottom:4px;}
-    .sub{color:#888;font-size:13px;margin-bottom:24px;}
-    table{width:100%;border-collapse:collapse;}
-    th{background:#f5f5f5;padding:8px 12px;text-align:left;font-size:13px;border-bottom:2px solid #ddd;}
-    tr:hover td{background:#fafafa;}
-    td{border-bottom:1px solid #eee;}
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F9FAFB;color:#1C1C1E;padding:24px;}
+    .header{max-width:900px;margin:0 auto 24px;}
+    .title{font-size:22px;font-weight:700;color:#0F1923;}
+    .subtitle{font-size:13px;color:#6B7280;margin-top:4px;}
+    .stats{display:flex;gap:12px;margin:16px 0;flex-wrap:wrap;}
+    .stat{background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:12px 20px;min-width:120px;}
+    .stat-val{font-size:24px;font-weight:700;}
+    .stat-label{font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-top:2px;}
+    .cards{max-width:900px;margin:0 auto;}
+    .refresh{font-size:11px;color:#9CA3AF;margin-top:16px;text-align:right;}
   </style>
 </head>
 <body>
-  <h1>Onboarding Dashboard</h1>
-  <div class="sub">${employees.length} employee(s) registered &nbsp;&mdash;&nbsp; Uptime: ${Math.floor(process.uptime())}s</div>
-  <table>
-    <thead><tr><th>ID</th><th>Name</th><th>DOJ</th><th>Progress</th><th>Current Phase</th></tr></thead>
-    <tbody>${rows}${empty}</tbody>
-  </table>
+  <div class="header">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div class="title">Onboarding Dashboard</div>
+        <div class="subtitle">Alethea Communications Technologies &nbsp;·&nbsp; Auto-refreshes every 30s</div>
+      </div>
+      <div style="font-size:12px;color:#9CA3AF;">Uptime: ${Math.floor(process.uptime() / 60)}m</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="stat-val" style="color:#1C1C1E;">${total}</div><div class="stat-label">Total</div></div>
+      <div class="stat"><div class="stat-val" style="color:#B91C1C;">${actionNeeded}</div><div class="stat-label">Action Needed</div></div>
+      <div class="stat"><div class="stat-val" style="color:#1D4ED8;">${onTrack}</div><div class="stat-label">On Track</div></div>
+      <div class="stat"><div class="stat-val" style="color:#0D7F7F;">${complete}</div><div class="stat-label">Complete</div></div>
+    </div>
+  </div>
+  <div class="cards">${cards}${emptyState}</div>
+  <div class="refresh" style="max-width:900px;margin:12px auto 0;">Last updated: ${new Date().toLocaleTimeString('en-IN')}</div>
 </body>
 </html>`);
 });
