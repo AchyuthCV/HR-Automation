@@ -60,6 +60,7 @@ const {
   createProjectIntroSheet,
   createEmployeeInfoSheet,
 } = require('./statusTracker');
+const { updateMasterDashboard } = require('./masterDashboard');
 
 // ─── Employee registry ────────────────────────────────────────────────────────
 // In production this would come from a database or a Google Sheet.
@@ -113,6 +114,16 @@ function saveState(employeeId, data) {
   const plaintext = JSON.stringify(data, null, 2);
   const payload = isEncryptionEnabled() ? encrypt(plaintext) : plaintext;
   fs.writeFileSync(statePathFor(employeeId), payload);
+  // Debounce dashboard refresh: wait 5s so rapid saves don't fire multiple API calls
+  clearTimeout(saveState._dashTimer);
+  saveState._dashTimer = setTimeout(() => {
+    if (saveState._auth) {
+      const emps = Object.values(employeeRegistry);
+      updateMasterDashboard(saveState._auth, emps).catch(err =>
+        console.warn('[Dashboard] Background refresh failed:', err.message)
+      );
+    }
+  }, 5000);
 }
 
 // Serialize all persistable fields from a live employee object into a plain object
@@ -1608,6 +1619,7 @@ async function main() {
   })();
 
   const auth = getAuthClient();
+  saveState._auth = auth; // make auth available for dashboard refresh
 
   // Start webhook server (must come before onboarding so registry is available)
   webhookServer.init({
@@ -1695,6 +1707,15 @@ async function main() {
       }
       await onboardEmployee(auth, employee);
     }
+  }
+
+  // Build master dashboard with all loaded employees
+  if (Object.keys(employeeRegistry).length > 0) {
+    updateMasterDashboard(auth, Object.values(employeeRegistry))
+      .then(sheetId => {
+        if (sheetId) console.log(`[Dashboard] Master dashboard ready: https://docs.google.com/spreadsheets/d/${sheetId}`);
+      })
+      .catch(err => console.warn('[Dashboard] Initial build failed:', err.message));
   }
 
   // Start daily health-check cron
