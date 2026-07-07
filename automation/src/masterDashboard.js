@@ -90,11 +90,13 @@ function flattenChecklist(checklist) {
 }
 
 function pctComplete(checklist) {
+  // Count only the 16 milestone tasks shown as columns — same as individual status sheet
   const flat = flattenChecklist(checklist);
-  const tasks = Object.values(flat);
-  if (!tasks.length) return 0;
-  const done = tasks.filter(t => t && t.done).length;
-  return Math.round((done / tasks.length) * 100);
+  const milestoneTasks = MILESTONE_TASKS.filter(k => k !== 't10'); // t10 = re-upload, skipped as N/A
+  const total = milestoneTasks.length;
+  const done = milestoneTasks.filter(k => flat[k] && flat[k].done).length;
+  if (!total) return 0;
+  return Math.round((done / total) * 100);
 }
 
 function isTaskDone(checklist, taskId) {
