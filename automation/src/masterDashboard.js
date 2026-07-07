@@ -32,23 +32,24 @@ const MILESTONES = [
 ];
 
 // Checklist task keys that map to each milestone (same order as MILESTONES)
+// The checklist is nested: checklist.phaseN.tasks.tXX
 const MILESTONE_TASKS = [
-  't1',   // pre-onboarding form sent
-  't3',   // documents received
-  't4',   // re-upload requested (notOk)
-  't5',   // documents verified
-  't6',   // official email confirmed
-  't7',   // manager confirmed
-  't8',   // IT confirmed
-  't9',   // BGV done
-  't10',  // HR induction scheduled
-  't11',  // project intro scheduled
-  't12',  // DOJ / onboarding complete
-  't13',  // day 25 catchup
-  't14',  // day 30 catchup
-  't15',  // day 60 review
-  't16',  // day 90 review
-  't17',  // pre-probation done
+  't4',   // Pre-onboarding form sent to new joinee
+  't5',   // Employee uploads documents
+  't10',  // Re-upload reminder sent (only shows if triggered)
+  't12',  // Document verification marked complete
+  't16',  // Official email & greythr confirmed
+  't19',  // Manager allocation confirmed
+  't22',  // IT allocation confirmed
+  't26',  // BGV done
+  't28',  // HR induction scheduled
+  't32',  // Project intro scheduled
+  't42',  // DOJ phase complete
+  't63',  // Day 25 catchup email sent
+  't43',  // 30-day catchup transcribed
+  't46',  // 60-day review done
+  't49',  // 90-day review done
+  't52',  // Pre-probation verification completed
 ];
 
 // Colours as {red, green, blue} in 0–1 range (Sheets API format)
@@ -78,15 +79,27 @@ function daysFromDOJ(doj) {
   return Math.floor(ms / (1000 * 60 * 60 * 24));
 }
 
+// Flatten nested checklist (checklist.phaseN.tasks.tXX) into a flat {tXX: task} map
+function flattenChecklist(checklist) {
+  const flat = {};
+  if (!checklist) return flat;
+  for (const phase of Object.values(checklist)) {
+    if (phase && phase.tasks) Object.assign(flat, phase.tasks);
+  }
+  return flat;
+}
+
 function pctComplete(checklist) {
-  const tasks = Object.values(checklist || {});
+  const flat = flattenChecklist(checklist);
+  const tasks = Object.values(flat);
   if (!tasks.length) return 0;
   const done = tasks.filter(t => t && t.done).length;
   return Math.round((done / tasks.length) * 100);
 }
 
 function isTaskDone(checklist, taskId) {
-  return !!(checklist && checklist[taskId] && checklist[taskId].done);
+  const flat = flattenChecklist(checklist);
+  return !!(flat[taskId] && flat[taskId].done);
 }
 
 // Determine if a milestone is overdue based on DOJ + expected day range
@@ -95,9 +108,9 @@ function milestoneStatus(employee, milestoneIdx) {
   const done = isTaskDone(employee.checklist, taskKey);
   if (done) return 'done';
 
-  // t4 (re-upload) is only relevant if explicitly triggered — skip otherwise
-  if (taskKey === 't4') {
-    return isTaskDone(employee.checklist, 't4') ? 'notok' : 'na';
+  // t10 (re-upload reminder) — only relevant if actually triggered
+  if (taskKey === 't10') {
+    return isTaskDone(employee.checklist, 't10') ? 'done' : 'na';
   }
 
   const days = daysFromDOJ(employee.doj);
@@ -105,21 +118,21 @@ function milestoneStatus(employee, milestoneIdx) {
 
   // Overdue thresholds (days after DOJ)
   const overdueAfter = {
-    t1: -5,   // pre-onboarding should be done before joining
-    t3: 1,    // docs within 1 day of joining
-    t5: 3,    // verification within 3 days
-    t6: 3,
-    t7: 3,
-    t8: 3,
-    t9: 5,
-    t10: 7,
-    t11: 7,
-    t12: 0,   // DOJ itself
-    t13: 25,
-    t14: 30,
-    t15: 60,
-    t16: 90,
-    t17: 90,
+    t4:  -5,  // pre-onboarding form should go before joining
+    t5:  -2,  // docs uploaded before DOJ
+    t12:  2,  // verification within 2 days of joining
+    t16:  3,  // official email within 3 days
+    t19:  3,  // manager confirmed within 3 days
+    t22:  3,  // IT assets within 3 days
+    t26:  5,  // BGV within 5 days
+    t28:  7,  // HR induction within 7 days
+    t32:  7,  // project intro within 7 days
+    t42:  0,  // DOJ phase complete on DOJ
+    t63: 25,  // day 25 catchup
+    t43: 30,  // 30-day review
+    t46: 60,  // 60-day review
+    t49: 90,  // 90-day review
+    t52: 90,  // pre-probation
   };
 
   const threshold = overdueAfter[taskKey];
