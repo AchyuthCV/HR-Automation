@@ -315,7 +315,7 @@ function buildDefaultChecklist() {
     phase3: {
       label: 'Phase 3 — Day of Joining',
       tasks: {
-        t64: { label: 'DOJ screenshot upload request sent to recruiter', done: false },
+        t66: { label: 'DOJ screenshot upload request sent to recruiter', done: false },
         t33: { label: 'Recruiter conducts HR induction', done: false },
         t34: { label: 'Automation confirms HR induction attendance', done: false },
         t35: { label: 'IT team confirms asset and access card allocation', done: false },
@@ -1461,7 +1461,7 @@ async function onboardEmployee(auth, employee) {
   }
 
   // On DOJ morning — send screenshot upload request to recruiter (fires once)
-  if (!isTaskDone(employee.checklist, 't64')) {
+  if (!isTaskDone(employee.checklist, 't66')) {
     const dojDate = new Date(employee.doj);
     const todayStr = new Date().toISOString().split('T')[0];
     const dojStr   = employee.doj ? employee.doj.split('T')[0] : '';
@@ -1469,7 +1469,7 @@ async function onboardEmployee(auth, employee) {
       await sendDOJScreenshotRequest(employee).catch(err =>
         console.warn(`[Index] DOJ screenshot request email failed for ${employee.name}: ${err.message}`)
       );
-      markAndLog(employee, 't64');
+      markAndLog(employee, 't66');
       await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
       saveState(employee.employeeId, snapshotEmployee(employee));
       console.log(`[Index] DOJ screenshot request sent to recruiter for ${employee.name}`);
@@ -1477,11 +1477,11 @@ async function onboardEmployee(auth, employee) {
       // DOJ is in the future — schedule the email for midnight of DOJ
       const msUntilDOJ = dojDate.getTime() - Date.now();
       setTimeout(async () => {
-        if (!isTaskDone(employee.checklist, 't64')) {
+        if (!isTaskDone(employee.checklist, 't66')) {
           await sendDOJScreenshotRequest(employee).catch(err =>
             console.warn(`[Index] DOJ screenshot request email failed for ${employee.name}: ${err.message}`)
           );
-          markAndLog(employee, 't64');
+          markAndLog(employee, 't66');
           await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
           saveState(employee.employeeId, snapshotEmployee(employee));
           console.log(`[Index] DOJ screenshot request sent to recruiter for ${employee.name}`);

@@ -152,6 +152,10 @@ function schedule25DayCatchup(employee, markTaskFn) {
     await send25DayCatchupEmail(employee).catch(err =>
       console.warn(`[Cron] 25-day catchup email failed for ${name}: ${err.message}`)
     );
+    const { sendJoineeReviewNotification } = require('./emailSender');
+    await sendJoineeReviewNotification(employee, 25).catch(err =>
+      console.warn(`[Cron] 25-day joinee notification failed for ${name}: ${err.message}`)
+    );
     console.log(`[Cron] 25-day catchup email sent for ${name} (${employeeId})`);
     if (markTaskFn) markTaskFn('t63');
     if (employee._auth) await mark25DayCatchupDone(employee._auth, employee).catch(() => {});
@@ -411,11 +415,11 @@ function restoreMilestonesAfterRestart(employee, contacts, completedMilestones, 
     console.log(`[Cron]   Skipping 25-day catchup (t63 already done)`);
   }
 
-  if (!done.has('t45')) {
+  if (!done.has('t43')) {
     const t = schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, markTaskFn);
     if (t) tasks.push(t);
   } else {
-    console.log(`[Cron]   Skipping 30-day catchup (t45 already done)`);
+    console.log(`[Cron]   Skipping 30-day catchup (t43 already done)`);
   }
 
   if (!done.has('t48')) {
