@@ -22,6 +22,7 @@ const {
   sendHRInductionConfirmation,
   sendOnboardingCompletionReport,
   sendJoineeOnboardingComplete,
+  sendJoineeReviewNotification,
 } = require('./emailSender');
 const {
   mark25DayCatchupDone,
@@ -141,6 +142,7 @@ async function run() {
   if (!isTaskDone('t63')) {
     console.log('\n[4] Firing: 25-day catchup email (t63)');
     await send25DayCatchupEmail(employee).catch(e => console.warn('  25-day email failed:', e.message));
+    await sendJoineeReviewNotification(employee, 25).catch(e => console.warn('  25-day joinee email failed:', e.message));
     await mark25DayCatchupDone(auth, employee).catch(() => {});
     markDone('t63');
   } else {
@@ -173,6 +175,7 @@ async function run() {
     console.log('\n[6] Firing: 30-day catchup (t43)');
     await create30DayCatchupEvent(auth, employee).catch(e => console.warn('  30-day calendar failed:', e.message));
     await send30DayTechnicalReview(employee).catch(e => console.warn('  30-day email failed:', e.message));
+    await sendJoineeReviewNotification(employee, 30).catch(e => console.warn('  30-day joinee email failed:', e.message));
     await mark30DayDone(auth, employee).catch(() => {});
     markDone('t43');
   } else {
@@ -187,6 +190,7 @@ async function run() {
       .catch(e => console.warn('  60-day reminder failed:', e.message));
     await createReviewEvent(auth, employee, 60).catch(e => console.warn('  60-day calendar failed:', e.message));
     await sendReviewSummaryRequest(employee, 60).catch(e => console.warn('  60-day summary request failed:', e.message));
+    await sendJoineeReviewNotification(employee, 60).catch(e => console.warn('  60-day joinee email failed:', e.message));
     await mark60DayDone(auth, employee).catch(() => {});
     markDone('t46');
     markDone('t47');
@@ -201,6 +205,7 @@ async function run() {
       .catch(e => console.warn('  90-day reminder failed:', e.message));
     await createReviewEvent(auth, employee, 90).catch(e => console.warn('  90-day calendar failed:', e.message));
     await sendReviewSummaryRequest(employee, 90).catch(e => console.warn('  90-day summary request failed:', e.message));
+    await sendJoineeReviewNotification(employee, 90).catch(e => console.warn('  90-day joinee email failed:', e.message));
     await mark90DayDone(auth, employee).catch(() => {});
     markDone('t49');
     markDone('t50');

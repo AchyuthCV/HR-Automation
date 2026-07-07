@@ -1210,6 +1210,34 @@ async function sendOnboardingCompletionReport(employee) {
   });
 }
 
+// Simple review/catchup notification to the new joinee (day 25/30/60/90)
+async function sendJoineeReviewNotification(employee, dayMark) {
+  const { name, officialEmail, personalEmail } = employee;
+  const co = esc(process.env.COMPANY_NAME || 'Alethea');
+  const to = officialEmail || personalEmail;
+  if (!to) return;
+
+  const labels = {
+    25: { subject: `Your 25-Day Catchup Call — ${esc(name)}`, body: `This is a reminder that your <strong>25-day catchup call</strong> is scheduled. Your recruiter will reach out to connect with you. Please be available and share any feedback or concerns you have so far.` },
+    30: { subject: `Your 30-Day Review — ${esc(name)}`, body: `You have completed <strong>30 days</strong> at ${co}! Your 30-day project review call is coming up. Your manager and recruiter will connect with you to discuss your progress, challenges, and goals for the next month.` },
+    60: { subject: `Your 60-Day Review — ${esc(name)}`, body: `You have completed <strong>60 days</strong> at ${co}! Your 60-day review call is scheduled. Your manager and recruiter will discuss your project progress and set goals for the next phase.` },
+    90: { subject: `Your 90-Day Review — ${esc(name)}`, body: `You have completed <strong>90 days</strong> at ${co}! Your 90-day review call is coming up. This is your final probation review — your manager and recruiter will assess your progress and confirm probation clearance.` },
+  };
+
+  const { subject, body } = labels[dayMark] || { subject: `Review Call — ${esc(name)}`, body: `Your ${dayMark}-day review is scheduled.` };
+
+  return sendEmail({
+    to,
+    subject,
+    html: `
+      <p>Hi ${esc(name)},</p>
+      <p>${body}</p>
+      <p>If you have any questions or concerns before the call, feel free to reach out to HR.</p>
+      <p>Regards,<br/>${co} HR</p>
+    `,
+  });
+}
+
 // Simple onboarding complete email to the new joinee
 async function sendJoineeOnboardingComplete(employee) {
   const { name, officialEmail, personalEmail } = employee;
@@ -1362,6 +1390,7 @@ module.exports = {
   sendNoReplyEscalation,
   sendOnboardingCompletionReport,
   sendJoineeOnboardingComplete,
+  sendJoineeReviewNotification,
   sendDOJScreenshotRequest,
   sendDocumentCrossCheckAlert,
 };
