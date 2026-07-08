@@ -856,8 +856,6 @@ async function createEmployeeInfoSheet(auth, employee) {
     return `https://docs.google.com/spreadsheets/d/${employee.employeeInfoSheetId}`;
   }
 
-  const drive = google.drive({ version: 'v3', auth });
-
   // Helper to pull extracted value or blank
   const v = (val) => (val != null && val !== '' ? String(val) : '');
 
@@ -1269,22 +1267,14 @@ async function createEmployeeInfoSheet(auth, employee) {
       fields: 'id, parents',
     });
 
-    // ── Share with HR + recruiter (edit), employee (view) ────────────────────
+    // ── Share with HR + recruiter only — joinee has no access ────────────────
     const hrEmail = process.env.HR_EMAIL;
     const recruiterEmail = (contacts && contacts.recruiterEmail) || null;
-    const joinerEmail = officialEmail || personalEmail;
     const editList = [hrEmail, recruiterEmail].filter(Boolean);
     for (const email of [...new Set(editList)]) {
       await drive.permissions.create({
         fileId: spreadsheetId,
         requestBody: { type: 'user', role: 'writer', emailAddress: email },
-        sendNotificationEmail: false,
-      }).catch(() => {});
-    }
-    if (joinerEmail) {
-      await drive.permissions.create({
-        fileId: spreadsheetId,
-        requestBody: { type: 'user', role: 'reader', emailAddress: joinerEmail },
         sendNotificationEmail: false,
       }).catch(() => {});
     }
