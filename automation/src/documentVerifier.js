@@ -295,8 +295,8 @@ If a field is not visible or readable, set it to null. Do not guess.`,
 
 // Extract structured data from a document that has already passed verification.
 // Returns an object of extracted fields, or {} if extraction is not configured for this doc type.
-async function extractDocumentData(auth, fileId, filename, mimeType) {
-  const docType = await detectDocType(auth, fileId, filename, mimeType);
+async function extractDocumentData(auth, fileId, filename, mimeType, subfolderHint) {
+  const docType = await detectDocType(auth, fileId, filename, mimeType, subfolderHint);
   if (!docType || !EXTRACTION_PROMPTS[docType]) return {};
 
   const genAI = getGenAI();
@@ -345,6 +345,7 @@ function detectDocTypeFromFilename(filename) {
   if (lower.includes('12th') || lower.includes('12_th') || lower.includes('twelfth') || lower.includes('hsc') || lower.includes('puc') || lower.includes('diploma') || lower.includes('intermediate') || lower.includes('marksheet_12')) return 'marksheet12th';
   if (lower.includes('postgrad') || lower.includes('post_grad') || lower.includes('mtech') || lower.includes('msc') || lower.includes('mba') || lower.includes('mca') || lower.includes('phd') || lower.includes('masters') || lower.includes('pg_')) return 'postgradCertificate';
   if (lower.includes('degree') || lower.includes('graduation') || lower.includes('consolidated') || lower.includes('btech') || lower.includes('bsc') || lower.includes('bcom') || lower.includes('bca') || lower.includes('bba')) return 'degreeCertificate';
+  if (lower.includes('address') || lower.includes('electricity') || lower.includes('rent') || lower.includes('rental') || lower.includes('receipt') || lower.includes('lease') || lower.includes('utility')) return 'addressProof';
   return null;
 }
 
@@ -364,22 +365,23 @@ async function detectDocTypeFromContent(auth, fileId, mimeType) {
     const result_raw = await callWithRetry(() => model.generateContent([
       `Look at this document and identify what type of HR document it is. Respond ONLY with a JSON object in this exact format:
 {
-  "docType": one of: "aadhaar", "pan", "offerLetter", "meetingScreenshot", "passportPhoto", "payslip", "relievingLetter", "marksheet10th", "marksheet12th", "degreeCertificate", "postgradCertificate", or null if none match,
+  "docType": one of: "aadhaar", "pan", "offerLetter", "meetingScreenshot", "passportPhoto", "payslip", "relievingLetter", "marksheet10th", "marksheet12th", "degreeCertificate", "postgradCertificate", "addressProof", or null if none match,
   "confidence": "high" / "medium" / "low"
 }
 
 Document type descriptions:
-- aadhaar: Indian Aadhaar card with 12-digit UID number
-- pan: Indian PAN card with 10-character alphanumeric code
-- offerLetter: Employment offer letter or appointment letter
-- meetingScreenshot: Screenshot of a video call or meeting (Zoom, Teams, Meet etc.)
-- passportPhoto: Passport-size portrait photograph
-- payslip: Salary slip or payslip from an employer
-- relievingLetter: Relieving letter or experience letter from previous employer
-- marksheet10th: 10th standard / SSLC / SSC / Matriculation marksheet
-- marksheet12th: 12th standard / HSC / PUC / Intermediate / Diploma marksheet
-- degreeCertificate: Graduation degree certificate or consolidated marksheet (BE/BTech/BSc/BBA/BCA/BCom etc.)
-- postgradCertificate: Post-graduation certificate (MTech/MBA/MSc/MCA/PhD etc.)
+- aadhaar: Indian Aadhaar card — has 12-digit UID number, name, photo, address, and "Aadhaar" branding or UIDAI logo
+- pan: Indian PAN card — has 10-character alphanumeric PAN number, name, date of birth, and Income Tax Department branding
+- offerLetter: Employment offer/appointment letter — has company name, candidate name, role, and signature. May be titled "Appointment Letter" or "Offer Letter"
+- meetingScreenshot: Screenshot of a video call or physical meeting — shows meeting UI (Zoom, Teams, Meet) or people in a meeting room
+- passportPhoto: Passport-size portrait photograph — plain background, face clearly visible, no document text
+- payslip: Salary slip or payslip — shows employee name, salary components (basic, HRA, deductions), net pay, and month/year
+- relievingLetter: Relieving letter or experience letter from a previous employer — confirms last working day and employment period
+- marksheet10th: 10th standard marksheet — SSLC / SSC / Matriculation / Board exam result with subject marks and board name
+- marksheet12th: 12th standard marksheet or diploma — HSC / PUC / Intermediate / Diploma result with subject marks and board/institution
+- degreeCertificate: Graduation degree certificate or consolidated marksheet — BE/BTech/BSc/BBA/BCA/BCom or similar, issued by a university
+- postgradCertificate: Post-graduation certificate — MTech/MBA/MSc/MCA/PhD or similar, issued by a university
+- addressProof: Current residential address proof — can be an electricity/utility bill (shows account holder name, address, bill period, utility company), a rental/lease agreement (contract between landlord and tenant with property address and signatures, may include government e-Stamp), or a rent receipt (handwritten or printed receipt for rent paid, showing tenant name, address, amount, and landlord signature)
 
 Respond with null docType if the document does not match any of the above.`,
       { inlineData: { data: base64, mimeType: mediaType } },
@@ -402,8 +404,28 @@ Respond with null docType if the document does not match any of the above.`,
   }
 }
 
-// Detect document type — content analysis is primary; filename is a fallback if Gemini is unsure
-async function detectDocType(auth, fileId, filename, mimeType) {
+// Subfolder name → guaranteed docType — no filename or content detection needed
+const SUBFOLDER_DOCTYPE_MAP = {
+  'Address_Proof':        'addressProof',
+  'Aadhaar':              'aadhaar',
+  'PAN':                  'pan',
+  'Offer_Letter':         'offerLetter',
+  'Passport_Photo':       'passportPhoto',
+  'Payslip':              'payslip',
+  'Relieving_Letter':     'relievingLetter',
+  'Marksheet_10th':       'marksheet10th',
+  'Marksheet_12th':       'marksheet12th',
+  'Degree_Certificate':   'degreeCertificate',
+  'Postgrad_Certificate': 'postgradCertificate',
+  'Meeting_Screenshots':  'meetingScreenshot',
+};
+
+// Detect document type — subfolder is authoritative; content analysis is next; filename is last resort
+async function detectDocType(auth, fileId, filename, mimeType, subfolderHint) {
+  if (subfolderHint && SUBFOLDER_DOCTYPE_MAP[subfolderHint]) {
+    console.log(`[Verify] Doc type resolved from subfolder "${subfolderHint}": ${SUBFOLDER_DOCTYPE_MAP[subfolderHint]}`);
+    return SUBFOLDER_DOCTYPE_MAP[subfolderHint];
+  }
   const fromContent = await detectDocTypeFromContent(auth, fileId, mimeType);
   if (fromContent) return fromContent;
   // Gemini couldn't confidently classify — try filename as last resort
@@ -492,8 +514,8 @@ async function callWithRetry(fn, maxRetries = 4) {
 }
 
 // Core verification function — returns { valid, docType, checks, failureReasons, summary }
-async function verifyDocument(auth, fileId, filename, mimeType) {
-  const docType = await detectDocType(auth, fileId, filename, mimeType);
+async function verifyDocument(auth, fileId, filename, mimeType, subfolderHint) {
+  const docType = await detectDocType(auth, fileId, filename, mimeType, subfolderHint);
   if (!docType) {
     return {
       valid: false,

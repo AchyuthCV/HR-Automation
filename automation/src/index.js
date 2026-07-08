@@ -567,8 +567,8 @@ async function handleNewFile(auth, employee, file, subfolderHint) {
     return true;
   }
 
-  // Classify document type — content-first, filename as last resort
-  const docType = await detectDocType(auth, file.id, file.name, file.mimeType);
+  // Classify document type — subfolder is authoritative, then content, then filename
+  const docType = await detectDocType(auth, file.id, file.name, file.mimeType, subfolderHint);
   if (!docType) {
     console.log(`[Index] Could not classify file: ${file.name} — sending re-upload request`);
     activityLog.log(employee, 'document_rejected', `${file.name} — Could not identify document type from content or filename. Please re-upload a valid HR document.`);
@@ -604,7 +604,7 @@ async function handleNewFile(auth, employee, file, subfolderHint) {
   console.log(`[Index] Verifying ${file.name} for ${employee.name}`);
   let result;
   try {
-    result = await verifyDocument(auth, file.id, file.name, file.mimeType);
+    result = await verifyDocument(auth, file.id, file.name, file.mimeType, subfolderHint);
   } catch (err) {
     console.error(`[Index] verifyDocument failed for ${file.name}:`, err.message);
     activityLog.log(employee, 'verification_error', `${file.name} — ${err.message}`);
@@ -642,7 +642,7 @@ async function handleNewFile(auth, employee, file, subfolderHint) {
 
     // Extract structured data from the verified doc — await so data is ready before t9 sheet creation
     try {
-      const extracted = await extractDocumentData(auth, file.id, file.name, file.mimeType);
+      const extracted = await extractDocumentData(auth, file.id, file.name, file.mimeType, subfolderHint);
       if (extracted && extracted.docType && extracted.fields) {
         employee.extractedData = employee.extractedData || {};
         employee.extractedData[extracted.docType] = extracted.fields;
