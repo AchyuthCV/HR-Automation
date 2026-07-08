@@ -1329,6 +1329,51 @@ async function handleReply(auth, classified, rawMsg) {
       return;
     }
 
+    case 'doc_manually_approved': {
+      // Recruiter replied "Confirmed" to a document rejection email after reviewing
+      // the document the joinee sent directly. Map the label back to internal docType key.
+      const DOC_LABEL_MAP = {
+        'aadhaar':                    'aadhaar',
+        'aadhar':                     'aadhaar',
+        'pan':                        'pan',
+        'pan card':                   'pan',
+        'offer letter':               'offerLetter',
+        'appointment letter':         'offerLetter',
+        'payslip':                    'payslip',
+        'pay slip':                   'payslip',
+        'relieving letter':           'relievingLetter',
+        'experience letter':          'relievingLetter',
+        '10th marksheet':             'marksheet10th',
+        '10th':                       'marksheet10th',
+        '12th marksheet':             'marksheet12th',
+        '12th':                       'marksheet12th',
+        'diploma':                    'marksheet12th',
+        'degree certificate':         'degreeCertificate',
+        'graduation':                 'degreeCertificate',
+        'post graduation certificate':'postgradCertificate',
+        'postgrad':                   'postgradCertificate',
+        'pg certificate':             'postgradCertificate',
+        'passport size photo':        'passportPhoto',
+        'passport photo':             'passportPhoto',
+        'address proof':              'addressProof',
+      };
+      const rawDocType = (data.docType || '').toLowerCase().trim();
+      const internalDocType = DOC_LABEL_MAP[rawDocType] || rawDocType;
+      if (!internalDocType) {
+        console.warn(`[Index] doc_manually_approved — could not determine docType from reply for ${employee.name}`);
+        break;
+      }
+      employee.verificationResults = employee.verificationResults || {};
+      employee.verificationResults[internalDocType] = { valid: true, manual: true, summary: 'Manually approved by recruiter' };
+      const taskId = DOC_TASK_MAP[internalDocType];
+      if (taskId && !isTaskDone(checklist, taskId)) markAndLog(employee, taskId);
+      activityLog.log(employee, 'doc_manually_approved', `${internalDocType} approved by recruiter`);
+      console.log(`[Index] Document manually approved by recruiter: ${internalDocType} for ${employee.name}`);
+      // Update the status sheet to reflect the approval
+      await markDocumentsVerifiedOk(auth, employee).catch(() => {});
+      break;
+    }
+
     default:
       console.log(`[Index] Unhandled reply type: ${replyType}`);
       return;

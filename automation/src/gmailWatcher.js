@@ -238,9 +238,10 @@ Reply type definitions — use the email SUBJECT as the primary signal, then bod
 - "catchup_complete": Confirms a 30-day catchup call was completed
 - "review_complete": Confirms a 60-day or 90-day performance review was completed
 - "pre_probation_result": Confirms probation period outcome
+- "doc_manually_approved": Recruiter replies "Confirmed" to a document rejection/verification email to manually approve a document that the joinee sent directly to the recruiter. Subject will contain "Could Not Be Verified" or "Still Pending" and the body contains "confirmed", "approved", "ok", "looks good" or similar positive acknowledgement. Extract the document type from the subject (e.g. Aadhaar, PAN, Offer Letter, etc.) into data.docType.
 - "unknown": Related to onboarding but does not clearly match any above type
 
-IMPORTANT: If the subject contains "Pre-Onboarding Form" and the body mentions preferred times for meetings → classify as "meeting_time_preference" and extract inductionTime and projectIntroTime into data. If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". If subject contains "BGV" or "Background Verification" → classify as "bgv_report". If subject contains "Confirm Access to Your Official Email" → classify as "official_email_access_confirmed" or "official_email_access_failed" based on whether the body is positive or negative. If subject contains "25th Day Catchup" → classify as "catchup25_complete". Subject is the strongest signal.
+IMPORTANT: If the subject contains "Pre-Onboarding Form" and the body mentions preferred times for meetings → classify as "meeting_time_preference" and extract inductionTime and projectIntroTime into data. If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". If subject contains "BGV" or "Background Verification" → classify as "bgv_report". If subject contains "Confirm Access to Your Official Email" → classify as "official_email_access_confirmed" or "official_email_access_failed" based on whether the body is positive or negative. If subject contains "25th Day Catchup" → classify as "catchup25_complete". If subject contains "Could Not Be Verified" or "Still Pending" and body is a positive confirmation → classify as "doc_manually_approved". Subject is the strongest signal.
 Simple acknowledgements ("ok", "noted", "will do", "thanks") should be classified with isOnboardingReply=false unless they contain substantive information.
 
 Respond ONLY with a JSON object in this exact format:
@@ -256,6 +257,7 @@ Respond ONLY with a JSON object in this exact format:
     "bgvStatus": "extracted BGV status or null",
     "inductionTime": "preferred HR Induction time if mentioned e.g. '10:00 AM' or null",
     "projectIntroTime": "preferred Project Intro Meeting time if mentioned e.g. '3:00 PM' or null",
+    "docType": "document type extracted from subject if this is a doc_manually_approved reply — e.g. 'Aadhaar', 'PAN', 'Offer Letter', 'Payslip', 'Relieving Letter', '10th Marksheet', '12th Marksheet', 'Degree Certificate', 'Post Graduation Certificate', 'Passport Size Photo' — or null",
     "notes": "any other relevant details"
   },
   "confidence": "high/medium/low"
