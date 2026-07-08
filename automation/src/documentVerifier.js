@@ -44,7 +44,7 @@ Only set valid=true if ALL four checks pass.`,
 }
 Only set valid=true if ALL three checks pass.`,
 
-  offerLetter: `You are verifying a signed offer letter from Alethea Communications Technologies. Check ALL of the following and respond with a JSON object:
+  offerLetter: `You are verifying an appointment letter / offer letter from Alethea Communications Technologies. The document may be titled "Appointment Letter" or "Offer Letter". Check ALL of the following and respond with a JSON object:
 {
   "valid": true/false,
   "docType": "Offer Letter",
@@ -58,10 +58,10 @@ Only set valid=true if ALL three checks pass.`,
   "summary": "one sentence summary"
 }
 Check definitions:
-- "signed": A signature is present on the document.
-- "candidateNameVisible": The candidate's name appears on the letter.
-- "dateVisible": A date is present on the letter.
-- "aletheaCompanyName": The company name "Alethea" or "Alethea Communications Technologies" is visible anywhere on the document — in the letterhead, body, or footer.
+- "signed": The company has signed the letter — look for "Chimbu K Aravind" or "Founder, Director" or any signature block on behalf of Alethea. The employee acceptance signature may be blank — that is acceptable, set signed=true as long as the company signature is present.
+- "candidateNameVisible": The candidate's name appears on the letter (usually top-left or in the salutation "Dear [Name]").
+- "dateVisible": A date is present anywhere on the letter.
+- "aletheaCompanyName": The name "Alethea" or "Alethea Communications Technologies" is visible anywhere — in the letterhead, logo, body, or footer.
 Only set valid=true if ALL four checks pass.`,
 
   meetingScreenshot: `You are an HR automation assistant verifying a project introduction meeting screenshot to confirm that a new employee attended their project intro meeting on their Day of Joining.
