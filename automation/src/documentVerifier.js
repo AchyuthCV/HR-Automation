@@ -58,7 +58,7 @@ Only set valid=true if ALL three checks pass.`,
   "summary": "one sentence summary"
 }
 Check definitions:
-- "signed": The company has signed the letter — look for "Chimbu K Aravind" or "Founder, Director" or any signature block on behalf of Alethea. The employee acceptance signature may be blank — that is acceptable, set signed=true as long as the company signature is present.
+- "signed": Both the company and employee signatures should be present. Company signature: look for "Chimbu K Aravind" or "Founder, Director" or any signature block on behalf of Alethea. Employee signature: look for a signature or name filled in the employee acceptance section at the end. Set signed=true only if BOTH are present.
 - "candidateNameVisible": The candidate's name appears on the letter (usually top-left or in the salutation "Dear [Name]").
 - "dateVisible": A date is present anywhere on the letter.
 - "aletheaCompanyName": The name "Alethea" or "Alethea Communications Technologies" is visible anywhere — in the letterhead, logo, body, or footer.
