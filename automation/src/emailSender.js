@@ -529,20 +529,20 @@ async function sendInductionCalendarInvite(employee) {
 }
 
 // Template 15: Project intro meeting invite
-// - Simple notification to the employee (no sheet link)
-// - Sheet link only to manager + recruiter
+// - Joinee gets a simple notification email (no sheet link, no sheet access)
+// - Sheet link goes to recruiter only
 async function sendProjectIntroInvite(employee, sheetUrl) {
   const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
-  const managerEmail = contacts && contacts.managerEmail;
   const recruiterEmail = contacts && contacts.recruiterEmail;
+  const managerEmail = contacts && contacts.managerEmail;
   const joineeEmail = officialEmail || personalEmail;
   const displayDoj = doj ? new Date(doj).toDateString() : 'your Date of Joining';
 
-  // Simple email to joinee — no sheet link
+  // Notify joinee — no sheet link
   if (joineeEmail) {
     await sendEmail({
       to: joineeEmail,
-      subject: `Project Intro Meeting — ${name} (${employeeId})`,
+      subject: `Project Intro Meeting — ${esc(name)}`,
       html: `
         <p>Hi ${esc(name)},</p>
         <p>A project introduction meeting has been scheduled for you on <strong>${displayDoj}</strong> (post-lunch).</p>
@@ -553,27 +553,26 @@ async function sendProjectIntroInvite(employee, sheetUrl) {
     });
   }
 
-  // Sheet link email to manager + recruiter only
-  const internalTo = [managerEmail, recruiterEmail].filter(Boolean).join(', ');
-  if (internalTo) {
-    const sheetSection = sheetUrl
-      ? `<p style="margin:16px 0;">
-          <a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">
-            Open Project Intro Sheet
-          </a>
-        </p>
-        <p style="color:#555;font-size:13px;">
-          <strong>Manager:</strong> Please fill in Key Projects, Initial Goals, Buddy/Mentor, and Team Name before the meeting.<br/>
-          <strong>Note:</strong> Employee access to this sheet will be removed after 48 hours.
-        </p>`
-      : '';
+  // Sheet link to recruiter and manager only
+  const sheetSection = sheetUrl
+    ? `<p style="margin:16px 0;">
+        <a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">
+          Open Project Intro Sheet
+        </a>
+      </p>
+      <p style="color:#555;font-size:13px;">
+        <strong>Manager:</strong> Please fill in Key Projects, Initial Goals, Buddy/Mentor, and Team Name before the meeting.
+      </p>`
+    : '';
 
+  const internalTo = [recruiterEmail, managerEmail].filter(Boolean).join(', ');
+  if (internalTo) {
     await sendEmail({
       to: internalTo,
-      subject: `Project Intro Meeting Scheduled — ${name} (${employeeId})`,
+      subject: `Project Intro Meeting Scheduled — ${esc(name)} (${esc(employeeId)})`,
       html: `
         <p>Hi,</p>
-        <p>A project introduction meeting has been scheduled for <strong>${esc(name)}</strong> (${employeeId}) on <strong>${displayDoj}</strong> (post-lunch).</p>
+        <p>A project introduction meeting has been scheduled for <strong>${esc(name)}</strong> (${esc(employeeId)}) on <strong>${displayDoj}</strong> (post-lunch).</p>
         ${sheetSection}
         <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
       `,

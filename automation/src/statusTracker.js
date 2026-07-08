@@ -717,8 +717,8 @@ async function createProjectIntroSheet(auth, employee) {
       fields: 'id, parents',
     });
 
-    // ── Share with manager, recruiter, employee ───────────────────────────────
-    const shareWith = [managerEmail, recruiterEmail, officialEmail || personalEmail].filter(e => e && e !== '—');
+    // ── Share with manager and recruiter only — joinee has no access ─────────
+    const shareWith = [managerEmail, recruiterEmail].filter(e => e && e !== '—');
     for (const email of [...new Set(shareWith)]) {
       await drive.permissions.create({
         fileId: spreadsheetId,
