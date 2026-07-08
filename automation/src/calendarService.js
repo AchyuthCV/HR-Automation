@@ -81,8 +81,9 @@ async function createHRInductionEvent(auth, employee) {
     // Guard: DOJ must be a working day — push to Monday if it lands on a weekend
     const inductionDate = ensureWorkingDay(dojDate);
 
+    // Joinee is intentionally excluded — adding them gives a "Propose new time" button
+    // they shouldn't have. They receive a separate email invite via sendInductionCalendarInvite.
     const attendees = [
-      employee.officialEmail || employee.personalEmail,
       employee.contacts && employee.contacts.recruiterEmail,
       employee.contacts && employee.contacts.managerEmail,
     ]
@@ -98,7 +99,7 @@ async function createHRInductionEvent(auth, employee) {
     if (preferred) console.log(`[Calendar] HR Induction using preferred time ${startHour}:${String(startMin).padStart(2,'0')} for ${employee.name}`);
     const event = {
       summary: `HR Induction — ${employee.name}`,
-      description: `HR Induction session for ${employee.name} (${employee.employeeId}).\n\nAgenda:\n• Company policies and culture\n• Tools and systems walkthrough\n• Greythr login setup\n• Team introductions\n\nConducted by: Recruiter / HR Team\n\nNote: You can propose a new time using the calendar invite if this slot does not work.`,
+      description: `HR Induction session for ${employee.name} (${employee.employeeId}).\n\nAgenda:\n• Company policies and culture\n• Tools and systems walkthrough\n• Greythr login setup\n• Team introductions\n\nConducted by: Recruiter / HR Team`,
       location: 'Office / As communicated by HR',
       start: toGoogleDateTime(inductionDate, startHour, startMin),
       end: toGoogleDateTime(inductionDate, startHour + Math.floor(endMins / 60), endMins % 60),
@@ -141,8 +142,9 @@ async function createProjectIntroEvent(auth, employee) {
     // Meeting is on DOJ itself (post-lunch) — guard for weekend just in case
     const eventDate = ensureWorkingDay(dojDate);
 
+    // Joinee is intentionally excluded — adding them gives a "Propose new time" button
+    // they shouldn't have. They receive a separate email invite via sendProjectIntroInvite.
     const attendees = [
-      employee.officialEmail || employee.personalEmail,
       employee.contacts && employee.contacts.managerEmail,
       employee.contacts && employee.contacts.recruiterEmail,
     ]
@@ -158,7 +160,7 @@ async function createProjectIntroEvent(auth, employee) {
     if (preferred) console.log(`[Calendar] Project Intro using preferred time ${startHour}:${String(startMin).padStart(2,'0')} for ${employee.name}`);
     const event = {
       summary: `Project Intro Meeting — ${employee.name}`,
-      description: `Project introduction meeting for ${employee.name} (${employee.employeeId}) with their reporting manager.\n\nAgenda:\n• Role overview and expectations\n• Key projects and initial goals\n• Team and buddy introduction\n• Q&A\n\nNote: If this post-lunch slot does not work, you can propose a new time using the calendar invite.`,
+      description: `Project introduction meeting for ${employee.name} (${employee.employeeId}) with their reporting manager.\n\nAgenda:\n• Role overview and expectations\n• Key projects and initial goals\n• Team and buddy introduction\n• Q&A`,
       start: toGoogleDateTime(eventDate, startHour, startMin),
       end: toGoogleDateTime(eventDate, startHour + Math.floor(endMins / 60), endMins % 60),
       attendees,

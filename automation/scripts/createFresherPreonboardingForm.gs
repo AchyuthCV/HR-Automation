@@ -163,7 +163,7 @@ function onFresherFormSubmit(e) {
       UrlFetchApp.fetch(ENGINE_WEBHOOK_URL + '/preonboarding-details', {
         method: 'post',
         contentType: 'application/json',
-        payload: JSON.stringify({ employeeId: employeeId, personalDetails: personalDetails }),
+        payload: JSON.stringify({ employeeId: employeeId, respondentEmail: e.response.getRespondentEmail(), personalDetails: personalDetails }),
         muteHttpExceptions: true,
       });
       Logger.log('✅ Personal details sent to engine for: ' + employeeId);

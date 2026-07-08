@@ -116,14 +116,6 @@ async function sendPreOnboardingForm(employee) {
       <p>Your <strong>Employee ID</strong> is: <strong style="font-size:16px;">${esc(employeeId)}</strong> — you will need to enter this in the form.</p>
       ${formSection}
       <p>Please submit within <strong>24 hours</strong> of receiving this email.</p>
-      <hr style="border:none;border-top:1px solid #eee;margin:20px 0;"/>
-      <p><strong>Your DOJ meetings are scheduled as follows:</strong></p>
-      <ul>
-        <li><strong>HR Induction</strong> — 9:30 AM on ${esc(doj)}</li>
-        <li><strong>Project Intro Meeting</strong> — 2:00 PM on ${esc(doj)}</li>
-      </ul>
-      <p>If either time does not work for you, simply <strong>reply to this email</strong> with your preferred times.<br/>
-      For example: <em>"I prefer HR Induction at 11:00 AM and Project Intro at 3:00 PM"</em></p>
       <p>Looking forward to having you on board!<br/>HR Team, ${esc(process.env.COMPANY_NAME)}</p>
     `,
   });
@@ -257,28 +249,34 @@ async function sendAssetAllocationRequest(employee, managerEmail) {
   });
 }
 
-// Template 6: IT asset request — matches Alethea format used by HR
+// Template 6: IT asset request — includes manager's confirmed allocation details
 async function sendITAssetRequest(employee, itEmail, assetDetails) {
-  const { name, doj } = employee;
+  const { name, employeeId, doj } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
-  const designation = employee.designation || employee.role || 'New Joinee';
-  const team = employee.team || employee.department || 'the Team';
-  const location = (employee.officeLocation) || (assetDetails && assetDetails.officeLocation) || 'Office';
-  // itPersonName: prefer employee.contacts, fallback to assetDetails, then generic
-  const itPersonName = (employee.contacts && employee.contacts.itPersonName) ||
-    (assetDetails && assetDetails.itPersonName) || 'IT Team';
+  const ad = assetDetails || {};
+  const designation = esc(employee.role || employee.designation || 'New Joinee');
+  const department  = esc(employee.department || ad.department || '');
+  const location    = esc(ad.officeLocation || employee.officeLocation || 'Office');
+  const assetType   = esc(ad.assetType || '');
+  const supervisor  = esc(ad.supervisorName || '');
+  const reportingRow = supervisor ? `<li><strong>Reporting To:</strong> ${supervisor}</li>` : '';
+  const assetRow     = assetType  ? `<li><strong>Asset Required:</strong> ${assetType}</li>` : '';
 
   return sendEmail({
     to: itEmail,
-    subject: `IT Asset Request — ${esc(name)} (DOJ: ${esc(doj)})`,
+    subject: `IT Asset Setup Required — ${esc(name)} (DOJ: ${esc(doj)})`,
     html: `
-      <p>Dear Team,</p>
-      <p>
-        Candidate <strong>${esc(name)}</strong> (<strong>${esc(designation)}</strong>) is Joining the
-        <strong>${esc(team)}</strong> and will be joining us in office (<strong>${esc(location)}</strong>)
-        on <strong>${esc(doj)}</strong>.
-      </p>
-      <p>@${esc(itPersonName)} &nbsp; Request you to advise on the IT Asset.</p>
+      <p>Hi IT Team,</p>
+      <p>A new team member is joining us and requires IT setup before their Day of Joining. Please arrange the necessary assets and access as per the details below:</p>
+      <ul>
+        <li><strong>Name:</strong> ${esc(name)} (${esc(employeeId)})</li>
+        <li><strong>Designation:</strong> ${designation}${department ? ` — ${department}` : ''}</li>
+        <li><strong>Date of Joining:</strong> ${esc(doj)}</li>
+        <li><strong>Office Location:</strong> ${location}</li>
+        ${assetRow}
+        ${reportingRow}
+      </ul>
+      <p>Please ensure the laptop, system access, email credentials, and any required peripherals are ready before the DOJ. If any requested asset is unavailable, kindly reply with an alternative or the expected availability date so HR can coordinate accordingly.</p>
       <p>Regards,<br/>${co} HR</p>
     `,
   });
@@ -523,7 +521,7 @@ async function sendInductionCalendarInvite(employee) {
         </tr>
       </table>
       <p><strong>${name}</strong> — please be present at the office by <strong>9:30 AM</strong> on your Date of Joining. The recruiter will conduct the induction covering company policies, tools, and culture.</p>
-      <p>A calendar invite has been sent to all participants. If the timing does not work, you can <strong>propose a new time</strong> directly from the calendar invite.</p>
+      <p>A calendar invite has been sent to all participants.</p>
       <p><strong>Recruiter</strong> — please confirm attendance by replying to this email once the induction is complete.</p>
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
     `,

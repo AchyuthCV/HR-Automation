@@ -269,10 +269,25 @@ async function scaffoldEmployeeFolder(auth, rootFolderId, employeeName, employee
   return folderMap;
 }
 
-// Lock the employee Drive folder so only their recruiter can access it.
-// Joinee uploads happen via Google Form (engine receives them), so the joinee
-// never needs direct Drive folder access. All other inherited permissions from
-// the root onboarding folder are revoked.
+// Grant a single user writer access to the employee Drive folder.
+// Used to give the joinee access when the pre-onboarding form is sent.
+async function grantFolderAccess(auth, folderId, email, employeeName) {
+  const drive = google.drive({ version: 'v3', auth });
+  try {
+    await drive.permissions.create({
+      fileId: folderId,
+      requestBody: { type: 'user', role: 'writer', emailAddress: email },
+      sendNotificationEmail: false,
+      supportsAllDrives: true,
+    });
+    console.log(`[Drive] Granted folder access to ${email} for ${employeeName}`);
+  } catch (err) {
+    console.warn(`[Drive] Could not grant folder access to ${email} for ${employeeName}: ${err.message}`);
+  }
+}
+
+// Lock the employee Drive folder so only the recruiter and joinee can access it.
+// All other inherited permissions from the root onboarding folder are revoked.
 async function lockEmployeeFolder(auth, folderId, recruiterEmail, employeeName) {
   const drive = google.drive({ version: 'v3', auth });
 

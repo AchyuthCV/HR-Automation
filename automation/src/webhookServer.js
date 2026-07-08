@@ -457,7 +457,7 @@ app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
 // Google Apps Script POSTs here when the new joinee submits their pre-onboarding form.
 // Stores the personal details on the employee object and saves state.
 app.post('/preonboarding-details', async (req, res) => {
-  const { employeeId, personalDetails } = req.body || {};
+  const { employeeId, respondentEmail, personalDetails } = req.body || {};
   if (!employeeId || !personalDetails) {
     return res.status(400).json({ error: 'Missing employeeId or personalDetails' });
   }
@@ -465,6 +465,27 @@ app.post('/preonboarding-details', async (req, res) => {
   if (!emp) {
     return res.status(404).json({ error: `Employee ${employeeId} not found in registry` });
   }
+
+  // Validate that the form was submitted by the correct joinee
+  if (respondentEmail && emp.personalEmail) {
+    if (respondentEmail.toLowerCase() !== emp.personalEmail.toLowerCase()) {
+      console.warn(`[Webhook] /preonboarding-details — email mismatch for ${employeeId}: expected ${emp.personalEmail}, got ${respondentEmail}`);
+      const { sendEmail } = require('./emailSender');
+      const hrEmail = (emp.contacts && emp.contacts.hrEmail) || process.env.HR_EMAIL;
+      sendEmail({
+        to: hrEmail,
+        subject: `ALERT — Unauthorized Pre-Onboarding Form Submission for ${emp.name} (${employeeId})`,
+        html: `<p>Hi,</p>
+          <p>Someone submitted the pre-onboarding form for <strong>${emp.name}</strong> (${employeeId}) using the wrong email address.</p>
+          <p><strong>Expected:</strong> ${emp.personalEmail}</p>
+          <p><strong>Submitted by:</strong> ${respondentEmail}</p>
+          <p>The submission has been rejected. Please follow up if needed.</p>
+          <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>`,
+      }).catch(() => {});
+      return res.status(403).json({ error: 'Unauthorized — email does not match registered joinee' });
+    }
+  }
+
   emp.personalDetails = Object.assign(emp.personalDetails || {}, personalDetails);
   if (_saveState) _saveState(employeeId, emp);
   console.log(`[Webhook] /preonboarding-details — saved personal details for ${employeeId}`);

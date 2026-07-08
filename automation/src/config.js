@@ -24,7 +24,7 @@ module.exports = {
 
   // ─── Calendar event times (24-hour, IST) ───────────────────────────────────
   calendarEvents: {
-    hrInduction:    { hour: 9,  minute: 30, durationMins: 90 }, // DOJ 9:30–11 AM
+    hrInduction:    { hour: 10, minute: 0,  durationMins: 90 }, // DOJ 10–11:30 AM
     projectIntro:   { hour: 14, minute: 0,  durationMins: 60 }, // DOJ+3 days 2–3 PM
     catchup25day:   { hour: 11, minute: 0,  durationMins: 30 }, // day 25 11–11:30 AM
     catchup30day:   { hour: 11, minute: 0,  durationMins: 30 }, // day 30 11–11:30 AM

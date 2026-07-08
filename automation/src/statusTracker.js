@@ -208,21 +208,6 @@ async function getOrCreateStatusSheet(auth, employee) {
   employee.statusSheetId = spreadsheetId;
   console.log(`[Status] Created status sheet for ${employee.name} → https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
 
-  // Grant employee view-only access so they can track their own onboarding progress
-  const emailToShare = employee.personalEmail || employee.officialEmail;
-  if (emailToShare) {
-    try {
-      await drive.permissions.create({
-        fileId: spreadsheetId,
-        requestBody: { type: 'user', role: 'reader', emailAddress: emailToShare },
-        sendNotificationEmail: false,
-      });
-      console.log(`[Status] Shared status sheet with ${emailToShare} (view only)`);
-    } catch (err) {
-      console.warn(`[Status] Could not share sheet with ${emailToShare}: ${err.message}`);
-    }
-  }
-
   return spreadsheetId;
 }
 
@@ -375,6 +360,29 @@ async function revokeEmployeeSheetAccess(auth, employee) {
   }
 }
 
+// Rename all employee Google Sheets using the legally correct name from Aadhaar.
+// Called after Aadhaar is verified — recruiter may have entered the wrong name.
+async function renameStatusSheet(auth, employee, aadhaarName) {
+  if (!aadhaarName) return;
+  const drive = google.drive({ version: 'v3', auth });
+  const id = employee.employeeId;
+
+  const sheetsToRename = [
+    { fileId: employee.statusSheetId,       newName: `Onboarding Status — ${aadhaarName} (${id})` },
+    { fileId: employee.employeeInfoSheetId, newName: `AL_DI_HR_018 — Onboarding Employee Information — ${aadhaarName} (${id})` },
+    { fileId: employee.projectIntroSheetId, newName: `AL_DI_HR_019 Project Introduction — ${aadhaarName} (${id})` },
+  ].filter(s => s.fileId);
+
+  for (const { fileId, newName } of sheetsToRename) {
+    try {
+      await drive.files.update({ fileId, requestBody: { name: newName } });
+      console.log(`[Status] Renamed sheet → ${newName}`);
+    } catch (err) {
+      console.warn(`[Status] Could not rename sheet ${fileId} for ${employee.name}: ${err.message}`);
+    }
+  }
+}
+
 module.exports = {
   STATUS,
   MILESTONES,
@@ -397,6 +405,7 @@ module.exports = {
   mark90DayDone,
   markPreprobationDone,
   revokeEmployeeSheetAccess,
+  renameStatusSheet,
   createProjectIntroSheet,
   createEmployeeInfoSheet,
 };
@@ -406,12 +415,29 @@ module.exports = {
 // pre-filled. Manager fills in Key Projects, Initial Goals, and Buddy Name.
 // Returns the sheet URL, or null on failure.
 async function createProjectIntroSheet(auth, employee) {
+  const drive  = google.drive({ version: 'v3', auth });
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  // Search Drive by employee ID if we don't have the sheet ID in memory (survives renames)
+  if (!employee.projectIntroSheetId) {
+    try {
+      const found = await drive.files.list({
+        q: `name contains '(${employee.employeeId})' and name contains 'AL_DI_HR_019' and trashed=false`,
+        fields: 'files(id, name)',
+        pageSize: 5,
+      });
+      if (found.data.files && found.data.files.length > 0) {
+        employee.projectIntroSheetId = found.data.files[0].id;
+        console.log(`[Status] Found existing project intro sheet for ${employee.name} via Drive search: ${employee.projectIntroSheetId}`);
+      }
+    } catch (err) {
+      console.warn(`[Status] Drive search for project intro sheet failed for ${employee.name}: ${err.message}`);
+    }
+  }
+
   if (employee.projectIntroSheetId) {
     return `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`;
   }
-
-  const drive  = google.drive({ version: 'v3', auth });
-  const sheets = google.sheets({ version: 'v4', auth });
   const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
   const managerEmail = (contacts && contacts.managerEmail) || '—';
   const recruiterEmail = (contacts && contacts.recruiterEmail) || '—';
@@ -460,8 +486,69 @@ async function createProjectIntroSheet(auth, employee) {
 
     const spreadsheetId = spreadsheet.data.spreadsheetId;
 
-    // ── Tab 1: Document Version history (empty — matches template) ────────────
-    // Template has this tab blank; leave it empty for HR to fill version history
+    // ── Tab 1: Document Version history ──────────────────────────────────────
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: "'Document Version history'!A1",
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [
+        ['', '', 'Project Introduction- Template', '', '', '', '', ''],
+        ['', '', 'Revision History', '', '', '', '', ''],
+        [],
+        ['AL/DI/HR/019', '', 'Date: 12.09.2025', '', 'Rev No:', '1.2', 'Date:', '12.09.2025'],
+        ['Revision Number', 'Date', 'Page Number/ Section', 'Description of Changes', 'Basis for Change', 'Author / Prepared by', 'Reviewed By', 'Approved by'],
+        ['1.0', '20-June-2024', 'All', 'Internal quality audit', 'ISO Audit', 'Divya Rodrigues', 'Rubina Mallick', 'Gagan Mittal'],
+        ['1.1', '14 March-2025', 'Monthly tracking', 'Format is changed', 'Internal audit', 'Divya Rodrigues', 'Rubina Mallick', 'Gagan Mittal'],
+        ['1.2', '12 September-2025', 'Monthly tracking', 'Format is changed', 'Internal audit', 'Divya Rodrigues', 'Rubina Mallick', 'Gagan Mittal'],
+      ]},
+    });
+
+    // Format Document Version history tab
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [
+        // Title rows — bold, blue, centered
+        {
+          repeatCell: {
+            range: { sheetId: 0, startRowIndex: 0, endRowIndex: 2 },
+            cell: { userEnteredFormat: {
+              textFormat: { bold: true, fontSize: 13, foregroundColor: { red: 0.12, green: 0.33, blue: 0.71 } },
+              horizontalAlignment: 'CENTER',
+            }},
+            fields: 'userEnteredFormat(textFormat,horizontalAlignment)',
+          },
+        },
+        // Meta row (row 4, 0-indexed: 3) — bold
+        {
+          repeatCell: {
+            range: { sheetId: 0, startRowIndex: 3, endRowIndex: 4 },
+            cell: { userEnteredFormat: { textFormat: { bold: true } } },
+            fields: 'userEnteredFormat(textFormat)',
+          },
+        },
+        // Column header row (row 5, 0-indexed: 4) — bold teal
+        {
+          repeatCell: {
+            range: { sheetId: 0, startRowIndex: 4, endRowIndex: 5 },
+            cell: { userEnteredFormat: {
+              textFormat: { bold: true },
+              backgroundColor: { red: 0.69, green: 0.91, blue: 0.90 },
+            }},
+            fields: 'userEnteredFormat(textFormat,backgroundColor)',
+          },
+        },
+        // Wrap all
+        {
+          repeatCell: {
+            range: { sheetId: 0, startRowIndex: 0, endRowIndex: 10 },
+            cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } },
+            fields: 'userEnteredFormat(wrapStrategy)',
+          },
+        },
+        // Auto-resize columns
+        { autoResizeDimensions: { dimensions: { sheetId: 0, dimension: 'COLUMNS', startIndex: 0, endIndex: 9 } } },
+      ]},
+    });
 
     // ── Tab 2: Details of New Joinee & Task ──────────────────────────────────
     await sheets.spreadsheets.values.update({
@@ -484,6 +571,14 @@ async function createProjectIntroSheet(auth, employee) {
       { title: 'Tracking - Month -3', sheetId: 4, probation: true },
     ];
 
+    // Row indices (0-based, after title row at index 0):
+    // index 1 = Tasks Assigned header, 2-4 = task rows, 5 = Lead's Observations header
+    // index 6 = PERSONAL QUALITY, 7 = TEAMWORK, 8 = LEADERSHIP, 9 = COMMUNICATION, 10 = Ownership
+    // index 11-12 = blank, 13 = Filled by Recruiter, 14+ = recruiter questions
+    const DROPDOWN_OPTIONS = { type: 'ONE_OF_LIST', values: ['Good', 'Satisfactory', 'Bad'], showCustomUi: true, strict: true };
+    // Quality rows where manager fills columns B and C with dropdown
+    const QUALITY_ROW_INDICES = [6, 7, 8, 9, 10]; // PERSONAL QUALITY, TEAMWORK, LEADERSHIP, COMMUNICATION, Ownership
+
     for (const tab of trackingTabs) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
@@ -491,6 +586,23 @@ async function createProjectIntroSheet(auth, employee) {
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [[tab.title], ...trackingRows(tab.probation)] },
       });
+
+      // Build dropdown validation requests for quality rows (columns B and C)
+      const dropdownRequests = QUALITY_ROW_INDICES.flatMap(rowIdx => [
+        {
+          setDataValidation: {
+            range: { sheetId: tab.sheetId, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 1, endColumnIndex: 3 },
+            rule: {
+              condition: {
+                type: DROPDOWN_OPTIONS.type,
+                values: DROPDOWN_OPTIONS.values.map(v => ({ userEnteredValue: v })),
+              },
+              showCustomUi: DROPDOWN_OPTIONS.showCustomUi,
+              strict: DROPDOWN_OPTIONS.strict,
+            },
+          },
+        },
+      ]);
 
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId,
@@ -506,7 +618,28 @@ async function createProjectIntroSheet(auth, employee) {
               fields: 'userEnteredFormat(textFormat,horizontalAlignment)',
             },
           },
-          // "Filled by Recruiter" row — grey background
+          // "Lead's Observations" sub-header row (index 5) — bold teal
+          {
+            repeatCell: {
+              range: { sheetId: tab.sheetId, startRowIndex: 5, endRowIndex: 6 },
+              cell: { userEnteredFormat: {
+                textFormat: { bold: true },
+                backgroundColor: { red: 0.69, green: 0.91, blue: 0.90 },
+              }},
+              fields: 'userEnteredFormat(textFormat,backgroundColor)',
+            },
+          },
+          // Quality rows (6-10) — light grey background to indicate fillable
+          {
+            repeatCell: {
+              range: { sheetId: tab.sheetId, startRowIndex: 6, endRowIndex: 11, startColumnIndex: 1, endColumnIndex: 3 },
+              cell: { userEnteredFormat: {
+                backgroundColor: { red: 0.95, green: 0.98, blue: 0.95 },
+              }},
+              fields: 'userEnteredFormat(backgroundColor)',
+            },
+          },
+          // "Filled by Recruiter" row (index 13) — grey background
           {
             repeatCell: {
               range: { sheetId: tab.sheetId, startRowIndex: 13, endRowIndex: 14 },
@@ -524,10 +657,20 @@ async function createProjectIntroSheet(auth, employee) {
               mergeType: 'MERGE_ALL',
             },
           },
+          // Wrap all rows
+          {
+            repeatCell: {
+              range: { sheetId: tab.sheetId, startRowIndex: 0, endRowIndex: 20 },
+              cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } },
+              fields: 'userEnteredFormat(wrapStrategy)',
+            },
+          },
           // Column widths: A=280, B=300, C=280
           { updateDimensionProperties: { range: { sheetId: tab.sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 280 }, fields: 'pixelSize' } },
           { updateDimensionProperties: { range: { sheetId: tab.sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 }, properties: { pixelSize: 300 }, fields: 'pixelSize' } },
           { updateDimensionProperties: { range: { sheetId: tab.sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 3 }, properties: { pixelSize: 280 }, fields: 'pixelSize' } },
+          // Dropdown validations for quality rows
+          ...dropdownRequests,
         ]},
       });
     }
@@ -602,34 +745,113 @@ async function createProjectIntroSheet(auth, employee) {
 // AI-extracted fields are pre-filled where available; rest left blank for HR.
 async function createEmployeeInfoSheet(auth, employee) {
   const sheets = google.sheets({ version: 'v4', auth });
+  const drive  = google.drive({ version: 'v3', auth });
   const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
   const ex = employee.extractedData || {};
   const pd = employee.personalDetails || {};
 
-  // If sheet already exists, just update the education tab with newly extracted data
-  if (employee.employeeInfoSheetId) {
+  // If we don't have the sheet ID in memory, search Drive by employee ID (survives renames)
+  if (!employee.employeeInfoSheetId) {
     try {
-      const m10      = ex.marksheet10th      || {};
-      const m12      = ex.marksheet12th      || {};
-      const degree   = ex.degreeCertificate  || {};
-      const postgrad = ex.postgradCertificate|| {};
-      const v = (val) => (val != null && val !== '' ? String(val) : '');
-      // Update only the education data rows (rows 3-6, 0-indexed: A3:H6)
+      const found = await drive.files.list({
+        q: `name contains '(${employeeId})' and name contains 'AL_DI_HR_018' and trashed=false`,
+        fields: 'files(id, name)',
+        pageSize: 5,
+      });
+      if (found.data.files && found.data.files.length > 0) {
+        employee.employeeInfoSheetId = found.data.files[0].id;
+        console.log(`[Status] Found existing employee info sheet for ${name} via Drive search: ${employee.employeeInfoSheetId}`);
+      }
+    } catch (err) {
+      console.warn(`[Status] Drive search for employee info sheet failed for ${name}: ${err.message}`);
+    }
+  }
+
+  // If sheet already exists, update both personal details and education with latest extracted data
+  if (employee.employeeInfoSheetId) {
+    const v = (val) => (val != null && val !== '' ? String(val) : '');
+
+    function calcAge(dobStr) {
+      if (!dobStr) return '';
+      const parts = dobStr.split('/');
+      if (parts.length !== 3) return '';
+      const dob = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+      if (isNaN(dob)) return '';
+      const now = new Date();
+      let age = now.getFullYear() - dob.getFullYear();
+      if (now.getMonth() < dob.getMonth() || (now.getMonth() === dob.getMonth() && now.getDate() < dob.getDate())) age--;
+      return String(age);
+    }
+
+    const aadhaar  = ex.aadhaar            || {};
+    const pan      = ex.pan                || {};
+    const m10      = ex.marksheet10th      || {};
+    const m12      = ex.marksheet12th      || {};
+    const degree   = ex.degreeCertificate  || {};
+    const postgrad = ex.postgradCertificate|| {};
+    const reliev   = ex.relievingLetter    || {};
+
+    try {
+      // Update personal details rows (C2:C36 — value column only, preserves labels)
+      const personalValueRows = [
+        [v(pan.name)],
+        [v(aadhaar.name)],
+        [v(pan.name)],
+        [v(aadhaar.dob || pan.dob)],
+        [calcAge(aadhaar.dob || pan.dob)],
+        [v(pan.fatherName)],
+        [v(pd["Mother's Name"])],
+        [v(pd['Marital Status'])],
+        [v(pd['Name of Spouse'])],
+        [v(pd['DOB of Spouse'])],
+        [v(pd['Profession of Spouse'])],
+        [v(pd['No of children'])],
+        [v(pd['Name of child'])],
+        [v(pd['DOB of child'])],
+        [v(pd['Gender of child'])],
+        [v(employee.phoneNumber)],
+        [v(pd['Emergency Contact no (From Family)'])],
+        [v(pd['Emergency Contact Person Name and Relationship'])],
+        [v(pd['Nominee details for Group Insurance'])],
+        [v(personalEmail)],
+        [v(aadhaar.address)],
+        [v(aadhaar.address)],
+        [''],
+        [''],
+        [''],
+      ];
+      await apiWithRetry(() => sheets.spreadsheets.values.update({
+        spreadsheetId: employee.employeeInfoSheetId,
+        range: `'Personal Details'!C2:C26`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: personalValueRows },
+      }), 'updatePersonalDetailsTab');
+
+      // Update PAN and Aadhaar numbers in documentation list
+      await apiWithRetry(() => sheets.spreadsheets.values.update({
+        spreadsheetId: employee.employeeInfoSheetId,
+        range: `'Personal Details'!C29:C30`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[v(pan.panNumber)], [v(aadhaar.aadhaarNumber)]] },
+      }), 'updateDocNumbers');
+
+      // Update education data rows
       const eduDataRows = [
-        ['10th Marksheet',                            'y/n', 'y/n', v(m10.board),    '',                        v(m10.yearOfCompletion), v(m10.totalMarks), v(m10.schoolName)],
-        ['12th/Diploma Marksheet',                    'y/n', 'y/n', v(m12.board),    v(m12.specialization),     v(m12.yearOfCompletion), v(m12.totalMarks), v(m12.schoolName)],
+        ['10th Marksheet',            'y/n', 'y/n', v(m10.board),    '',                    v(m10.yearOfCompletion),    v(m10.totalMarks),    v(m10.schoolName)],
+        ['12th/Diploma Marksheet',    'y/n', 'y/n', v(m12.board),    v(m12.specialization), v(m12.yearOfCompletion),    v(m12.totalMarks),    v(m12.schoolName)],
         ['Graduation Consolidated Marksheet and Degree Certificate', 'y/n', 'y/n', v(degree.degree), v(degree.specialization), v(degree.yearOfCompletion), v(degree.totalMarks), v(degree.collegeName)],
         ['Post Graduation Consolidated Marksheet and Degree Certificate', 'y/n', 'y/n', v(postgrad.degree), v(postgrad.specialization), v(postgrad.yearOfCompletion), v(postgrad.totalMarks), v(postgrad.collegeName), '(Not Mandatory)'],
       ];
       await apiWithRetry(() => sheets.spreadsheets.values.update({
         spreadsheetId: employee.employeeInfoSheetId,
-        range: `'Education & Professional Detail'!A3:H6`,
+        range: `'Education & Professional Detail'!A3:I6`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: eduDataRows },
       }), 'updateEducationTab');
-      console.log(`[Status] Education tab updated for ${name}`);
+
+      console.log(`[Status] Personal details and education tabs updated for ${name}`);
     } catch (err) {
-      console.warn(`[Status] Could not update education tab for ${name}: ${err.message}`);
+      console.warn(`[Status] Could not update info sheet tabs for ${name}: ${err.message}`);
     }
     return `https://docs.google.com/spreadsheets/d/${employee.employeeInfoSheetId}`;
   }

@@ -57,6 +57,7 @@ const {
   mark60DayDone,
   mark90DayDone,
   markPreprobationDone,
+  renameStatusSheet,
   createProjectIntroSheet,
   createEmployeeInfoSheet,
 } = require('./statusTracker');
@@ -453,9 +454,114 @@ const DOC_TASK_MAP = {
 const OPTIONAL_DOCS = new Set(['payslip', 'postgradCertificate']);
 
 // ─── Handler: new file detected in Drive folder ────────────────────────────────
+// Internal files the engine creates — never treat as employee documents
+const INTERNAL_FILE_PREFIXES = [
+  'UPLOAD_INSTRUCTIONS',
+  'AL_DI_HR_018',
+  'Checklist1',
+  'CatchupTracker',
+  'ProjectIntro',
+];
+
+// Fire HR induction confirmation + calendar invite + project intro.
+// Called both when the offer letter is verified AND on DOJ morning.
+// Lock keys ensure each block runs only once regardless of which path fires first.
+async function fireInductionAndProjectIntro(auth, employee) {
+  const checklist = employee.checklist;
+  const contacts  = employee.contacts || {};
+
+  // t33: Send HR induction confirmation request to recruiter
+  const inductionLockKey = `${employee.employeeId}:t33`;
+  if (!isTaskDone(checklist, 't33') && !_triggerLocks.has(inductionLockKey)) {
+    _triggerLocks.add(inductionLockKey);
+    markAndLog(employee, 't33');
+    saveState(employee.employeeId, snapshotEmployee(employee));
+    await sendHRInductionConfirmation(employee, contacts.recruiterEmail);
+    employee.replyTimers = employee.replyTimers || {};
+    employee.replyTimers.induction = scheduleReplyDeadline(
+      employee, 'Recruiter (HR Induction)', contacts.recruiterEmail, 48
+    );
+  }
+
+  // t27/t28: Send HR induction calendar invite to employee + recruiter
+  const calLockKey = `${employee.employeeId}:t27`;
+  if (!isTaskDone(checklist, 't27') && !_triggerLocks.has(calLockKey)) {
+    _triggerLocks.add(calLockKey);
+    markAndLog(employee, 't27');
+    markAndLog(employee, 't28');
+    saveState(employee.employeeId, snapshotEmployee(employee));
+    await sendInductionCalendarInvite(employee);
+    await createHRInductionEvent(auth, employee).catch(err => {
+      console.warn(`[Index] HR induction calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
+      activityLog.log(employee, 'calendar_event_failed', `HR induction: ${err.message}`);
+    });
+    await markHRInductionScheduled(auth, employee).catch(() => {});
+  }
+
+  // t29/t30/t31/t32: Create project intro sheet, send invite + sheet link to manager + employee
+  const introLockKey = `${employee.employeeId}:t29`;
+  if (!isTaskDone(checklist, 't29') && !_triggerLocks.has(introLockKey)) {
+    _triggerLocks.add(introLockKey);
+    const sheetUrl = await createProjectIntroSheet(auth, employee).catch(err => {
+      console.warn(`[Index] Project intro sheet creation failed for ${employee.name}: ${err.message}`);
+      return null;
+    });
+    markAndLog(employee, 't29');
+    markAndLog(employee, 't30');
+    markAndLog(employee, 't31');
+    markAndLog(employee, 't32');
+    saveState(employee.employeeId, snapshotEmployee(employee));
+
+    await sendProjectIntroInvite(employee, sheetUrl);
+    await createProjectIntroEvent(auth, employee).catch(err => {
+      console.warn(`[Index] Project intro calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
+      activityLog.log(employee, 'calendar_event_failed', `Project intro: ${err.message}`);
+    });
+    await markProjectIntroScheduled(auth, employee).catch(() => {});
+
+    if (sheetUrl && employee.projectIntroSheetId) {
+      const empEmail = employee.officialEmail || employee.personalEmail;
+      if (empEmail) {
+        setTimeout(async () => {
+          try {
+            const { google } = require('googleapis');
+            const drive = google.drive({ version: 'v3', auth });
+            const perms = await drive.permissions.list({
+              fileId: employee.projectIntroSheetId,
+              fields: 'permissions(id,emailAddress)',
+            });
+            const empPerm = perms.data.permissions.find(p => p.emailAddress === empEmail);
+            if (empPerm) {
+              await drive.permissions.delete({ fileId: employee.projectIntroSheetId, permissionId: empPerm.id });
+              console.log(`[Index] Project intro sheet access revoked for ${employee.name} (${empEmail}) after 48h`);
+              activityLog.log(employee, 'project_intro_sheet_access_revoked', empEmail);
+            }
+          } catch (err) {
+            console.warn(`[Index] Could not revoke project intro sheet access for ${employee.name}: ${err.message}`);
+          }
+        }, 48 * 60 * 60 * 1000);
+      }
+    }
+  }
+
+  await uploadChecklist(auth, employee.driveFolderId, checklist).catch(() => {});
+  saveState(employee.employeeId, snapshotEmployee(employee));
+}
+
 async function handleNewFile(auth, employee, file, subfolderHint) {
   // Skip folders — only process actual files
   if (file.mimeType === 'application/vnd.google-apps.folder') {
+    return true;
+  }
+
+  // Skip internal engine-generated files silently
+  if (INTERNAL_FILE_PREFIXES.some(p => file.name.startsWith(p))) {
+    return true;
+  }
+
+  // Skip Google Sheets/Docs — these are engine-created files, not employee documents
+  if (file.mimeType === 'application/vnd.google-apps.spreadsheet' ||
+      file.mimeType === 'application/vnd.google-apps.document') {
     return true;
   }
 
@@ -539,6 +645,10 @@ async function handleNewFile(auth, employee, file, subfolderHint) {
         employee.extractedData = employee.extractedData || {};
         employee.extractedData[extracted.docType] = extracted.fields;
         console.log(`[Index] Extracted data stored for ${extracted.docType} — ${employee.name}`);
+        // Rename status sheet using Aadhaar name — recruiter may have entered wrong name
+        if (extracted.docType === 'aadhaar' && extracted.fields.name) {
+          renameStatusSheet(auth, employee, extracted.fields.name).catch(() => {});
+        }
         // Update info sheet immediately if it already exists
         if (employee.employeeInfoSheetId) {
           createEmployeeInfoSheet(auth, employee).catch(err =>
@@ -695,86 +805,11 @@ async function triggerNextStep(auth, employee, docType) {
     }
   }
 
-  // After offer letter saved → send induction confirmation request, calendar invite, project intro
-  // t13 is already marked by DOC_TASK_MAP in handleNewFile when the offer letter passes verification
+  // Fire HR induction + project intro — triggered by offer letter OR on DOJ (whichever comes first).
+  // Lock keys ensure each block fires only once regardless of which path triggers it.
+  await fireInductionAndProjectIntro(auth, employee);
+
   if (docType === 'offerLetter') {
-    const inductionLockKey = `${employee.employeeId}:t33`;
-    if (!isTaskDone(checklist, 't33') && !_triggerLocks.has(inductionLockKey)) {
-      _triggerLocks.add(inductionLockKey);
-      markAndLog(employee, 't33');
-      saveState(employee.employeeId, snapshotEmployee(employee));
-      await sendHRInductionConfirmation(employee, contacts.recruiterEmail);
-      // Schedule 48h escalation if recruiter never confirms induction attendance
-      employee.replyTimers = employee.replyTimers || {};
-      employee.replyTimers.induction = scheduleReplyDeadline(
-        employee, 'Recruiter (HR Induction)', contacts.recruiterEmail, 48
-      );
-    }
-
-    // t27/t28: Send HR induction calendar invite to employee + recruiter
-    const calLockKey = `${employee.employeeId}:t27`;
-    if (!isTaskDone(checklist, 't27') && !_triggerLocks.has(calLockKey)) {
-      _triggerLocks.add(calLockKey);
-      markAndLog(employee, 't27');
-      markAndLog(employee, 't28');
-      saveState(employee.employeeId, snapshotEmployee(employee));
-      await sendInductionCalendarInvite(employee);
-      await createHRInductionEvent(auth, employee).catch(err => {
-        console.warn(`[Index] HR induction calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
-        activityLog.log(employee, 'calendar_event_failed', `HR induction: ${err.message}`);
-      });
-      await markHRInductionScheduled(auth, employee).catch(() => {});
-    }
-
-    // t29/t30/t31/t32: Create project intro sheet, send invite + sheet link to manager + employee
-    const introLockKey = `${employee.employeeId}:t29`;
-    if (!isTaskDone(checklist, 't29') && !_triggerLocks.has(introLockKey)) {
-      _triggerLocks.add(introLockKey);
-      // Create the sheet first so the link can be included in the email
-      const sheetUrl = await createProjectIntroSheet(auth, employee).catch(err => {
-        console.warn(`[Index] Project intro sheet creation failed for ${employee.name}: ${err.message}`);
-        return null;
-      });
-      markAndLog(employee, 't29');
-      markAndLog(employee, 't30');
-      markAndLog(employee, 't31');
-      markAndLog(employee, 't32');
-      saveState(employee.employeeId, snapshotEmployee(employee));
-
-      await sendProjectIntroInvite(employee, sheetUrl);
-      await createProjectIntroEvent(auth, employee).catch(err => {
-        console.warn(`[Index] Project intro calendar event failed for ${employee.name} — email invite still sent. (${err.message})`);
-        activityLog.log(employee, 'calendar_event_failed', `Project intro: ${err.message}`);
-      });
-      await markProjectIntroScheduled(auth, employee).catch(() => {});
-
-      // Revoke employee's edit access to the sheet after 48 hours —
-      // manager and recruiter retain access to keep updating it
-      if (sheetUrl && employee.projectIntroSheetId) {
-        const empEmail = employee.officialEmail || employee.personalEmail;
-        if (empEmail) {
-          setTimeout(async () => {
-            try {
-              const { google } = require('googleapis');
-              const drive = google.drive({ version: 'v3', auth });
-              const perms = await drive.permissions.list({
-                fileId: employee.projectIntroSheetId,
-                fields: 'permissions(id,emailAddress)',
-              });
-              const empPerm = perms.data.permissions.find(p => p.emailAddress === empEmail);
-              if (empPerm) {
-                await drive.permissions.delete({ fileId: employee.projectIntroSheetId, permissionId: empPerm.id });
-                console.log(`[Index] Project intro sheet access revoked for ${employee.name} (${empEmail}) after 48h`);
-                activityLog.log(employee, 'project_intro_sheet_access_revoked', empEmail);
-              }
-            } catch (err) {
-              console.warn(`[Index] Could not revoke project intro sheet access for ${employee.name}: ${err.message}`);
-            }
-          }, 48 * 60 * 60 * 1000);
-        }
-      }
-    }
-
     await uploadChecklist(auth, employee.driveFolderId, checklist);
     saveState(employee.employeeId, snapshotEmployee(employee));
   }
@@ -1500,6 +1535,27 @@ async function onboardEmployee(auth, employee) {
         }
       }, msUntilDOJ);
       console.log(`[Index] DOJ screenshot request scheduled for ${employee.name} on ${dojStr}`);
+    }
+  }
+
+  // On DOJ — fire HR induction + project intro if not already triggered by offer letter
+  {
+    const dojDate = new Date(employee.doj);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const dojStr   = employee.doj ? employee.doj.split('T')[0] : '';
+    const needsInduction = !isTaskDone(employee.checklist, 't27') || !isTaskDone(employee.checklist, 't29');
+    if (needsInduction) {
+      if (dojStr === todayStr) {
+        await fireInductionAndProjectIntro(auth, employee);
+        console.log(`[Index] HR induction + project intro fired on DOJ for ${employee.name}`);
+      } else if (dojDate > new Date()) {
+        const msUntilDOJ = dojDate.getTime() - Date.now();
+        setTimeout(async () => {
+          await fireInductionAndProjectIntro(auth, employee);
+          console.log(`[Index] HR induction + project intro fired on DOJ for ${employee.name}`);
+        }, msUntilDOJ);
+        console.log(`[Index] HR induction + project intro scheduled for DOJ (${dojStr}) for ${employee.name}`);
+      }
     }
   }
 
