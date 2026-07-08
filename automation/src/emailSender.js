@@ -496,7 +496,7 @@ async function sendInductionCalendarInvite(employee) {
     to: toEmail,
     subject: `HR Induction Details — ${name} — DOJ ${displayDoj}`,
     html: `
-      <p>Dear ${name} and Team,</p>
+      <p>Dear ${esc(name)},</p>
       <p>Your HR induction has been scheduled for your Date of Joining. Please find the details below:</p>
       <table style="border-collapse:collapse;width:480px;font-family:Arial,sans-serif;font-size:14px;margin:16px 0;">
         <tr style="background:#f5f5f5;">
@@ -792,20 +792,12 @@ async function sendCatchupXLSEmail(employee) {
         fields: 'id, parents',
       });
 
-      // Share with recruiter and manager (edit access), new joiner (view only)
-      const joinerEmail = employee.officialEmail || employee.personalEmail;
+      // Share with recruiter and manager only — joinee has no access
       const shareWithEdit = [recruiterEmail, managerEmail].filter(Boolean);
       for (const email of [...new Set(shareWithEdit)]) {
         await drive.permissions.create({
           fileId: spreadsheetId,
           requestBody: { type: 'user', role: 'writer', emailAddress: email },
-          sendNotificationEmail: false,
-        }).catch(() => {});
-      }
-      if (joinerEmail) {
-        await drive.permissions.create({
-          fileId: spreadsheetId,
-          requestBody: { type: 'user', role: 'reader', emailAddress: joinerEmail },
           sendNotificationEmail: false,
         }).catch(() => {});
       }
@@ -840,21 +832,6 @@ async function sendCatchupXLSEmail(employee) {
     `,
   });
 
-  // Also notify the new joiner with view-only access to their catchup tracker
-  const joinerEmail = employee.officialEmail || employee.personalEmail;
-  if (joinerEmail && sheetUrl) {
-    await sendEmail({
-      to: joinerEmail,
-      subject: `Your Catchup Tracker — ${esc(name)} (${esc(employeeId)})`,
-      html: `
-        <p>Dear ${esc(name)},</p>
-        <p>Your 30-day catchup tracker has been created. You can view it using the link below:</p>
-        <p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">View Catchup Tracker</a></p>
-        <p>Your recruiter and manager will fill in the monthly tracking tabs after each review call.</p>
-        <p>Regards,<br/>HR Team, ${process.env.COMPANY_NAME}</p>
-      `,
-    }).catch(() => {});
-  }
 }
 
 // Template 17: 30/60/90-day review email — single email with tracking sheet link
