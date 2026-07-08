@@ -121,49 +121,57 @@ async function sendPreOnboardingForm(employee) {
   });
 }
 
-// Template 2: Document verification failed — ask employee to re-upload
+// Template 2: Document verification failed — ask employee to send document to recruiter
 async function sendDocumentRejection(employee, docType, reason) {
-  const { name, personalEmail } = employee;
+  const { name, personalEmail, contacts } = employee;
+  const recruiterEmail = (contacts && contacts.recruiterEmail) || process.env.HR_EMAIL;
+  const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
     to: personalEmail,
-    subject: `Action Required — Please Re-upload Your ${esc(docType)}`,
+    subject: `Action Required — ${esc(docType)} Could Not Be Verified`,
     html: `
       <p>Dear ${esc(name)},</p>
       <p>Thank you for submitting your documents. Unfortunately we could not verify your <strong>${esc(docType)}</strong>:</p>
       <blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${esc(reason)}</blockquote>
-      <p>Please upload a clear, legible copy to the designated Google Drive folder within <strong>24 hours</strong>.</p>
+      <p>Please send a clear, legible copy of your <strong>${esc(docType)}</strong> directly to your recruiter at:<br/>
+      <strong><a href="mailto:${esc(recruiterEmail)}">${esc(recruiterEmail)}</a></strong></p>
+      <p>Please ensure:</p>
       <ul>
-        <li>File must be clearly legible (not blurry or cropped)</li>
-        <li>All required fields must be fully visible</li>
+        <li>The document is clearly legible — not blurry or cropped</li>
+        <li>All required fields are fully visible</li>
         <li>Accepted formats: PDF, JPG, PNG</li>
       </ul>
-      <p>Regards,<br/>HR Team, ${process.env.COMPANY_NAME}</p>
+      <p>Please send it within <strong>24 hours</strong>. Your recruiter will review and confirm once it is accepted.</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
 
 // Template 2b: Follow-up reminder to employee (sent at 24h / 48h after rejection)
 async function sendDocumentReminder(employee, docType, attemptNumber, reason) {
-  const { name, personalEmail } = employee;
+  const { name, personalEmail, contacts } = employee;
+  const recruiterEmail = (contacts && contacts.recruiterEmail) || process.env.HR_EMAIL;
+  const co = esc(process.env.COMPANY_NAME || '');
   const urgency = attemptNumber >= 3 ? 'FINAL REMINDER' : `Reminder ${attemptNumber}`;
   const extra = attemptNumber >= 3
-    ? `<p style="color:#c62828;font-weight:bold;">This is your final reminder. If the document is not uploaded within 24 hours, your onboarding coordinator will be notified and further action may be required.</p>`
+    ? `<p style="color:#c62828;font-weight:bold;">This is your final reminder. If the document is not received within 24 hours, your onboarding coordinator will be notified and further action may be required.</p>`
     : '';
   return sendEmail({
     to: personalEmail,
-    subject: `${urgency} — Please Re-upload Your ${esc(docType)}`,
+    subject: `${urgency} — ${esc(docType)} Still Pending`,
     html: `
       <p>Dear ${esc(name)},</p>
-      <p>We noticed that your <strong>${esc(docType)}</strong> has not been re-uploaded yet.</p>
+      <p>We have not yet received your <strong>${esc(docType)}</strong>.</p>
       ${reason ? `<blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${esc(reason)}</blockquote>` : ''}
-      <p>Please upload a clear, legible copy to your designated Google Drive folder as soon as possible.</p>
+      <p>Please email a clear, legible copy directly to your recruiter at:<br/>
+      <strong><a href="mailto:${esc(recruiterEmail)}">${esc(recruiterEmail)}</a></strong></p>
       <ul>
-        <li>File must be clearly legible (not blurry or cropped)</li>
+        <li>The document must be clearly legible — not blurry or cropped</li>
         <li>All required fields must be fully visible</li>
         <li>Accepted formats: PDF, JPG, PNG</li>
       </ul>
       ${extra}
-      <p>Regards,<br/>HR Team, ${process.env.COMPANY_NAME}</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
