@@ -44,19 +44,25 @@ Only set valid=true if ALL four checks pass.`,
 }
 Only set valid=true if ALL three checks pass.`,
 
-  offerLetter: `You are verifying a signed offer letter. Check ALL of the following and respond with a JSON object:
+  offerLetter: `You are verifying a signed offer letter from Alethea Communications Technologies. Check ALL of the following and respond with a JSON object:
 {
   "valid": true/false,
   "docType": "Offer Letter",
   "checks": {
     "signed": true/false,
     "candidateNameVisible": true/false,
-    "dateVisible": true/false
+    "dateVisible": true/false,
+    "aletheaCompanyName": true/false
   },
   "failureReasons": ["list any failed checks in plain English"],
   "summary": "one sentence summary"
 }
-Only set valid=true if ALL three checks pass.`,
+Check definitions:
+- "signed": A signature is present on the document.
+- "candidateNameVisible": The candidate's name appears on the letter.
+- "dateVisible": A date is present on the letter.
+- "aletheaCompanyName": The company name "Alethea" or "Alethea Communications Technologies" is visible anywhere on the document — in the letterhead, body, or footer.
+Only set valid=true if ALL four checks pass.`,
 
   meetingScreenshot: `You are an HR automation assistant verifying a project introduction meeting screenshot to confirm that a new employee attended their project intro meeting on their Day of Joining.
 
