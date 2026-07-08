@@ -505,7 +505,7 @@ async function sendInductionCalendarInvite(employee) {
         </tr>
         <tr>
           <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Time</td>
-          <td style="padding:8px 14px;border:1px solid #ddd;">9:30 AM onwards</td>
+          <td style="padding:8px 14px;border:1px solid #ddd;">10:30 AM onwards</td>
         </tr>
         <tr style="background:#f5f5f5;">
           <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Location</td>
@@ -520,7 +520,7 @@ async function sendInductionCalendarInvite(employee) {
           <td style="padding:8px 14px;border:1px solid #ddd;">Company policies, tools, culture, team introductions</td>
         </tr>
       </table>
-      <p><strong>${name}</strong> — please be present at the office by <strong>9:30 AM</strong> on your Date of Joining. The recruiter will conduct the induction covering company policies, tools, and culture.</p>
+      <p><strong>${name}</strong> — please be present at the office by <strong>10:30 AM</strong> on your Date of Joining. The recruiter will conduct the induction covering company policies, tools, and culture.</p>
       <p>A calendar invite has been sent to all participants.</p>
       <p><strong>Recruiter</strong> — please confirm attendance by replying to this email once the induction is complete.</p>
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
