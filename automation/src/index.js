@@ -295,6 +295,7 @@ function buildDefaultChecklist() {
         t60: { label: '12th/Diploma marksheet verified', done: false },
         t61: { label: 'Graduation degree certificate verified', done: false },
         t62: { label: 'Post graduation certificate verified (or marked N/A — not applicable)', done: false },
+        t67: { label: 'Address proof verified (electricity bill / rental agreement / rent receipt)', done: false },
         t12: { label: 'Document verification marked complete in Checklist1', done: false },
         t14: { label: 'Mail sent to HR to create official email ID and greythr login', done: false },
         t15: { label: 'HR responds with official email ID and greythr confirmation', done: false },
@@ -448,6 +449,7 @@ const DOC_TASK_MAP = {
   marksheet12th:      't60',
   degreeCertificate:  't61',
   postgradCertificate:'t62',
+  addressProof:       't67',
 };
 
 // Optional documents — auto-marked N/A if not uploaded within grace period

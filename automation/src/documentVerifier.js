@@ -189,6 +189,30 @@ Only set valid=true if ALL four checks pass.`,
   "summary": "one sentence summary"
 }
 Only set valid=true if ALL four checks pass.`,
+
+  addressProof: `You are verifying a current address proof document submitted by a new employee. The document may be one of three types: an electricity bill, a rental agreement (including e-Stamp / registered rent agreement), or a rent receipt (handwritten or printed). Check ALL of the following and respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "Address Proof",
+  "checks": {
+    "legible": true/false,
+    "nameVisible": true/false,
+    "addressVisible": true/false,
+    "isValidDocumentType": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Check definitions:
+- "legible": The document is clearly readable — not too blurry, cropped, or dark to read key fields.
+- "nameVisible": The name of the tenant, account holder, or lessee is visible anywhere on the document.
+- "addressVisible": A residential address (house number, street, city) is visible anywhere on the document.
+- "isValidDocumentType": The document is recognisably ONE of the following — set true if ANY one matches:
+    1. Electricity bill — shows a utility company name, account number, bill period, and amount due.
+    2. Rental agreement — a lease/rental contract between a landlord and tenant, may include an e-Stamp / government stamp paper, with property address and signatures.
+    3. Rent receipt — a receipt (printed or handwritten) acknowledging rent payment, showing tenant name, address, amount, and landlord signature.
+  Set false if the document is clearly something else (Aadhaar, PAN, marksheet, etc.).
+Only set valid=true if ALL four checks pass.`,
 };
 
 // Extraction prompts — run after successful verification to pull structured data from the doc

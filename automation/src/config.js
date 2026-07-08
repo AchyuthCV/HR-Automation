@@ -52,6 +52,7 @@ module.exports = {
     marksheet12th:     ['12th', '12_th', 'twelfth', 'hsc', 'diploma', 'intermediate', 'marksheet_12'],
     degreeCertificate: ['degree', 'graduation', 'consolidated', 'btech', 'be_', 'bsc', 'bcom', 'ba_', 'bca', 'bba'],
     postgradCertificate: ['postgrad', 'post_grad', 'mtech', 'msc', 'mba', 'mca', 'phd', 'masters', 'pg_'],
+    addressProof:        ['address', 'address_proof', 'electricity', 'rent', 'rental', 'receipt', 'lease'],
   },
 
   // ─── Optional documents — auto-marked N/A if not uploaded within this many days ──
