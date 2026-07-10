@@ -209,7 +209,9 @@ async function callWithRetry(fn, maxRetries = 4) {
 // ─── Classify reply with Gemini ───────────────────────────────────────────────
 // Returns { replyType, employeeId, data } or null if not an automation reply
 async function classifyReply(message) {
-  if (!message.body) return null;
+  // Allow classification even with empty body if a PDF attachment is present (e.g. BGV report)
+  const hasPdfAttachment = message.attachments && message.attachments.some(a => a.filename && a.filename.toLowerCase().endsWith('.pdf'));
+  if (!message.body && !hasPdfAttachment) return null;
 
   const genAI = getGenAI();
   if (!genAI) {
@@ -217,20 +219,26 @@ async function classifyReply(message) {
     return null;
   }
 
+  const attachmentInfo = (message.attachments && message.attachments.length > 0)
+    ? `ATTACHMENTS: ${message.attachments.map(a => a.filename).join(', ')}`
+    : 'ATTACHMENTS: none';
+
   const prompt = `You are an HR automation assistant. Analyse this email and determine if it is a substantive reply to an automated HR onboarding email.
 
 FROM: ${message.from}
 SUBJECT: ${message.subject}
+${attachmentInfo}
 BODY:
 ${message.body}
 
 Reply type definitions — use the email SUBJECT as the primary signal, then body for confirmation:
+- "greythr_welcome": Automated welcome email sent directly by Greythr HRMS to the new joinee — FROM address contains "greythr" or subject contains "Welcome to" and body contains "greythr" or "self-service account". Extract the joinee's name from the greeting (e.g. "Hi Ezhava Pooja Prakash"). This is NOT a reply from HR — it is sent automatically by the Greythr system.
 - "official_email_created": Reply to a "Create Official Email" request — must include an actual @company email address in the body
 - "official_email_access_confirmed": Reply from the employee confirming their official email works — subject contains "Confirm Access" or "Official Email" and body contains "confirmed", "working", "yes" or similar positive acknowledgement
 - "official_email_access_failed": Reply from the employee saying their official email is NOT working — body contains "not working", "issue", "can't login", "problem", "error" or similar negative response
 - "manager_allocation": Reply to an "Asset & Seat Allocation" request sent TO a MANAGER — contains supervisor name, office location, asset type. This is the MANAGER confirming allocation plans BEFORE joining. Subject will contain "Asset & Seat Allocation".
 - "it_allocation": Reply to an "IT Asset" request sent TO the IT TEAM — IT confirms assets are physically ready/handed over. Subject will contain "IT Asset" or "IT Team". This happens AFTER manager_allocation.
-- "bgv_report": Reply to a BGV initiation request — HR/recruiter replying with a SmartScreen or other BGV vendor PDF attached, OR forwarding the vendor report. Subject will contain "BGV" or "Background Verification". Classify as bgv_report if the subject mentions BGV and the email has an attachment, even if the body is brief.
+- "bgv_report": Reply to a BGV initiation request — HR/recruiter replying with a SmartScreen or Supersoft BGV vendor PDF attached, OR forwarding the vendor report. Subject will contain "BGV" or "Background Verification" or "Initiate BGV". Classify as bgv_report if the subject mentions BGV/Background Verification AND there is a PDF in ATTACHMENTS, even if the body is brief or just "Please find attached". Also classify as bgv_report if the ATTACHMENTS field contains a PDF whose filename looks like a BGV report (e.g. contains "BGV", "background", "smartscreen", "report").
 - "induction_confirmed": Reply confirming HR induction meeting attendance or completion
 - "admin_allocation": Reply from Admin confirming physical seat or access card allocation
 - "meeting_time_preference": New joinee replies to the welcome email with preferred meeting times — subject contains "Pre-Onboarding Form" and body mentions times for induction or project intro
@@ -241,7 +249,7 @@ Reply type definitions — use the email SUBJECT as the primary signal, then bod
 - "doc_manually_approved": Recruiter replies "Confirmed" to a document rejection/verification email to manually approve a document that the joinee sent directly to the recruiter. Subject will contain "Could Not Be Verified" or "Still Pending" and the body contains "confirmed", "approved", "ok", "looks good" or similar positive acknowledgement. Extract the document type from the subject (e.g. Aadhaar, PAN, Offer Letter, etc.) into data.docType.
 - "unknown": Related to onboarding but does not clearly match any above type
 
-IMPORTANT: If the subject contains "Pre-Onboarding Form" and the body mentions preferred times for meetings → classify as "meeting_time_preference" and extract inductionTime and projectIntroTime into data. If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". If subject contains "BGV" or "Background Verification" → classify as "bgv_report". If subject contains "Confirm Access to Your Official Email" → classify as "official_email_access_confirmed" or "official_email_access_failed" based on whether the body is positive or negative. If subject contains "25th Day Catchup" → classify as "catchup25_complete". If subject contains "Could Not Be Verified" or "Still Pending" and body is a positive confirmation → classify as "doc_manually_approved". Subject is the strongest signal.
+IMPORTANT: If FROM contains "greythr" OR body contains "greythr.com" or "self-service account" or "payslips" and "leaves" → classify as "greythr_welcome" and extract the joinee name from the greeting line into data.notes. If the subject contains "Pre-Onboarding Form" and the body mentions preferred times for meetings → classify as "meeting_time_preference" and extract inductionTime and projectIntroTime into data. If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". If subject contains "BGV" or "Background Verification" or "Initiate BGV" → classify as "bgv_report" (even if body is just "Please find attached"). If subject contains "Confirm Access to Your Official Email" → classify as "official_email_access_confirmed" or "official_email_access_failed" based on whether the body is positive or negative. If subject contains "25th Day Catchup" → classify as "catchup25_complete". If subject contains "Could Not Be Verified" or "Still Pending" and body is a positive confirmation → classify as "doc_manually_approved". Subject is the strongest signal.
 Simple acknowledgements ("ok", "noted", "will do", "thanks") should be classified with isOnboardingReply=false unless they contain substantive information.
 
 Respond ONLY with a JSON object in this exact format:

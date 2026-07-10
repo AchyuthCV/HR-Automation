@@ -874,12 +874,10 @@ function isTaskDone(checklist, taskId) {
 }
 
 // ─── Process BGV PDF report forwarded by HR/recruiter ────────────────────────
-// Downloads the PDF attachment, sends it to Gemini for analysis,
-// classifies as BGV Passed / BGV Failed, moves PDF to BGV subfolder,
-// notifies HR with the result.
+// Downloads the PDF, sends to Gemini to classify overall status (Green/Orange/Red),
+// updates checklist tasks, and alerts HR if Orange or Red.
 async function processBGVReport(auth, employee, rawMsg) {
   const { GoogleGenerativeAI } = require('@google/generative-ai');
-  const os = require('os');
 
   const attachment = rawMsg.attachments && rawMsg.attachments[0];
   if (!attachment) {
@@ -905,35 +903,40 @@ async function processBGVReport(auth, employee, rawMsg) {
     return;
   }
 
-  // Save to temp file
-  const tmpPath = path.join(os.tmpdir(), `bgv-${employee.employeeId}-${Date.now()}.pdf`);
-  fs.writeFileSync(tmpPath, pdfBuffer);
-
+  // ── Gemini: classify the Smartscreen BGV report ──────────────────────────
   let bgvResult = null;
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: config.geminiModel });
 
     const pdfBase64 = pdfBuffer.toString('base64');
-    const prompt = `You are an HR automation assistant. Analyse this BGV (Background Verification) report PDF.
+    const prompt = `You are an HR automation assistant. Analyse this Smartscreen BGV (Background Verification) report PDF produced by Supersoft Consultants Pvt Ltd.
 
-Extract ALL individual checks and their results (e.g. Address-1, Address-2, Education, Employment, Criminal, etc.).
-For each check note whether it is "Verified", "Discrepancy", "Unable to Verify", or any other status.
+The report has an overall result badge in the top-right corner of page 1. Read it carefully:
+- "Verified" badge (white/grey background) → overall_status = "Verified"   (Green — all checks passed)
+- "Unable to Verify" badge (orange background) → overall_status = "Unable to Verify"   (Orange — one or more checks could not be confirmed)
+- "Discrepancy" badge (red background) → overall_status = "Discrepancy"   (Red — a document or claim was found to be forged or false)
 
-Then classify the overall BGV result:
-- "BGV Passed" if 80% or more of checks are "Verified"
-- "BGV Failed" if more than 20% of checks have Discrepancy or Unable to Verify
+Also extract:
+- ssid: the SSID reference number (format like ACT-2026-XXX-XXXXXX or TMP-2026-XXX-XXXXXX)
+- candidate_name: full name of the candidate as shown in the report
+- failing_checks: ONLY checks that are NOT "Verified" — include their name, status, and reason/remark
 
-Respond ONLY with this JSON:
+Individual check statuses you may see: "Verified", "UTV - Others", "Not Provided", "Discrepancy"
+"UTV - Others" and "Not Provided" both count as unable-to-verify. "Discrepancy" means forged/false.
+
+Respond ONLY with this exact JSON (no extra text):
 {
-  "overallResult": "BGV Passed" or "BGV Failed",
-  "totalChecks": <number>,
-  "verifiedCount": <number>,
-  "failedCount": <number>,
-  "checks": [
-    { "name": "check name", "result": "Verified/Discrepancy/Unable to Verify/etc" }
+  "overall_status": "Verified" or "Unable to Verify" or "Discrepancy",
+  "ssid": "SSID from report or null",
+  "candidate_name": "name from report or null",
+  "failing_checks": [
+    { "check_name": "Employment Check", "status": "UTV - Others", "reason": "Company not found at physical address" }
   ],
-  "summary": "one sentence summary"
+  "all_checks": [
+    { "check_name": "PAN Card", "status": "Verified" }
+  ],
+  "summary": "one sentence summary of the BGV outcome"
 }`;
 
     const response = await model.generateContent([
@@ -946,8 +949,6 @@ Respond ONLY with this JSON:
     if (jsonMatch) bgvResult = JSON.parse(jsonMatch[0]);
   } catch (err) {
     console.error(`[BGV] Gemini analysis failed: ${err.message}`);
-  } finally {
-    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
   }
 
   if (!bgvResult) {
@@ -959,33 +960,35 @@ Respond ONLY with this JSON:
     return;
   }
 
-  const passed = bgvResult.overallResult === 'BGV Passed';
-  console.log(`[BGV] ${employee.name}: ${bgvResult.overallResult} (${bgvResult.verifiedCount}/${bgvResult.totalChecks} verified)`);
-  activityLog.log(employee, 'bgv_report_received', bgvResult.overallResult);
+  const overallStatus = bgvResult.overall_status || 'Unable to Verify';
+  const ssid = bgvResult.ssid || attachment.filename;
+  const failingChecks = bgvResult.failing_checks || [];
+  const allChecks = bgvResult.all_checks || [];
 
-  // Move PDF to BGV subfolder in Drive
+  // Map overall_status → traffic-light colour
+  const isGreen  = overallStatus === 'Verified';
+  const isOrange = overallStatus === 'Unable to Verify';
+  const isRed    = overallStatus === 'Discrepancy';
+
+  console.log(`[BGV] ${employee.name}: ${overallStatus} (SSID: ${ssid}, ${failingChecks.length} failing check(s))`);
+  activityLog.log(employee, 'bgv_report_received', overallStatus);
+
+  // ── Upload PDF to BGV subfolder in Drive ─────────────────────────────────
   try {
     const { google } = require('googleapis');
     const drive = google.drive({ version: 'v3', auth });
-
-    // Find BGV subfolder
     const folderRes = await drive.files.list({
       q: `name='BGV' and '${employee.driveFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
       fields: 'files(id)',
     });
-
     if (folderRes.data.files.length > 0) {
       const bgvFolderId = folderRes.data.files[0].id;
-      // Upload PDF to BGV folder
       const { Readable } = require('stream');
       const stream = new Readable();
       stream.push(pdfBuffer);
       stream.push(null);
       await drive.files.create({
-        requestBody: {
-          name: attachment.filename,
-          parents: [bgvFolderId],
-        },
+        requestBody: { name: attachment.filename, parents: [bgvFolderId] },
         media: { mimeType: 'application/pdf', body: stream },
         fields: 'id',
       });
@@ -997,39 +1000,80 @@ Respond ONLY with this JSON:
     console.warn(`[BGV] Could not upload PDF to Drive: ${err.message}`);
   }
 
-  // Build check rows for email
-  const checkRows = (bgvResult.checks || []).map(c => {
-    const color = c.result === 'Verified' ? '#2e7d32' : '#c62828';
-    return `<tr><td style="padding:6px 12px;border:1px solid #ddd;">${c.name}</td><td style="padding:6px 12px;border:1px solid #ddd;color:${color};font-weight:bold;">${c.result}</td></tr>`;
+  // ── Build check rows for the HR alert email ───────────────────────────────
+  const checksToShow = allChecks.length > 0 ? allChecks : failingChecks;
+  const hasReasons = checksToShow.some(c => c.reason);
+  const checkRows = checksToShow.map(c => {
+    const isOk = c.status === 'Verified';
+    const color = isOk ? '#2e7d32' : (c.status === 'Discrepancy' ? '#c62828' : '#e65100');
+    const reasonCell = hasReasons ? `<td style="padding:6px 12px;border:1px solid #ddd;font-size:13px;color:#555;">${c.reason || ''}</td>` : '';
+    return `<tr>
+      <td style="padding:6px 12px;border:1px solid #ddd;">${c.check_name}</td>
+      <td style="padding:6px 12px;border:1px solid #ddd;color:${color};font-weight:bold;">${c.status}</td>
+      ${reasonCell}
+    </tr>`;
   }).join('');
 
-  // Notify HR
-  const resultColor = passed ? '#2e7d32' : '#c62828';
+  const reasonColHeader = hasReasons ? `<th style="padding:8px 12px;border:1px solid #1a73e8;text-align:left;">Reason / Remark</th>` : '';
+  const tableHeader = `<tr style="background:#1a73e8;color:#fff;">
+    <th style="padding:8px 12px;border:1px solid #1a73e8;text-align:left;">Check</th>
+    <th style="padding:8px 12px;border:1px solid #1a73e8;text-align:left;">Status</th>
+    ${reasonColHeader}
+  </tr>`;
+
+  // ── Colour + label based on traffic-light status ──────────────────────────
+  const badgeColor = isGreen ? '#2e7d32' : isOrange ? '#e65100' : '#c62828';
+  const badgeBg    = isGreen ? '#e8f5e9' : isOrange ? '#fff3e0' : '#ffebee';
+  const badgeLabel = isGreen ? '&#9989; Verified (Green)' : isOrange ? '&#9888;&#65039; Unable to Verify (Orange)' : '&#10060; Discrepancy (Red)';
+
+  const actionHtml = isGreen
+    ? `<p style="color:#2e7d32;">BGV is clear. Onboarding can proceed.</p>`
+    : isOrange
+      ? `<p style="color:#e65100;font-weight:bold;">Action Required: BGV is Unable to Verify. One or more checks could not be confirmed. Please review and decide whether to proceed, request re-verification, or escalate.</p>`
+      : `<p style="color:#c62828;font-weight:bold;">Action Required: BGV shows a Discrepancy. A document or claim appears to be forged or false. Please review immediately and decide on next steps before proceeding with onboarding.</p>`;
+
+  const failingSection = (!isGreen && failingChecks.length > 0) ? `
+    <p style="margin-top:16px;font-weight:bold;">Failing / Flagged Checks:</p>
+    <ul style="margin:4px 0;padding-left:20px;">
+      ${failingChecks.map(c => `<li><strong>${c.check_name}</strong> — ${c.status}${c.reason ? ': ' + c.reason : ''}</li>`).join('')}
+    </ul>` : '';
+
   await sendEmail({
     to: hrEmail(employee),
-    subject: `BGV Report — ${bgvResult.overallResult} — ${employee.name} (${employee.employeeId})`,
+    subject: `BGV Report — ${overallStatus} — ${employee.name} (${employee.employeeId})`,
     html: `
       <p>Hi HR Team,</p>
       <p>The Background Verification (BGV) report for <strong>${employee.name}</strong> (ID: ${employee.employeeId}) has been processed.</p>
-      <p style="font-size:18px;font-weight:bold;color:${resultColor};">${bgvResult.overallResult}</p>
-      <p>${bgvResult.verifiedCount} of ${bgvResult.totalChecks} checks verified. ${bgvResult.summary || ''}</p>
+      <p style="font-size:16px;font-weight:bold;color:${badgeColor};background:${badgeBg};display:inline-block;padding:6px 14px;border-radius:4px;">${badgeLabel}</p>
+      <table style="margin:4px 0;font-size:14px;"><tr><td style="padding:2px 8px 2px 0;color:#555;">SSID:</td><td><strong>${ssid}</strong></td></tr></table>
+      <p>${bgvResult.summary || ''}</p>
+      ${failingSection}
+      ${checksToShow.length > 0 ? `
       <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;margin:16px 0;">
-        <thead><tr style="background:#1a73e8;color:#fff;">
-          <th style="padding:8px 12px;border:1px solid #1a73e8;text-align:left;">Check</th>
-          <th style="padding:8px 12px;border:1px solid #1a73e8;text-align:left;">Result</th>
-        </tr></thead>
+        <thead>${tableHeader}</thead>
         <tbody>${checkRows}</tbody>
-      </table>
+      </table>` : ''}
       <p>The BGV report PDF has been saved to the employee's BGV folder in Drive.</p>
-      ${passed ? '' : '<p style="color:#c62828;font-weight:bold;">Action Required: BGV has failed. Please review the discrepancies and decide on next steps.</p>'}
+      ${actionHtml}
       <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
     `,
   }).catch(err => console.warn(`[BGV] Notification email failed: ${err.message}`));
 
-  // Mark tasks and update checklist
-  markAndLog(employee, 't25');
-  markAndLog(employee, 't26');
-  await markBGVDone(auth, employee).catch(() => {});
+  // ── Update checklist based on traffic-light result ────────────────────────
+  markAndLog(employee, 't25'); // Recruiter responded with BGV report
+
+  if (isGreen) {
+    // Green: BGV complete — mark t26 done
+    markAndLog(employee, 't26');
+    await markBGVDone(auth, employee).catch(() => {});
+  } else if (isOrange) {
+    // Orange: Unable to Verify — t26 stays pending; mark issue on status sheet
+    await markDocumentIssue(auth, employee, 'BGV', `Unable to Verify — ${failingChecks.map(c => c.check_name).join(', ')}`).catch(() => {});
+  } else if (isRed) {
+    // Red: Discrepancy — t26 stays pending; mark issue on status sheet
+    await markDocumentIssue(auth, employee, 'BGV', `Discrepancy — ${failingChecks.map(c => c.check_name + (c.reason ? ': ' + c.reason : '')).join('; ')}`).catch(() => {});
+  }
+
   await uploadChecklist(auth, employee.driveFolderId, employee.checklist);
   saveState(employee.employeeId, snapshotEmployee(employee));
 }
@@ -1062,6 +1106,7 @@ async function handleReply(auth, classified, rawMsg) {
       it_allocation:              e => isTaskDone(e.checklist, 't20') && !isTaskDone(e.checklist, 't21'),
       manager_allocation:         e => isTaskDone(e.checklist, 't17') && !isTaskDone(e.checklist, 't18'),
       official_email_created:     e => !isTaskDone(e.checklist, 't15'),
+      greythr_welcome:            e => isTaskDone(e.checklist, 't14') && !isTaskDone(e.checklist, 't16'),
       official_email_access_confirmed: e => isTaskDone(e.checklist, 't15') && !isTaskDone(e.checklist, 't16'),
       official_email_access_failed:    e => isTaskDone(e.checklist, 't15') && !isTaskDone(e.checklist, 't16'),
       bgv_report:                 e => isTaskDone(e.checklist, 't23') && !isTaskDone(e.checklist, 't25'),
@@ -1074,15 +1119,25 @@ async function handleReply(auth, classified, rawMsg) {
     if (candidates.length === 1) {
       employee = candidates[0];
       console.log(`[Index] Matched employee by pending task state (${replyType}) → ${employee.employeeId}`);
-    } else if (candidates.length > 1 && senderEmail) {
+    } else if (candidates.length > 1) {
+      // For greythr_welcome: Gemini extracts the joinee name into data.notes — match by name
+      if (replyType === 'greythr_welcome' && classified.data && classified.data.notes) {
+        const greythrName = classified.data.notes.toLowerCase().trim();
+        employee = candidates.find(e => e.name && e.name.toLowerCase().trim() === greythrName);
+        if (employee) {
+          console.log(`[Index] Matched greythr_welcome to ${employee.employeeId} by name "${greythrName}"`);
+        }
+      }
       // Narrow by sender address matching a known contact
-      employee = candidates.find(e => {
-        const contacts = e.contacts || {};
-        return [contacts.itEmail, contacts.managerEmail, contacts.recruiterEmail, e.personalEmail, e.officialEmail]
-          .some(addr => addr && addr.toLowerCase() === senderEmail);
-      });
-      if (employee) {
-        console.log(`[Index] Matched employee by sender email "${senderEmail}" → ${employee.employeeId}`);
+      if (!employee && senderEmail) {
+        employee = candidates.find(e => {
+          const contacts = e.contacts || {};
+          return [contacts.itEmail, contacts.managerEmail, contacts.recruiterEmail, e.personalEmail, e.officialEmail]
+            .some(addr => addr && addr.toLowerCase() === senderEmail);
+        });
+        if (employee) {
+          console.log(`[Index] Matched employee by sender email "${senderEmail}" → ${employee.employeeId}`);
+        }
       }
     }
   }
@@ -1114,6 +1169,26 @@ async function handleReply(auth, classified, rawMsg) {
       break;
     }
 
+    case 'greythr_welcome': {
+      // Greythr sent a welcome email directly to the engine inbox — this confirms
+      // HR has created both the official email and the greythr login.
+      // Mark t15 (HR responded with official email) and t16 (greythr login complete) done.
+      if (isTaskDone(checklist, 't16')) {
+        console.log(`[Index] Skipping duplicate greythr_welcome for ${employee.name} — t16 already done`);
+        break;
+      }
+      markAndLog(employee, 't15');
+      markAndLog(employee, 't16');
+      activityLog.log(employee, 'greythr_welcome_received', data.notes || '');
+      await markOfficialEmailConfirmed(auth, employee, employee.officialEmail || '').catch(() => {});
+      if (employee.replyTimers && employee.replyTimers.hr) {
+        employee.replyTimers.hr.stop && employee.replyTimers.hr.stop();
+        delete employee.replyTimers.hr;
+      }
+      console.log(`[Index] Greythr welcome email detected — t15 + t16 marked done for ${employee.name}`);
+      break;
+    }
+
     case 'official_email_created':
       if (isTaskDone(checklist, 't15')) {
         console.log(`[Index] Skipping duplicate official_email_created for ${employee.name} — t15 already done`);
@@ -1122,7 +1197,7 @@ async function handleReply(auth, classified, rawMsg) {
       if (data.officialEmail) {
         employee.officialEmail = data.officialEmail;
         markAndLog(employee, 't15');
-        // t16 stays pending until employee confirms access by replying to the test email
+        markAndLog(employee, 't16'); // auto-complete — no need to wait for joinee reply
         console.log(`[Index] Official email recorded: ${data.officialEmail}`);
         activityLog.log(employee, 'official_email_recorded', data.officialEmail);
         await markOfficialEmailConfirmed(auth, employee, data.officialEmail).catch(() => {});
@@ -1130,7 +1205,7 @@ async function handleReply(auth, classified, rawMsg) {
           employee.replyTimers.hr.stop && employee.replyTimers.hr.stop();
           delete employee.replyTimers.hr;
         }
-        // Send access test email to the new official address
+        // Send welcome/access test email to the new official address (informational — no reply needed)
         await sendOfficialEmailAccessTest(employee).catch(err =>
           console.warn(`[Index] Official email access test failed for ${employee.name}: ${err.message}`)
         );
