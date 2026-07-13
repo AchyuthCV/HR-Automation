@@ -1,0 +1,8 @@
+node_modules/
+automation/.env
+automation/credentials.json
+automation/token.json
+automation/employees.json
+bills/processed_bills.json
+ngrok.exe
+ngrok.zip

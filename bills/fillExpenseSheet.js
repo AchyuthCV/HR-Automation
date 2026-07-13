@@ -24,7 +24,7 @@ const path = require('path');
 const BILLS_FOLDER_ID  = '1riOhGs9j2cVuAWHvDx-yook3mozB649T';
 const TEMPLATE_SHEET_ID = '1H4A-Bpe_vD76UgiojJoIcvPR5UtAn7mlggVKZWGNuak';
 const GEMINI_MODEL     = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
-const PROCESSED_LOG    = path.join(__dirname, 'processed_bills.json');
+const PROCESSED_LOG    = process.env.PROCESSED_BILLS_LOG || path.join(__dirname, 'processed_bills.json');
 
 // Sheet layout (1-indexed rows as seen in sheet, converted to 0-index for API)
 // Cash expense data rows: 25–54 (0-indexed: 24–53), 29 rows available
