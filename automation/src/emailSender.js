@@ -497,43 +497,64 @@ async function sendInductionCalendarInvite(employee) {
   const { name, employeeId, doj, officialEmail, personalEmail, contacts } = employee;
   const recruiterEmail = contacts && contacts.recruiterEmail;
   const managerEmail = contacts && contacts.managerEmail;
-  const toEmail = [officialEmail || personalEmail, recruiterEmail, managerEmail].filter(Boolean).join(', ');
+  const joineeEmail = officialEmail || personalEmail;
   const displayDoj = doj || 'Your Date of Joining';
 
-  return sendEmail({
-    to: toEmail,
-    subject: `HR Induction Details — ${name} — DOJ ${displayDoj}`,
-    html: `
-      <p>Dear ${esc(name)},</p>
-      <p>Your HR induction has been scheduled for your Date of Joining. Please find the details below:</p>
-      <table style="border-collapse:collapse;width:480px;font-family:Arial,sans-serif;font-size:14px;margin:16px 0;">
-        <tr style="background:#f5f5f5;">
-          <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Date</td>
-          <td style="padding:8px 14px;border:1px solid #ddd;">${displayDoj} (Date of Joining)</td>
-        </tr>
-        <tr>
-          <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Time</td>
-          <td style="padding:8px 14px;border:1px solid #ddd;">10:30 AM onwards</td>
-        </tr>
-        <tr style="background:#f5f5f5;">
-          <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Location</td>
-          <td style="padding:8px 14px;border:1px solid #ddd;">Office / As communicated by your recruiter</td>
-        </tr>
-        <tr>
-          <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Conducted by</td>
-          <td style="padding:8px 14px;border:1px solid #ddd;">Recruiter / HR Team</td>
-        </tr>
-        <tr style="background:#f5f5f5;">
-          <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Topics covered</td>
-          <td style="padding:8px 14px;border:1px solid #ddd;">Company policies, tools, culture, team introductions</td>
-        </tr>
-      </table>
-      <p><strong>${name}</strong> — please be present at the office by <strong>10:30 AM</strong> on your Date of Joining. The recruiter will conduct the induction covering company policies, tools, and culture.</p>
-      <p>A calendar invite has been sent to all participants.</p>
-      <p><strong>Recruiter</strong> — please confirm attendance by replying to this email once the induction is complete.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
-    `,
-  });
+  const inductionTable = `
+    <table style="border-collapse:collapse;width:480px;font-family:Arial,sans-serif;font-size:14px;margin:16px 0;">
+      <tr style="background:#f5f5f5;">
+        <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Date</td>
+        <td style="padding:8px 14px;border:1px solid #ddd;">${displayDoj} (Date of Joining)</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Time</td>
+        <td style="padding:8px 14px;border:1px solid #ddd;">10:30 AM onwards</td>
+      </tr>
+      <tr style="background:#f5f5f5;">
+        <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Location</td>
+        <td style="padding:8px 14px;border:1px solid #ddd;">Office / As communicated by your recruiter</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Conducted by</td>
+        <td style="padding:8px 14px;border:1px solid #ddd;">Recruiter / HR Team</td>
+      </tr>
+      <tr style="background:#f5f5f5;">
+        <td style="padding:8px 14px;border:1px solid #ddd;font-weight:bold;">Topics covered</td>
+        <td style="padding:8px 14px;border:1px solid #ddd;">Company policies, tools, culture, team introductions</td>
+      </tr>
+    </table>`;
+
+  // Joinee email — no recruiter instructions
+  if (joineeEmail) {
+    await sendEmail({
+      to: joineeEmail,
+      subject: `HR Induction Details — ${name} — DOJ ${displayDoj}`,
+      html: `
+        <p>Dear ${esc(name)},</p>
+        <p>Your HR induction has been scheduled for your Date of Joining. Please find the details below:</p>
+        ${inductionTable}
+        <p>Please be present at the office by <strong>10:30 AM</strong> on your Date of Joining.</p>
+        <p>A calendar invite has been sent to you.</p>
+        <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
+      `,
+    });
+  }
+
+  // Recruiter + manager email — includes confirmation request
+  const internalTo = [recruiterEmail, managerEmail].filter(Boolean).join(', ');
+  if (internalTo) {
+    await sendEmail({
+      to: internalTo,
+      subject: `HR Induction Details — ${esc(name)} (${esc(employeeId)}) — DOJ ${displayDoj}`,
+      html: `
+        <p>Hi,</p>
+        <p>HR induction has been scheduled for <strong>${esc(name)}</strong> (${esc(employeeId)}). Details below:</p>
+        ${inductionTable}
+        <p>Please confirm attendance by replying to this email once the induction is complete.</p>
+        <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
+      `,
+    });
+  }
 }
 
 // Template 15: Project intro meeting invite
