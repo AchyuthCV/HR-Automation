@@ -1247,6 +1247,66 @@ async function sendJoineeReviewNotification(employee, dayMark) {
   });
 }
 
+// Day-before reminder — sent to joinee + HR/recruiter the day before a milestone
+async function sendDayBeforeReminder(employee, dayMark) {
+  const { name, officialEmail, personalEmail } = employee;
+  const co = esc(process.env.COMPANY_NAME || 'Alethea');
+  const joineeEmail = officialEmail || personalEmail;
+  const recruiterEmail = (employee.contacts || {}).recruiterEmail || '';
+  const hrEmailAddr = resolveHrEmail(employee);
+
+  const labels = {
+    25: {
+      joineeSubject: `Reminder — Your 25-Day Catchup Call is Tomorrow`,
+      joineeBody: `Just a heads-up — your <strong>25-day catchup call</strong> is scheduled for tomorrow. Your recruiter will reach out to connect with you. Please be available and feel free to note down any feedback or questions you'd like to discuss.`,
+      internalSubject: `Reminder — 25-Day Catchup Call for ${esc(name)} is Tomorrow`,
+      internalBody: `This is a reminder that the <strong>25-day catchup call</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is scheduled for tomorrow. Please ensure the call is arranged and confirmed with the employee.`,
+    },
+    30: {
+      joineeSubject: `Reminder — Your 30-Day Review is Tomorrow`,
+      joineeBody: `Just a heads-up — your <strong>30-day project review</strong> is scheduled for tomorrow. Your manager will connect with you to discuss your progress, challenges, and goals. Please check your calendar for the invite and come prepared.`,
+      internalSubject: `Reminder — 30-Day Review for ${esc(name)} is Tomorrow`,
+      internalBody: `This is a reminder that the <strong>30-day project review</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow. Please ensure the review call is scheduled and the tracking sheet is ready to be filled after the call.`,
+    },
+    60: {
+      joineeSubject: `Reminder — Your 60-Day Review is Tomorrow`,
+      joineeBody: `Just a heads-up — your <strong>60-day review</strong> is scheduled for tomorrow. Your manager and recruiter will discuss your project progress and set goals for the next phase. Please check your calendar and come prepared.`,
+      internalSubject: `Reminder — 60-Day Review for ${esc(name)} is Tomorrow`,
+      internalBody: `This is a reminder that the <strong>60-day review</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow. Please ensure the review call is arranged and the tracking sheet is ready.`,
+    },
+    90: {
+      joineeSubject: `Reminder — Your 90-Day Review is Tomorrow`,
+      joineeBody: `Just a heads-up — your <strong>90-day probation review</strong> is scheduled for tomorrow. This is your final probation review — your manager and recruiter will assess your progress and confirm probation clearance. Please check your calendar and come prepared.`,
+      internalSubject: `Reminder — 90-Day Review for ${esc(name)} is Tomorrow`,
+      internalBody: `This is a reminder that the <strong>90-day probation review</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow. Please ensure the review call is arranged and the tracking sheet is ready.`,
+    },
+  };
+
+  const l = labels[dayMark];
+  if (!l) return;
+
+  const promises = [];
+
+  if (joineeEmail) {
+    promises.push(sendEmail({
+      to: joineeEmail,
+      subject: l.joineeSubject,
+      html: `<p>Hi ${esc(name)},</p><p>${l.joineeBody}</p><p>If you have any questions before the call, feel free to reach out to HR.</p><p>Regards,<br/>${co} HR</p>`,
+    }));
+  }
+
+  const internalTo = [recruiterEmail, hrEmailAddr].filter(Boolean).join(', ');
+  if (internalTo) {
+    promises.push(sendEmail({
+      to: internalTo,
+      subject: l.internalSubject,
+      html: `<p>Hi,</p><p>${l.internalBody}</p><p>Regards,<br/>${co} HR Automation</p>`,
+    }));
+  }
+
+  await Promise.all(promises);
+}
+
 // Simple onboarding complete email to the new joinee
 async function sendJoineeOnboardingComplete(employee) {
   const { name, officialEmail, personalEmail } = employee;
@@ -1402,4 +1462,5 @@ module.exports = {
   sendJoineeReviewNotification,
   sendDOJScreenshotRequest,
   sendDocumentCrossCheckAlert,
+  sendDayBeforeReminder,
 };

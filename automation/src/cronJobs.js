@@ -140,10 +140,25 @@ function scheduleOnboardingSurvey(employee, markTaskFn) {
   });
 }
 
+// Schedule a day-before reminder for a milestone (fires one calendar day before fireDate)
+function scheduleDayBeforeReminder(employee, dayMark, fireDate) {
+  const { name } = employee;
+  const reminderDate = addDays(new Date(fireDate), -1);
+  if (reminderDate <= new Date()) return null; // already past — skip
+  return scheduleOnce(reminderDate, `Day-Before Reminder (${dayMark}-day) — ${name}`, async () => {
+    const { sendDayBeforeReminder } = require('./emailSender');
+    await sendDayBeforeReminder(employee, dayMark).catch(err =>
+      console.warn(`[Cron] Day-before reminder (${dayMark}-day) failed for ${name}: ${err.message}`)
+    );
+    console.log(`[Cron] Day-before reminder sent for ${name} — ${dayMark}-day milestone tomorrow`);
+  });
+}
+
 // Schedule the 25th day catchup call email to HR + new joiner
 function schedule25DayCatchup(employee, markTaskFn) {
   const { name, employeeId, doj } = employee;
   const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.surveyday));
+  scheduleDayBeforeReminder(employee, 25, fireDate);
 
   return scheduleOnce(fireDate, `25-Day Catchup — ${name}`, async () => {
     const { send25DayCatchupEmail } = require('./emailSender');
@@ -169,6 +184,7 @@ function schedule25DayCatchup(employee, markTaskFn) {
 function schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, markTaskFn) {
   const { name, employeeId, doj } = employee;
   const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.catchup30day));
+  scheduleDayBeforeReminder(employee, 30, fireDate);
 
   return scheduleOnce(fireDate, `30-Day Catchup — ${name}`, async () => {
     if (employee._auth) await create30DayCatchupEvent(employee._auth, employee).catch(err =>
@@ -199,6 +215,7 @@ function schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, 
 function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, markTaskFn) {
   const { name, employeeId, doj } = employee;
   const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.review60day));
+  scheduleDayBeforeReminder(employee, 60, fireDate);
 
   return scheduleOnce(fireDate, `60-Day Review — ${name}`, async () => {
     await sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, 60);
@@ -232,6 +249,7 @@ function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, m
 function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, markTaskFn) {
   const { name, employeeId, doj } = employee;
   const fireDate = ensureWorkingDay(addDays(new Date(doj), config.milestones.review90day));
+  scheduleDayBeforeReminder(employee, 90, fireDate);
 
   return scheduleOnce(fireDate, `90-Day Review — ${name}`, async () => {
     await sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail, 90);
