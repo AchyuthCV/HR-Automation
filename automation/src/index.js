@@ -12,7 +12,6 @@ const {
   sendOfficialEmailAccessTest,
   sendAssetAllocationRequest,
   sendITAssetRequest,
-  sendBGVRequest,
   sendHRInductionConfirmation,
   sendPhaseCompletionSummary,
   sendVerificationReport,
@@ -27,6 +26,7 @@ const {
 } = require('./emailSender');
 const {
   scheduleAllMilestones,
+  scheduleBGVRequest,
   scheduleNoResponseAlert,
   scheduleDocumentReminders,
   scheduleReplyDeadline,
@@ -733,17 +733,13 @@ async function triggerNextStep(auth, employee, docType) {
       // IT asset request (t20) is sent AFTER manager replies with allocation details
       // so IT receives the full asset type, location, and supervisor info — not an empty request.
       markAndLog(employee, 't17');
-      markAndLog(employee, 't23');
-      markAndLog(employee, 't24');
       saveState(employee.employeeId, snapshotEmployee(employee));
       await sendAssetAllocationRequest(employee, contacts.managerEmail).catch(err =>
         console.warn(`[Index] Asset allocation request email failed for ${employee.name}: ${err.message}`)
       );
 
-      // BGV is initiated — send request to recruiter
-      await sendBGVRequest(employee, contacts.recruiterEmail).catch(err =>
-        console.warn(`[Index] BGV request email failed for ${employee.name}: ${err.message}`)
-      );
+      // BGV request fires 7 working days after DOJ (gives joinee time to settle in)
+      scheduleBGVRequest(employee, contacts.recruiterEmail, (taskId) => markAndLog(employee, taskId));
 
       await uploadChecklist(auth, employee.driveFolderId, checklist);
       saveState(employee.employeeId, snapshotEmployee(employee));

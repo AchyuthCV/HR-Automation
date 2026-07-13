@@ -126,7 +126,9 @@ async function sendDocumentRejection(employee, docType, reason) {
   const { name, personalEmail, contacts } = employee;
   const recruiterEmail = (contacts && contacts.recruiterEmail) || process.env.HR_EMAIL;
   const co = esc(process.env.COMPANY_NAME || '');
-  return sendEmail({
+
+  // Email to joinee
+  await sendEmail({
     to: personalEmail,
     subject: `Action Required — ${esc(docType)} Could Not Be Verified`,
     html: `
@@ -145,6 +147,21 @@ async function sendDocumentRejection(employee, docType, reason) {
       <p>Regards,<br/>${co} HR</p>
     `,
   });
+
+  // Also notify recruiter so they know the document was rejected
+  if (recruiterEmail) {
+    await sendEmail({
+      to: recruiterEmail,
+      subject: `Document Rejected — ${esc(docType)} for ${esc(name)} (${esc(employee.employeeId)})`,
+      html: `
+        <p>Hi,</p>
+        <p>The <strong>${esc(docType)}</strong> uploaded by <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) could not be verified:</p>
+        <blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${esc(reason)}</blockquote>
+        <p>The employee has been asked to send a corrected copy directly to you. Please review it when received and reply <strong>"Confirmed"</strong> to the original document rejection email to update the onboarding checklist.</p>
+        <p>Regards,<br/>${co} HR Automation</p>
+      `,
+    }).catch(() => {});
+  }
 }
 
 // Template 2b: Follow-up reminder to employee (sent at 24h / 48h after rejection)
@@ -297,7 +314,7 @@ async function sendBGVRequest(employee, recruiterEmail) {
   const engineEmail = esc(process.env.ENGINE_EMAIL || process.env.GMAIL_USER || '');
   return sendEmail({
     to: recruiterEmail,
-    subject: `Action Required — Initiate BGV for ${esc(name)} (${esc(employeeId)})`,
+    subject: `Action Required — Upload BGV Report for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
       <p>Please initiate the Background Verification (BGV) for <strong>${esc(name)}</strong> (Employee ID: <strong>${esc(employeeId)}</strong>) joining on <strong>${esc(doj)}</strong>.</p>

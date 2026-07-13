@@ -278,6 +278,27 @@ function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, m
   });
 }
 
+// Schedule BGV request to recruiter — fires 7 working days after DOJ
+function scheduleBGVRequest(employee, recruiterEmail, markTaskFn) {
+  const { name, employeeId, doj } = employee;
+  const fireDate = ensureWorkingDay(addWorkingDays(new Date(doj), 7));
+
+  return scheduleOnce(fireDate, `BGV Request — ${name}`, async () => {
+    if (isTaskDone(employee.checklist, 't23')) {
+      console.log(`[Cron] BGV request already sent for ${name} — skipping`);
+      return;
+    }
+    const { sendBGVRequest } = require('./emailSender');
+    await sendBGVRequest(employee, recruiterEmail).catch(err =>
+      console.warn(`[Cron] BGV request email failed for ${name}: ${err.message}`)
+    );
+    if (markTaskFn) markTaskFn('t23');
+    if (markTaskFn) markTaskFn('t24');
+    console.log(`[Cron] BGV request sent to recruiter for ${name} (${employeeId})`);
+    if (employee._saveState) employee._saveState();
+  });
+}
+
 // Schedule 5-month pre-probation reminder (approx 150 days)
 function schedule5MonthProbation(employee, managerEmail) {
   const { name, employeeId, doj } = employee;
@@ -538,6 +559,7 @@ module.exports = {
   schedule60DayReview,
   schedule90DayReview,
   schedule5MonthProbation,
+  scheduleBGVRequest,
   cancelAllJobs,
   startDailyHealthCheck,
   startDataRetentionCron,
