@@ -26,7 +26,9 @@ const {
 } = require('./emailSender');
 const {
   scheduleAllMilestones,
+  scheduleBGVInitiate,
   scheduleBGVRequest,
+  scheduleManagerSheetReminder,
   scheduleNoResponseAlert,
   scheduleDocumentReminders,
   scheduleReplyDeadline,
@@ -521,6 +523,14 @@ async function fireInductionAndProjectIntro(auth, employee) {
     });
     await markProjectIntroScheduled(auth, employee).catch(() => {});
 
+    // Daily reminder to manager until they fill the project intro sheet
+    if (sheetUrl && contacts.managerEmail) {
+      scheduleManagerSheetReminder(
+        employee, contacts.managerEmail, sheetUrl,
+        'Project Intro', 't32', null
+      );
+    }
+
     if (sheetUrl && employee.projectIntroSheetId) {
       const empEmail = employee.officialEmail || employee.personalEmail;
       if (empEmail) {
@@ -723,33 +733,12 @@ async function triggerNextStep(auth, employee, docType) {
       _triggerLocks.add(lockKey);
       // Mark t14 and persist to disk immediately — before any await — so concurrent
       // poll cycles that pass the isTaskDone check above will see it done on next read.
+      // Mark t14 and update Drive/status — doc verification is now complete.
+      // Official email, asset allocation, and BGV initiate all fire on DOJ independently.
       markAndLog(employee, 't14');
       saveState(employee.employeeId, snapshotEmployee(employee));
       await markDocumentsVerifiedOk(auth, employee).catch(() => {});
-      await sendOfficialEmailCreationRequest(employee);
       await uploadChecklist(auth, employee.driveFolderId, checklist);
-
-      // Simultaneously send asset allocation request to manager (t17)
-      // IT asset request (t20) is sent AFTER manager replies with allocation details
-      // so IT receives the full asset type, location, and supervisor info — not an empty request.
-      markAndLog(employee, 't17');
-      saveState(employee.employeeId, snapshotEmployee(employee));
-      await sendAssetAllocationRequest(employee, contacts.managerEmail).catch(err =>
-        console.warn(`[Index] Asset allocation request email failed for ${employee.name}: ${err.message}`)
-      );
-
-      // BGV request fires 7 working days after DOJ (gives joinee time to settle in)
-      scheduleBGVRequest(employee, contacts.recruiterEmail, (taskId) => markAndLog(employee, taskId));
-
-      await uploadChecklist(auth, employee.driveFolderId, checklist);
-      saveState(employee.employeeId, snapshotEmployee(employee));
-
-      // Schedule 48h reply-deadline timers for HR and manager.
-      // IT timer is started after the manager replies and the IT email is actually sent.
-      employee.replyTimers = employee.replyTimers || {};
-      employee.replyTimers.hr = scheduleReplyDeadline(employee, 'HR Team', hrEmail(employee));
-      employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', contacts.managerEmail);
-      // Persist immediately so these escalation timers survive a restart
       saveState(employee.employeeId, snapshotEmployee(employee));
       // Lock stays set permanently — t14 is now done so the isTaskDone guard
       // will catch any future re-entry; lock only needed for the race window.
@@ -1674,6 +1663,62 @@ async function onboardEmployee(auth, employee) {
         }, msUntilDOJ);
         console.log(`[Index] HR induction + project intro scheduled for DOJ (${dojStr}) for ${employee.name}`);
       }
+    }
+  }
+
+  // On DOJ — fire official email creation, asset allocation, and BGV initiate
+  // independently of document verification status.
+  {
+    const dojDate  = new Date(employee.doj);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const dojStr   = employee.doj ? employee.doj.split('T')[0] : '';
+
+    const fireDOJEmails = async () => {
+      // Official email creation request (t14)
+      if (!isTaskDone(employee.checklist, 't14')) {
+        markAndLog(employee, 't14');
+        saveState(employee.employeeId, snapshotEmployee(employee));
+        await sendOfficialEmailCreationRequest(employee).catch(err =>
+          console.warn(`[Index] Official email creation request failed for ${employee.name}: ${err.message}`)
+        );
+        employee.replyTimers = employee.replyTimers || {};
+        employee.replyTimers.hr = scheduleReplyDeadline(employee, 'HR Team', hrEmail(employee));
+        saveState(employee.employeeId, snapshotEmployee(employee));
+        console.log(`[Index] Official email creation request sent on DOJ for ${employee.name}`);
+      }
+
+      // Asset allocation request to manager (t17)
+      if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail) {
+        markAndLog(employee, 't17');
+        saveState(employee.employeeId, snapshotEmployee(employee));
+        await sendAssetAllocationRequest(employee, employee.contacts.managerEmail).catch(err =>
+          console.warn(`[Index] Asset allocation request failed for ${employee.name}: ${err.message}`)
+        );
+        employee.replyTimers = employee.replyTimers || {};
+        employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', employee.contacts.managerEmail);
+        saveState(employee.employeeId, snapshotEmployee(employee));
+        console.log(`[Index] Asset allocation request sent on DOJ for ${employee.name}`);
+      }
+
+      // BGV initiate email to recruiter (t23)
+      if (!isTaskDone(employee.checklist, 't23') && employee.contacts && employee.contacts.recruiterEmail) {
+        scheduleBGVInitiate(employee, employee.contacts.recruiterEmail, (taskId) => markAndLog(employee, taskId));
+        console.log(`[Index] BGV initiate scheduled on DOJ for ${employee.name}`);
+      }
+
+      // BGV upload request fires 7 working days after DOJ (t24)
+      if (!isTaskDone(employee.checklist, 't24') && employee.contacts && employee.contacts.recruiterEmail) {
+        scheduleBGVRequest(employee, employee.contacts.recruiterEmail, (taskId) => markAndLog(employee, taskId));
+        console.log(`[Index] BGV upload request scheduled for 7 working days after DOJ for ${employee.name}`);
+      }
+    };
+
+    if (dojStr === todayStr) {
+      await fireDOJEmails();
+    } else if (dojDate > new Date()) {
+      const msUntilDOJ = dojDate.getTime() - Date.now();
+      setTimeout(fireDOJEmails, msUntilDOJ);
+      console.log(`[Index] DOJ emails (official email, asset allocation, BGV initiate) scheduled for ${dojStr} for ${employee.name}`);
     }
   }
 

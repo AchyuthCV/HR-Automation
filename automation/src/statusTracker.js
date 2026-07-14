@@ -77,11 +77,11 @@ async function getOrCreateStatusSheet(auth, employee) {
   const drive  = google.drive({ version: 'v3', auth });
   const sheets = google.sheets({ version: 'v4', auth });
 
-  // Status sheet goes in the root onboarding folder (visible to HR only, not employee)
-  const targetFolderId = employee.rootFolderId || employee.driveFolderId;
+  // Status sheet goes in the employee's own subfolder (not root)
+  const targetFolderId = employee.driveFolderId || employee.rootFolderId;
   console.log(`[Status] Creating sheet for ${employee.name} in folder ${targetFolderId}`);
 
-  // Check if sheet already exists in root folder
+  // Check if sheet already exists in employee subfolder
   const existing = await apiWithRetry(() => drive.files.list({
     q: `name='Onboarding Status — ${employee.name} (${employee.employeeId})' and '${targetFolderId}' in parents and trashed=false`,
     fields: 'files(id)',
@@ -104,7 +104,7 @@ async function getOrCreateStatusSheet(auth, employee) {
   const spreadsheetId = spreadsheet.data.spreadsheetId;
   const sheetId = spreadsheet.data.sheets[0].properties.sheetId;
 
-  // Move it into the root onboarding folder (HR-only view).
+  // Move it into the employee's own subfolder.
   // Must remove the default "My Drive" parent or the file stays in both places.
   const fileMeta = await drive.files.get({ fileId: spreadsheetId, fields: 'parents' });
   const currentParents = (fileMeta.data.parents || []).join(',');

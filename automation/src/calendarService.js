@@ -81,9 +81,9 @@ async function createHRInductionEvent(auth, employee) {
     // Guard: DOJ must be a working day — push to Monday if it lands on a weekend
     const inductionDate = ensureWorkingDay(dojDate);
 
-    // Joinee is intentionally excluded — adding them gives a "Propose new time" button
-    // they shouldn't have. They receive a separate email invite via sendInductionCalendarInvite.
+    // Joinee is included — guestsCanModify:false disables "Propose new time" for all guests.
     const attendees = [
+      employee.officialEmail || employee.personalEmail,
       employee.contacts && employee.contacts.recruiterEmail,
       employee.contacts && employee.contacts.managerEmail,
     ]
@@ -105,6 +105,7 @@ async function createHRInductionEvent(auth, employee) {
       end: toGoogleDateTime(inductionDate, startHour + Math.floor(endMins / 60), endMins % 60),
       attendees,
       guestsCanModify: false,
+      guestsCanInviteOthers: false,
       guestsCanSeeOtherGuests: true,
     };
 
@@ -142,9 +143,9 @@ async function createProjectIntroEvent(auth, employee) {
     // Meeting is on DOJ itself (post-lunch) — guard for weekend just in case
     const eventDate = ensureWorkingDay(dojDate);
 
-    // Joinee is intentionally excluded — adding them gives a "Propose new time" button
-    // they shouldn't have. They receive a separate email invite via sendProjectIntroInvite.
+    // Joinee is included — guestsCanModify:false disables "Propose new time" for all guests.
     const attendees = [
+      employee.officialEmail || employee.personalEmail,
       employee.contacts && employee.contacts.managerEmail,
       employee.contacts && employee.contacts.recruiterEmail,
     ]
@@ -165,6 +166,7 @@ async function createProjectIntroEvent(auth, employee) {
       end: toGoogleDateTime(eventDate, startHour + Math.floor(endMins / 60), endMins % 60),
       attendees,
       guestsCanModify: false,
+      guestsCanInviteOthers: false,
       guestsCanSeeOtherGuests: true,
     };
 
@@ -212,6 +214,8 @@ async function create25DayCatchupEvent(auth, employee) {
       start: toGoogleDateTime(eventDate, cfg.hour, cfg.minute),
       end: toGoogleDateTime(eventDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
       attendees,
+      guestsCanModify: false,
+      guestsCanInviteOthers: false,
     };
 
     const res = await calendar.events.insert({
@@ -258,6 +262,8 @@ async function create30DayCatchupEvent(auth, employee) {
       start: toGoogleDateTime(eventDate, cfg.hour, cfg.minute),
       end: toGoogleDateTime(eventDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
       attendees,
+      guestsCanModify: false,
+      guestsCanInviteOthers: false,
     };
 
     const res = await calendar.events.insert({
@@ -305,6 +311,8 @@ async function createReviewEvent(auth, employee, dayMark) {
       start: toGoogleDateTime(eventDate, cfg.hour, cfg.minute),
       end: toGoogleDateTime(eventDate, cfg.hour + Math.floor(endMins / 60), endMins % 60),
       attendees,
+      guestsCanModify: false,
+      guestsCanInviteOthers: false,
     };
 
     const res = await calendar.events.insert({

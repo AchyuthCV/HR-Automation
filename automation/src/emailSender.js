@@ -307,18 +307,36 @@ async function sendITAssetRequest(employee, itEmail, assetDetails) {
   });
 }
 
-// Template 7: BGV initiation request to recruiter
-async function sendBGVRequest(employee, recruiterEmail) {
+// Template 7a: BGV initiation email — fires on DOJ, recruiter only
+async function sendBGVInitiateRequest(employee, recruiterEmail) {
   const { name, employeeId, doj } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
-  const engineEmail = esc(process.env.ENGINE_EMAIL || process.env.GMAIL_USER || '');
   return sendEmail({
     to: recruiterEmail,
+    subject: `Initiate BGV for ${esc(name)} (${esc(employeeId)})`,
+    html: `
+      <p>Hi,</p>
+      <p><strong>${esc(name)}</strong> (Employee ID: <strong>${esc(employeeId)}</strong>) has joined today (<strong>${esc(doj)}</strong>).</p>
+      <p>Please initiate the Background Verification (BGV) process with SmartScreen for this employee at the earliest.</p>
+      <p>Once you receive the BGV report from SmartScreen, you will receive a separate email asking you to upload it.</p>
+      <p>Regards,<br/>${co} HR</p>
+    `,
+  });
+}
+
+// Template 7b: BGV upload request — fires 7 working days after DOJ, recruiter + HR
+async function sendBGVUploadRequest(employee, recruiterEmail) {
+  const { name, employeeId } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
+  const engineEmail = esc(process.env.ENGINE_EMAIL || process.env.GMAIL_USER || '');
+  const hrEmail = (employee.contacts && employee.contacts.hrEmail) || process.env.HR_EMAIL || '';
+  const toEmails = [recruiterEmail, hrEmail].filter(Boolean).join(', ');
+  return sendEmail({
+    to: toEmails,
     subject: `Action Required — Upload BGV Report for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>Please initiate the Background Verification (BGV) for <strong>${esc(name)}</strong> (Employee ID: <strong>${esc(employeeId)}</strong>) joining on <strong>${esc(doj)}</strong>.</p>
-      <p>Once you receive the BGV report PDF from SmartScreen (or your BGV vendor):</p>
+      <p>Please upload the BGV report for <strong>${esc(name)}</strong> (Employee ID: <strong>${esc(employeeId)}</strong>) received from SmartScreen.</p>
       <ol>
         <li><strong>Reply to this email</strong> with the BGV report PDF attached.</li>
         <li>Make sure the Employee ID <strong>${esc(employeeId)}</strong> is visible in the subject or body.</li>
@@ -328,6 +346,11 @@ async function sendBGVRequest(employee, recruiterEmail) {
       <p>Regards,<br/>${co} HR</p>
     `,
   });
+}
+
+// Alias kept for any legacy callers — routes to upload request
+async function sendBGVRequest(employee, recruiterEmail) {
+  return sendBGVUploadRequest(employee, recruiterEmail);
 }
 
 // Template 8: HR induction attendance confirmation
@@ -1464,6 +1487,8 @@ module.exports = {
   send25DayCatchupEmail,
   send30DayTechnicalReview,
   sendBGVRequest,
+  sendBGVInitiateRequest,
+  sendBGVUploadRequest,
   sendHRInductionConfirmation,
   sendPeriodicReviewReminder,
   sendPreProbationReminder,
