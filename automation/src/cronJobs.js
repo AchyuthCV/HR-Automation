@@ -363,6 +363,49 @@ function schedule5MonthProbation(employee, managerEmail) {
   });
 }
 
+// Schedule pre-onboarding form reminders to joinee at 24h, 48h, 72h.
+// After 72h, also escalate to recruiter. Stops when t5 (docs uploaded) is done.
+function schedulePreOnboardingReminders(employee, recruiterEmail) {
+  const { name, employeeId } = employee;
+  const REMINDER_HOURS = [24, 48, 72];
+  const timers = [];
+  let stopped = false;
+
+  REMINDER_HOURS.forEach((hours, i) => {
+    const attemptNumber = i + 1;
+    const fireDate = new Date(Date.now() + hours * 60 * 60 * 1000);
+
+    const task = scheduleOnce(fireDate, `Pre-Onboarding Reminder ${attemptNumber}/3 — ${name}`, async () => {
+      if (stopped) return;
+      if (isTaskDone(employee.checklist, 't5')) {
+        stopped = true;
+        return;
+      }
+      const { sendPreOnboardingReminder, sendNoResponseAlert } = require('./emailSender');
+      await sendPreOnboardingReminder(employee, attemptNumber).catch(err =>
+        console.warn(`[Cron] Pre-onboarding reminder ${attemptNumber} failed for ${name}: ${err.message}`)
+      );
+      console.log(`[Cron] Pre-onboarding reminder ${attemptNumber}/3 sent to ${name} (${employeeId})`);
+
+      if (attemptNumber === REMINDER_HOURS.length) {
+        await sendNoResponseAlert(employee, recruiterEmail).catch(err =>
+          console.warn(`[Cron] Pre-onboarding recruiter escalation failed for ${name}: ${err.message}`)
+        );
+        console.log(`[Cron] Pre-onboarding recruiter escalated after 3 reminders for ${name}`);
+      }
+    });
+
+    if (task) timers.push(task);
+  });
+
+  return {
+    stop() {
+      stopped = true;
+      timers.forEach(t => { try { t.stop(); } catch (_) {} });
+    },
+  };
+}
+
 // Schedule a no-response follow-up 24 hours after a document request
 function scheduleNoResponseAlert(employee, recruiterEmail, delayHours) {
   const hours = delayHours || config.replyDeadlines.noResponseAlertHours;
@@ -673,6 +716,7 @@ module.exports = {
   scheduleBGVInitiate,
   scheduleBGVRequest,
   scheduleManagerSheetReminder,
+  schedulePreOnboardingReminders,
   cancelAllJobs,
   startDailyHealthCheck,
   startDataRetentionCron,

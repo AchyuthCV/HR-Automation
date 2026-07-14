@@ -193,6 +193,34 @@ async function sendDocumentReminder(employee, docType, attemptNumber, reason) {
   });
 }
 
+// Template 2c: Pre-onboarding form reminder to joinee (24h / 48h / 72h)
+async function sendPreOnboardingReminder(employee, attemptNumber) {
+  const { name, personalEmail, contacts } = employee;
+  const recruiterEmail = (contacts && contacts.recruiterEmail) || process.env.HR_EMAIL;
+  const co = esc(process.env.COMPANY_NAME || '');
+  const formLink = employee.isFresher
+    ? (process.env.PREONBOARDING_FORM_FRESHER_LINK || process.env.PREONBOARDING_FORM_LINK || '#')
+    : (process.env.PREONBOARDING_FORM_EXPERIENCED_LINK || process.env.PREONBOARDING_FORM_LINK || '#');
+  const urgency = attemptNumber >= 3 ? 'Final Reminder' : `Reminder ${attemptNumber}`;
+  const finalWarning = attemptNumber >= 3
+    ? `<p style="color:#c62828;font-weight:bold;">This is your final reminder. Please complete the form immediately. If not filled, your recruiter will be notified.</p>`
+    : '';
+  return sendEmail({
+    to: personalEmail,
+    subject: `${urgency} — Please Fill Your Pre-Onboarding Form`,
+    html: `
+      <p>Dear ${esc(name)},</p>
+      <p>We noticed you have not yet filled in your pre-onboarding form. Please complete it at your earliest convenience so we can prepare for your joining.</p>
+      <p style="margin:16px 0;">
+        <a href="${formLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Fill Pre-Onboarding Form</a>
+      </p>
+      ${finalWarning}
+      <p>If you face any issues, please reach out to your recruiter at <a href="mailto:${esc(recruiterEmail)}">${esc(recruiterEmail)}</a>.</p>
+      <p>Regards,<br/>${co} HR</p>
+    `,
+  });
+}
+
 // Template 3: 24-hour no-response alert to recruiter
 async function sendNoResponseAlert(employee, recruiterEmail) {
   const { name, employeeId, personalEmail } = employee;
@@ -1478,6 +1506,7 @@ module.exports = {
   sendPreOnboardingForm,
   sendDocumentRejection,
   sendDocumentReminder,
+  sendPreOnboardingReminder,
   sendNoResponseAlert,
   sendOfficialEmailCreationRequest,
   sendOfficialEmailAccessTest,

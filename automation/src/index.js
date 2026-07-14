@@ -29,6 +29,7 @@ const {
   scheduleBGVInitiate,
   scheduleBGVRequest,
   scheduleManagerSheetReminder,
+  schedulePreOnboardingReminders,
   scheduleNoResponseAlert,
   scheduleDocumentReminders,
   scheduleReplyDeadline,
@@ -609,6 +610,11 @@ async function handleNewFile(auth, employee, file, subfolderHint) {
   // t5: employee has uploaded at least one document to the Drive folder
   if (!isTaskDone(employee.checklist, 't5')) {
     markAndLog(employee, 't5');
+    // Cancel pre-onboarding reminders — joinee has started uploading docs
+    if (employee.noResponseTimers && employee.noResponseTimers['preOnboarding']) {
+      employee.noResponseTimers['preOnboarding'].stop();
+      delete employee.noResponseTimers['preOnboarding'];
+    }
   }
 
   console.log(`[Index] Verifying ${file.name} for ${employee.name}`);
@@ -1598,11 +1604,10 @@ async function onboardEmployee(auth, employee) {
     await uploadChecklist(auth, employee.driveFolderId, employee.checklist);
     saveState(employee.employeeId, snapshotEmployee(employee));
 
-    // Step 6: Schedule 24h no-response alert
-    employee.noResponseTimers['preOnboarding'] = scheduleNoResponseAlert(
+    // Step 6: Schedule pre-onboarding reminders to joinee at 24h/48h/72h + recruiter escalation at 72h
+    employee.noResponseTimers['preOnboarding'] = schedulePreOnboardingReminders(
       employee,
-      (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL,
-      24
+      (employee.contacts && employee.contacts.recruiterEmail) || process.env.HR_EMAIL
     );
 
     // Step 7: Schedule optional-doc N/A timers — if payslip/relieving letter not
