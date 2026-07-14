@@ -122,8 +122,26 @@ function createFresherPreonboardingForm() {
   Logger.log('→ Add Published URL to .env as PREONBOARDING_FORM_FRESHER_LINK');
 }
 
-// ── Form submit trigger — moves uploaded files to correct Drive subfolders ──
-// Set this up as an installable trigger: From form → On form submit
+// ── Form submit trigger setup ─────────────────────────────────────────────────
+// Run installFresherTrigger() ONCE after creating or recreating the form.
+// It deletes any old trigger for this script and installs a fresh one.
+function installFresherTrigger() {
+  var formId = PropertiesService.getScriptProperties().getProperty('FRESHER_FORM_ID');
+  if (!formId) {
+    Logger.log('❌ Set FRESHER_FORM_ID in Script Properties first (Extensions → Apps Script → Project Settings → Script Properties)');
+    return;
+  }
+  // Remove any existing onFresherFormSubmit triggers to avoid duplicates
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'onFresherFormSubmit') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('onFresherFormSubmit')
+    .forForm(formId)
+    .onFormSubmit()
+    .create();
+  Logger.log('✅ Trigger installed for form: ' + formId);
+}
+
 // Map of form question title → Drive subfolder name
 var FOLDER_MAP = {
   'Upload Aadhaar Card':      'Aadhaar',
@@ -144,90 +162,52 @@ var ENGINE_WEBHOOK_URL = PropertiesService.getScriptProperties().getProperty('EN
 
 function onFresherFormSubmit(e) {
   var responses = e.response.getItemResponses();
-  var driveFolderId = '';
   var employeeId = '';
-  var fileResponses = {};
+  var uploadedFiles = [];
   var personalDetails = {};
 
   for (var i = 0; i < responses.length; i++) {
-    var title = responses[i].getItem().getTitle();
+    var item = responses[i].getItem();
+    var title = item.getTitle();
     var value = responses[i].getResponse();
-    if (title === 'Drive Folder ID' || title === 'Drive Folder ID( Pre-filled by HR — do not edit)') driveFolderId = value;
-    else if (title === 'Employee ID' || title === 'Employee ID( Pre-filled by HR — do not edit)') employeeId = value;
-    else if (FOLDER_MAP[title]) fileResponses[title] = value;
-    else personalDetails[title] = value;
-  }
 
-  if (ENGINE_WEBHOOK_URL && employeeId) {
-    try {
-      UrlFetchApp.fetch(ENGINE_WEBHOOK_URL + '/preonboarding-details', {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify({ employeeId: employeeId, respondentEmail: e.response.getRespondentEmail(), personalDetails: personalDetails }),
-        muteHttpExceptions: true,
-      });
-      Logger.log('✅ Personal details sent to engine for: ' + employeeId);
-    } catch (err) {
-      Logger.log('⚠️ Could not send personal details to engine: ' + err.message);
-    }
-  }
-
-  // If Drive Folder ID not pre-filled, search for the employee folder by Employee ID
-  var employeeFolder = null;
-  if (driveFolderId) {
-    try {
-      employeeFolder = DriveApp.getFolderById(driveFolderId);
-    } catch (err) {
-      Logger.log('⚠️ Could not open folder by ID, falling back to search: ' + err.message);
-    }
-  }
-
-  if (!employeeFolder && employeeId) {
-    Logger.log('🔍 Searching for employee folder by ID: ' + employeeId);
-    var root = DriveApp.getFolderById(ALETHEA_ONBOARDING_ROOT_ID);
-    var subfolders = root.getFolders();
-    while (subfolders.hasNext()) {
-      var folder = subfolders.next();
-      if (folder.getName().indexOf(employeeId) !== -1) {
-        employeeFolder = folder;
-        Logger.log('✅ Found employee folder: ' + folder.getName());
-        break;
+    if (title === 'Drive Folder ID' || title === 'Drive Folder ID( Pre-filled by HR — do not edit)') {
+      // no longer used here — engine uses its own registry
+    } else if (title === 'Employee ID' || title === 'Employee ID( Pre-filled by HR — do not edit)') {
+      employeeId = value;
+    } else if (FOLDER_MAP[title]) {
+      // File upload question — value is array of file IDs
+      var fileIds = Array.isArray(value) ? value : (value ? String(value).split(',') : []);
+      var subfolder = FOLDER_MAP[title];
+      for (var j = 0; j < fileIds.length; j++) {
+        var fid = String(fileIds[j]).trim();
+        if (fid) uploadedFiles.push({ fileId: fid, subfolder: subfolder });
       }
+    } else {
+      personalDetails[title] = value;
     }
   }
 
-  if (!employeeFolder) {
-    Logger.log('❌ Could not find employee folder for ID: ' + employeeId);
+  if (!ENGINE_WEBHOOK_URL || !employeeId) {
+    Logger.log('⚠️ ENGINE_WEBHOOK_URL or employeeId missing — cannot notify engine');
     return;
   }
 
-  // Second pass — move each uploaded file to its correct subfolder
-  for (var questionTitle in fileResponses) {
-    var subfolderName = FOLDER_MAP[questionTitle];
-    var fileIds = fileResponses[questionTitle];
-
-    // fileIds can be a single string or array
-    if (!Array.isArray(fileIds)) fileIds = [fileIds];
-
-    // Find the target subfolder inside the employee folder
-    var subfolderIterator = employeeFolder.getFoldersByName(subfolderName);
-    if (!subfolderIterator.hasNext()) {
-      Logger.log('⚠️ Subfolder not found: ' + subfolderName + ' — skipping');
-      continue;
-    }
-    var targetFolder = subfolderIterator.next();
-
-    for (var j = 0; j < fileIds.length; j++) {
-      try {
-        var file = DriveApp.getFileById(fileIds[j]);
-        // Move file to target subfolder (remove from current parent)
-        file.moveTo(targetFolder);
-        Logger.log('✅ Moved ' + file.getName() + ' → ' + subfolderName);
-      } catch (err) {
-        Logger.log('❌ Error moving file ' + fileIds[j] + ': ' + err.message);
-      }
-    }
+  try {
+    var payload = {
+      employeeId: employeeId,
+      respondentEmail: e.response.getRespondentEmail(),
+      personalDetails: personalDetails,
+      uploadedFiles: uploadedFiles,
+    };
+    var resp = UrlFetchApp.fetch(ENGINE_WEBHOOK_URL + '/preonboarding-details', {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    Logger.log('✅ Sent to engine — status: ' + resp.getResponseCode() + ' files: ' + uploadedFiles.length);
+  } catch (err) {
+    Logger.log('⚠️ Could not send to engine: ' + err.message);
   }
-
-  Logger.log('✅ All files processed for employee: ' + employeeId);
 }

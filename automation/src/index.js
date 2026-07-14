@@ -298,7 +298,7 @@ function buildDefaultChecklist() {
         t60: { label: '12th/Diploma marksheet verified', done: false },
         t61: { label: 'Graduation degree certificate verified', done: false },
         t62: { label: 'Post graduation certificate verified (or marked N/A — not applicable)', done: false },
-        t67: { label: 'Address proof verified (electricity bill / rental agreement / rent receipt)', done: false },
+        t67: { label: 'Address proof verified (Aadhaar / PAN / electricity bill / rental agreement)', done: false },
         t12: { label: 'Document verification marked complete in Checklist1', done: false },
         t14: { label: 'Mail sent to HR to create official email ID and greythr login', done: false },
         t15: { label: 'HR responds with official email ID and greythr confirmation', done: false },
@@ -557,6 +557,16 @@ async function fireInductionAndProjectIntro(auth, employee) {
     }
   }
 
+  // Send screenshot upload request to recruiter immediately after meetings are scheduled
+  if (!isTaskDone(checklist, 't66')) {
+    await sendDOJScreenshotRequest(employee).catch(err =>
+      console.warn(`[Index] DOJ screenshot request failed for ${employee.name}: ${err.message}`)
+    );
+    markAndLog(employee, 't66');
+    saveState(employee.employeeId, snapshotEmployee(employee));
+    console.log(`[Index] DOJ screenshot request sent to recruiter for ${employee.name}`);
+  }
+
   await uploadChecklist(auth, employee.driveFolderId, checklist).catch(() => {});
   saveState(employee.employeeId, snapshotEmployee(employee));
 }
@@ -646,6 +656,11 @@ async function handleNewFile(auth, employee, file, subfolderHint) {
     // Mark corresponding checklist task
     const taskId = DOC_TASK_MAP[docType];
     if (taskId) markAndLog(employee, taskId);
+
+    // Aadhaar and PAN both contain address — auto-satisfy address proof requirement
+    if ((docType === 'aadhaar' || docType === 'pan') && !isTaskDone(employee.checklist, 't67')) {
+      markAndLog(employee, 't67');
+    }
 
     // Cancel any pending no-response timer for this doc type
     if (employee.noResponseTimers[docType]) {
@@ -1217,7 +1232,8 @@ async function handleReply(auth, classified, rawMsg) {
           }).catch(() => {});
         }
         // If asset allocation email was never sent (contacts missing at t14 time), send it now
-        if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail) {
+        const assetNeeded = !employee.assetRequired || String(employee.assetRequired).trim().toLowerCase() !== 'no';
+        if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail && assetNeeded) {
           await sendAssetAllocationRequest(employee, employee.contacts.managerEmail).catch(err =>
             console.warn(`[Index] Asset allocation request failed for ${employee.name}: ${err.message}`)
           );
@@ -1634,37 +1650,6 @@ async function onboardEmployee(auth, employee) {
 
   }
 
-  // On DOJ morning — send screenshot upload request to recruiter (fires once)
-  if (!isTaskDone(employee.checklist, 't66')) {
-    const dojDate = new Date(employee.doj);
-    const todayStr = new Date().toISOString().split('T')[0];
-    const dojStr   = employee.doj ? employee.doj.split('T')[0] : '';
-    if (dojStr === todayStr) {
-      await sendDOJScreenshotRequest(employee).catch(err =>
-        console.warn(`[Index] DOJ screenshot request email failed for ${employee.name}: ${err.message}`)
-      );
-      markAndLog(employee, 't66');
-      await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
-      saveState(employee.employeeId, snapshotEmployee(employee));
-      console.log(`[Index] DOJ screenshot request sent to recruiter for ${employee.name}`);
-    } else if (dojDate > new Date()) {
-      // DOJ is in the future — schedule the email for midnight of DOJ
-      const msUntilDOJ = dojDate.getTime() - Date.now();
-      setTimeout(async () => {
-        if (!isTaskDone(employee.checklist, 't66')) {
-          await sendDOJScreenshotRequest(employee).catch(err =>
-            console.warn(`[Index] DOJ screenshot request email failed for ${employee.name}: ${err.message}`)
-          );
-          markAndLog(employee, 't66');
-          await uploadChecklist(auth, employee.driveFolderId, employee.checklist).catch(() => {});
-          saveState(employee.employeeId, snapshotEmployee(employee));
-          console.log(`[Index] DOJ screenshot request sent to recruiter for ${employee.name}`);
-        }
-      }, msUntilDOJ);
-      console.log(`[Index] DOJ screenshot request scheduled for ${employee.name} on ${dojStr}`);
-    }
-  }
-
   // On DOJ — fire HR induction + project intro if not already triggered by offer letter
   {
     const dojDate = new Date(employee.doj);
@@ -1708,7 +1693,8 @@ async function onboardEmployee(auth, employee) {
       }
 
       // Asset allocation request to manager (t17)
-      if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail) {
+      const assetNeeded = !employee.assetRequired || String(employee.assetRequired).trim().toLowerCase() !== 'no';
+      if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail && assetNeeded) {
         markAndLog(employee, 't17');
         saveState(employee.employeeId, snapshotEmployee(employee));
         await sendAssetAllocationRequest(employee, employee.contacts.managerEmail).catch(err =>

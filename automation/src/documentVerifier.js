@@ -15,7 +15,7 @@ function getGenAI() {
 
 // Document type → verification prompt
 const VERIFICATION_PROMPTS = {
-  aadhaar: `You are verifying an Aadhaar card document. Check ALL of the following and respond with a JSON object:
+  aadhaar: `You are verifying an Aadhaar card document. The front side of the Aadhaar card is sufficient — you do NOT need both sides. Check ONLY the following four criteria and respond with a JSON object:
 {
   "valid": true/false,
   "docType": "Aadhaar Card",
@@ -25,10 +25,10 @@ const VERIFICATION_PROMPTS = {
     "aadhaarNumberVisible": true/false,
     "photoVisible": true/false
   },
-  "failureReasons": ["list any failed checks in plain English"],
+  "failureReasons": ["list only which of the four checks above failed"],
   "summary": "one sentence summary"
 }
-Only set valid=true if ALL four checks pass.`,
+Set valid=true if ALL four checks pass. Do NOT fail for any other reason (e.g. masked digits, missing back side, partial card, format concerns). A masked Aadhaar showing the last 4 digits still counts as aadhaarNumberVisible=true.`,
 
   pan: `You are verifying a PAN card document. Check ALL of the following and respond with a JSON object:
 {

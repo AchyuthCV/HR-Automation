@@ -455,9 +455,10 @@ app.post('/recruiter-form', employeeCreateLimiter, async (req, res) => {
 
 // ─── Pre-onboarding personal details from form submit ────────────────────────
 // Google Apps Script POSTs here when the new joinee submits their pre-onboarding form.
-// Stores the personal details on the employee object and saves state.
+// Body: { employeeId, respondentEmail, personalDetails, uploadedFiles? }
+// uploadedFiles: array of { fileId, subfolder } — engine moves them and verifies
 app.post('/preonboarding-details', async (req, res) => {
-  const { employeeId, respondentEmail, personalDetails } = req.body || {};
+  const { employeeId, respondentEmail, personalDetails, uploadedFiles } = req.body || {};
   if (!employeeId || !personalDetails) {
     return res.status(400).json({ error: 'Missing employeeId or personalDetails' });
   }
@@ -490,6 +491,75 @@ app.post('/preonboarding-details', async (req, res) => {
   if (_saveState) _saveState(employeeId, emp);
   console.log(`[Webhook] /preonboarding-details — saved personal details for ${employeeId}`);
   res.status(200).json({ message: 'Personal details saved' });
+
+  // Move uploaded files to correct subfolders and trigger verification
+  if (!_handleNewFile || !_auth) return;
+  const { google } = require('googleapis');
+  const drive = google.drive({ version: 'v3', auth: _auth });
+
+  const processFileList = async (files) => {
+    for (const { fileId, subfolder } of files) {
+      if (!fileId) continue;
+      try {
+        const targetFolderRes = await drive.files.list({
+          q: `name='${subfolder}' and '${emp.driveFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+          fields: 'files(id)',
+        });
+        const targetFolderId = targetFolderRes.data.files && targetFolderRes.data.files[0] && targetFolderRes.data.files[0].id;
+        if (!targetFolderId) {
+          console.warn(`[Webhook] Subfolder '${subfolder}' not found in ${emp.name}'s Drive folder — skipping ${fileId}`);
+          continue;
+        }
+        const fileMeta = await drive.files.get({ fileId, fields: 'parents,name,mimeType' });
+        const oldParents = (fileMeta.data.parents || []).join(',');
+        await drive.files.update({ fileId, addParents: targetFolderId, removeParents: oldParents, fields: 'id, parents' });
+        console.log(`[Webhook] Moved ${fileMeta.data.name} → ${subfolder} for ${emp.name}`);
+        const file = { id: fileId, name: fileMeta.data.name, mimeType: fileMeta.data.mimeType };
+        await _handleNewFile(_auth, emp, file, subfolder).catch(err =>
+          console.error(`[Webhook] handleNewFile error for ${fileMeta.data.name}: ${err.message}`)
+        );
+      } catch (err) {
+        console.error(`[Webhook] Error processing file ${fileId} for ${emp.name}: ${err.message}`);
+      }
+    }
+  };
+
+  if (Array.isArray(uploadedFiles) && uploadedFiles.length > 0) {
+    // GAS sent file IDs — move and verify each one
+    await processFileList(uploadedFiles);
+  } else {
+    // Fallback: GAS didn't send file IDs (old trigger / no trigger set up)
+    // Scan the entire employee Drive folder tree for any unprocessed files
+    console.log(`[Webhook] No uploadedFiles from GAS for ${emp.name} — scanning Drive folder as fallback`);
+    try {
+      const res = await drive.files.list({
+        q: `'${emp.driveFolderId}' in ancestors and trashed=false and mimeType != 'application/vnd.google-apps.folder'`,
+        fields: 'files(id, name, mimeType, parents)',
+      });
+      const allFiles = res.data.files || [];
+      const processed = new Set(emp.processedFileIds || []);
+
+      // Build subfolder name→id map for this employee
+      const subfolderRes = await drive.files.list({
+        q: `'${emp.driveFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: 'files(id, name)',
+      });
+      const subfolderMap = {};
+      for (const sf of (subfolderRes.data.files || [])) subfolderMap[sf.id] = sf.name;
+
+      for (const f of allFiles) {
+        if (processed.has(f.id)) continue;
+        // Determine subfolder from parent
+        const parentId = f.parents && f.parents[0];
+        const subfolderName = subfolderMap[parentId] || null;
+        await _handleNewFile(_auth, emp, { id: f.id, name: f.name, mimeType: f.mimeType }, subfolderName).catch(err =>
+          console.error(`[Webhook] Fallback handleNewFile error for ${f.name}: ${err.message}`)
+        );
+      }
+    } catch (err) {
+      console.error(`[Webhook] Fallback Drive scan failed for ${emp.name}: ${err.message}`);
+    }
+  }
 });
 
 // ─── Remove employee from running engine ───────────────────────────────────────
