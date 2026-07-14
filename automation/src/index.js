@@ -1191,10 +1191,25 @@ async function handleReply(auth, classified, rawMsg) {
           delete employee.replyTimers.hr;
         }
         // Send welcome/access test email to the new official address (informational — no reply needed)
-        await sendOfficialEmailAccessTest(employee).catch(err =>
-          console.warn(`[Index] Official email access test failed for ${employee.name}: ${err.message}`)
-        );
-        console.log(`[Index] Access test email sent to ${data.officialEmail} for ${employee.name}`);
+        try {
+          await sendOfficialEmailAccessTest(employee);
+          console.log(`[Index] Access test email sent to ${data.officialEmail} for ${employee.name}`);
+        } catch (err) {
+          console.warn(`[Index] Official email access test failed for ${employee.name}: ${err.message}`);
+          // Alert HR so they can verify the official email address is correct
+          await sendEmail({
+            to: hrEmail(employee),
+            subject: `Action Required — Could Not Reach Official Email for ${employee.name} (${employee.employeeId})`,
+            html: `
+              <p>Hi HR,</p>
+              <p>The automation engine could not send the welcome/access test email to the official email address recorded for <strong>${esc(employee.name)}</strong> (${esc(employee.employeeId)}).</p>
+              <p><strong>Official email recorded:</strong> ${esc(data.officialEmail || '')}</p>
+              <p>Please verify that this email address is correct and active, then reply to the original official email creation request with the correct address if needed.</p>
+              <p>Error: ${esc(err.message)}</p>
+              <p>Regards,<br/>${esc(process.env.COMPANY_NAME || '')} HR Automation</p>
+            `,
+          }).catch(() => {});
+        }
         // If asset allocation email was never sent (contacts missing at t14 time), send it now
         if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail) {
           await sendAssetAllocationRequest(employee, employee.contacts.managerEmail).catch(err =>
