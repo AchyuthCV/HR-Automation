@@ -470,8 +470,57 @@ async function createProjectIntroSheet(auth, employee) {
     return rows;
   }
 
+  const templateId = process.env.PROJECT_INTRO_TEMPLATE_ID;
+
   try {
-    const spreadsheet = await apiWithRetry(() => sheets.spreadsheets.create({
+    let spreadsheetId;
+
+    if (templateId) {
+      // Copy the master template sheet
+      const copy = await apiWithRetry(() => drive.files.copy({
+        fileId: templateId,
+        requestBody: { name: `AL_DI_HR_019 Project Introduction — ${name} (${employeeId})` },
+      }), 'createProjectIntroSheet:copy');
+      spreadsheetId = copy.data.id;
+      console.log(`[Status] Project intro sheet copied from template for ${name}: ${spreadsheetId}`);
+
+      // Update the "Details of New Joinee & Task" tab with employee info
+      const dojStr = employee.doj || '';
+      const teamJoined = employee.team || employee.department || '';
+      const reportingManager = (contacts && contacts.managerName) || managerEmail || '';
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: "'Details of New Joinee & Task'!B2",
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[name]] },
+      }).catch(() => {});
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: "'Details of New Joinee & Task'!B3",
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[employeeId]] },
+      }).catch(() => {});
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: "'Details of New Joinee & Task'!B4",
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[dojStr]] },
+      }).catch(() => {});
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: "'Details of New Joinee & Task'!B5",
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[teamJoined]] },
+      }).catch(() => {});
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: "'Details of New Joinee & Task'!B6",
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[reportingManager]] },
+      }).catch(() => {});
+    } else {
+      // Fallback: build from scratch (legacy path, used if env var not set)
+      const spreadsheet = await apiWithRetry(() => sheets.spreadsheets.create({
       requestBody: {
         properties: { title: `AL_DI_HR_019 Project Introduction — ${name} (${employeeId})` },
         sheets: [
@@ -484,9 +533,11 @@ async function createProjectIntroSheet(auth, employee) {
       },
     }), 'createProjectIntroSheet:create');
 
-    const spreadsheetId = spreadsheet.data.spreadsheetId;
+      spreadsheetId = spreadsheet.data.spreadsheetId;
+    } // end else (legacy build-from-scratch)
 
-    // ── Tab 1: Document Version history ──────────────────────────────────────
+    // ── Tab 1: Document Version history (legacy only — skipped when using template) ──
+    if (!templateId) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: "'Document Version history'!A1",
@@ -698,6 +749,8 @@ async function createProjectIntroSheet(auth, employee) {
         { updateDimensionProperties: { range: { sheetId: 1, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 500 }, fields: 'pixelSize' } },
       ]},
     });
+
+    } // end if (!templateId) legacy block
 
     // ── Move to employee's Reports folder ─────────────────────────────────────
     const reportsFolder = await drive.files.list({
