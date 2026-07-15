@@ -147,16 +147,16 @@ async function sendDocumentRejection(employee, docType, reason) {
     `,
   });
 
-  // Also notify recruiter so they know the document was rejected
+  // Notify recruiter — FYI only, no action needed
   if (recruiterEmail) {
     await sendEmail({
       to: recruiterEmail,
-      subject: `Document Rejected — ${esc(docType)} for ${esc(name)} (${esc(employee.employeeId)})`,
+      subject: `Document Verification Failed — ${esc(docType)} for ${esc(name)} (${esc(employee.employeeId)})`,
       html: `
         <p>Hi,</p>
-        <p>The <strong>${esc(docType)}</strong> uploaded by <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) could not be verified:</p>
+        <p>The <strong>${esc(docType)}</strong> submitted by <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) could not be verified:</p>
         <blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${esc(reason)}</blockquote>
-        <p>The employee has been asked to reply to the rejection email with the corrected document. The system will verify it automatically and update the checklist once accepted.</p>
+        <p>The employee has been notified and asked to resubmit. You will be updated once the document is verified.</p>
         <p>Regards,<br/>${co} HR Automation</p>
       `,
     }).catch(() => {});
