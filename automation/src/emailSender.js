@@ -330,6 +330,11 @@ async function sendITAssetRequest(employee, itEmail, assetDetails) {
         ${reportingRow}
       </ul>
       <p>Please ensure the laptop, system access, email credentials, and any required peripherals are ready before the DOJ. If any requested asset is unavailable, kindly reply with an alternative or the expected availability date so HR can coordinate accordingly.</p>
+      <p><strong>Once everything is set up, please reply to this email with a confirmation such as:</strong></p>
+      <blockquote style="border-left:4px solid #1a73e8;padding:8px 16px;color:#555;margin:8px 0;">
+        "Done. System access set up, workstation ready." — or simply "Done" if all items are ready.
+      </blockquote>
+      <p style="font-size:13px;color:#555;">Your reply will automatically update the onboarding checklist.</p>
       <p>Regards,<br/>${co} HR</p>
     `,
   });
