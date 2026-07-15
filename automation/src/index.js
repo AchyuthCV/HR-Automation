@@ -1769,9 +1769,21 @@ async function onboardEmployee(auth, employee) {
         console.log(`[Index] Official email creation request sent on DOJ for ${employee.name}`);
       }
 
-      // Asset allocation request to manager (t17)
+      // Asset allocation request to manager (t17) + IT request (t20)
+      // If assetRequired is "No" in recruiter form — skip both emails, auto-mark all tasks done
       const assetNeeded = !employee.assetRequired || String(employee.assetRequired).trim().toLowerCase() !== 'no';
-      if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail && assetNeeded) {
+      if (!assetNeeded) {
+        if (!isTaskDone(employee.checklist, 't17')) {
+          markAndLog(employee, 't17');
+          markAndLog(employee, 't18');
+          markAndLog(employee, 't19');
+          markAndLog(employee, 't20');
+          markAndLog(employee, 't21');
+          markAndLog(employee, 't22');
+          saveState(employee.employeeId, snapshotEmployee(employee));
+          console.log(`[Index] Asset not required for ${employee.name} — t17–t22 auto-marked, no emails sent`);
+        }
+      } else if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail) {
         markAndLog(employee, 't17');
         saveState(employee.employeeId, snapshotEmployee(employee));
         await sendAssetAllocationRequest(employee, employee.contacts.managerEmail).catch(err =>
