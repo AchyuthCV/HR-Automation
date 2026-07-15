@@ -135,15 +135,14 @@ async function sendDocumentRejection(employee, docType, reason) {
       <p>Dear ${esc(name)},</p>
       <p>Thank you for submitting your documents. Unfortunately we could not verify your <strong>${esc(docType)}</strong>:</p>
       <blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${esc(reason)}</blockquote>
-      <p>Please send a clear, legible copy of your <strong>${esc(docType)}</strong> directly to your recruiter at:<br/>
-      <strong><a href="mailto:${esc(recruiterEmail)}">${esc(recruiterEmail)}</a></strong></p>
+      <p>Please <strong>reply to this email</strong> with a clear, legible copy of your <strong>${esc(docType)}</strong> attached. Our system will verify it automatically.</p>
       <p>Please ensure:</p>
       <ul>
         <li>The document is clearly legible — not blurry or cropped</li>
         <li>All required fields are fully visible</li>
         <li>Accepted formats: PDF, JPG, PNG</li>
       </ul>
-      <p>Please send it within <strong>24 hours</strong>. Your recruiter will review and confirm once it is accepted.</p>
+      <p>Please reply within <strong>24 hours</strong>.</p>
       <p>Regards,<br/>${co} HR</p>
     `,
   });
@@ -157,7 +156,7 @@ async function sendDocumentRejection(employee, docType, reason) {
         <p>Hi,</p>
         <p>The <strong>${esc(docType)}</strong> uploaded by <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) could not be verified:</p>
         <blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${esc(reason)}</blockquote>
-        <p>The employee has been asked to send a corrected copy directly to you. Please review it when received and reply <strong>"Confirmed"</strong> to the original document rejection email to update the onboarding checklist.</p>
+        <p>The employee has been asked to reply to the rejection email with the corrected document. The system will verify it automatically and update the checklist once accepted.</p>
         <p>Regards,<br/>${co} HR Automation</p>
       `,
     }).catch(() => {});
