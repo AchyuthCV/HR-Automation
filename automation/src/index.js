@@ -485,7 +485,8 @@ async function fireInductionAndProjectIntro(auth, employee) {
     await sendHRInductionConfirmation(employee, contacts.recruiterEmail);
     employee.replyTimers = employee.replyTimers || {};
     employee.replyTimers.induction = scheduleReplyDeadline(
-      employee, 'Recruiter (HR Induction)', contacts.recruiterEmail, 48
+      employee, 'Recruiter (HR Induction)', contacts.recruiterEmail, 48,
+      `The system sent the recruiter an HR Induction confirmation email for ${employee.name}. The recruiter needs to conduct the HR induction session and then upload a screenshot of the meeting to the HR_Induction_Screenshot folder in the employee's Drive folder. No response has been received.`
     );
   }
 
@@ -877,7 +878,8 @@ async function triggerNextStep(auth, employee, docType) {
         console.warn(`[Index] Admin seat allocation email failed for ${employee.name}: ${err.message}`)
       );
       employee.replyTimers.admin = scheduleReplyDeadline(
-        employee, 'Admin (Seat Allocation)', hrEmail(employee)
+        employee, 'Admin (Seat Allocation)', hrEmail(employee), null,
+        `The system sent the admin a seat allocation request for ${employee.name} (DOJ: ${employee.doj}). Admin needs to confirm the seat number/location assigned to this employee and reply. No response has been received.`
       );
     }
     saveState(employee.employeeId, snapshotEmployee(employee));
@@ -1256,7 +1258,10 @@ async function handleReply(auth, classified, rawMsg) {
           );
           markAndLog(employee, 't17');
           employee.replyTimers = employee.replyTimers || {};
-          employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', employee.contacts.managerEmail);
+          employee.replyTimers.manager = scheduleReplyDeadline(
+            employee, 'Reporting Manager', employee.contacts.managerEmail, null,
+            `The system sent the reporting manager an asset allocation request for ${employee.name}. The manager needs to confirm what assets (laptop, accessories, etc.) should be assigned and reply so IT can proceed. No response has been received.`
+          );
           saveState(employee.employeeId, snapshotEmployee(employee));
           console.log(`[Index] Asset allocation request sent to manager for ${employee.name} (catch-up after contacts fix)`);
         }
@@ -1315,7 +1320,10 @@ async function handleReply(auth, classified, rawMsg) {
           saveState(employee.employeeId, snapshotEmployee(employee));
           await sendITAssetRequest(employee, employee.contacts.itEmail, data);
           employee.replyTimers = employee.replyTimers || {};
-          employee.replyTimers.it = scheduleReplyDeadline(employee, 'IT Team', employee.contacts.itEmail);
+          employee.replyTimers.it = scheduleReplyDeadline(
+            employee, 'IT Team', employee.contacts.itEmail, null,
+            `The system sent an IT asset request for ${employee.name} based on the manager's allocation confirmation. IT needs to assign the assets (laptop, accessories, etc.) and reply with "Asset Assigned: Y/N" along with the reason if not assigned. No response has been received.`
+          );
           saveState(employee.employeeId, snapshotEmployee(employee));
         }
       } else {
@@ -1376,37 +1384,31 @@ async function handleReply(auth, classified, rawMsg) {
       break;
 
     case 'catchup_complete':
-      markAndLog(employee, 't43');
+      // Part 2 of 30-day review — manager confirms "Done" after recruiter already filled sheet (Part 1)
+      // t43 (sheet filled) is marked by scheduleRecruiterSheetPoller when sheet is detected filled
       markAndLog(employee, 't44');
       markAndLog(employee, 't45');
       activityLog.log(employee, '30_day_catchup_complete');
       await mark30DayDone(auth, employee).catch(() => {});
-      if (employee.replyTimers && employee.replyTimers['30dayReview']) {
-        employee.replyTimers['30dayReview'].stop && employee.replyTimers['30dayReview'].stop();
-        delete employee.replyTimers['30dayReview'];
-      }
+      console.log(`[Index] 30-day review confirmed by manager for ${employee.name}`);
       break;
 
     case 'review_complete': {
+      // Part 2 of 60/90-day review — manager confirms "Done" after recruiter already filled sheet (Part 1)
+      // t46/t49 (sheet filled) are marked by scheduleRecruiterSheetPoller; here we only mark manager confirm tasks
       const daysSinceDoj = Math.floor(
         (Date.now() - new Date(employee.doj).getTime()) / (1000 * 60 * 60 * 24)
       );
       if (daysSinceDoj < 85) {
-        markAndLog(employee, 't46'); markAndLog(employee, 't48');
+        markAndLog(employee, 't48');
         activityLog.log(employee, '60_day_review_complete');
         await mark60DayDone(auth, employee).catch(() => {});
-        if (employee.replyTimers && employee.replyTimers['60dayNoReply']) {
-          employee.replyTimers['60dayNoReply'].stop && employee.replyTimers['60dayNoReply'].stop();
-          delete employee.replyTimers['60dayNoReply'];
-        }
+        console.log(`[Index] 60-day review confirmed by manager for ${employee.name}`);
       } else if (daysSinceDoj < 135) {
-        markAndLog(employee, 't49'); markAndLog(employee, 't51');
+        markAndLog(employee, 't51');
         activityLog.log(employee, '90_day_review_complete');
         await mark90DayDone(auth, employee).catch(() => {});
-        if (employee.replyTimers && employee.replyTimers['90dayNoReply']) {
-          employee.replyTimers['90dayNoReply'].stop && employee.replyTimers['90dayNoReply'].stop();
-          delete employee.replyTimers['90dayNoReply'];
-        }
+        console.log(`[Index] 90-day review confirmed by manager for ${employee.name}`);
       } else {
         console.warn(`[Index] review_complete reply for ${employee.name} arrived at day ${daysSinceDoj} — outside expected 60/90-day windows, ignoring`);
         activityLog.log(employee, 'review_complete_out_of_window', `day ${daysSinceDoj}`);
@@ -1781,7 +1783,10 @@ async function onboardEmployee(auth, employee) {
           console.warn(`[Index] Official email creation request failed for ${employee.name}: ${err.message}`)
         );
         employee.replyTimers = employee.replyTimers || {};
-        employee.replyTimers.hr = scheduleReplyDeadline(employee, 'HR Team', hrEmail(employee));
+        employee.replyTimers.hr = scheduleReplyDeadline(
+          employee, 'HR Team', hrEmail(employee), null,
+          `The system sent HR an email asking them to create the official ${process.env.COMPANY_NAME || ''} email ID and Greythr login for ${employee.name} (DOJ: ${employee.doj}). HR needs to create both accounts and reply with the official email ID and Greythr confirmation. No response has been received.`
+        );
         saveState(employee.employeeId, snapshotEmployee(employee));
         console.log(`[Index] Official email creation request sent on DOJ for ${employee.name}`);
       }
@@ -1807,7 +1812,10 @@ async function onboardEmployee(auth, employee) {
           console.warn(`[Index] Asset allocation request failed for ${employee.name}: ${err.message}`)
         );
         employee.replyTimers = employee.replyTimers || {};
-        employee.replyTimers.manager = scheduleReplyDeadline(employee, 'Reporting Manager', employee.contacts.managerEmail);
+        employee.replyTimers.manager = scheduleReplyDeadline(
+          employee, 'Reporting Manager', employee.contacts.managerEmail, null,
+          `The system sent the reporting manager an asset allocation request for ${employee.name} (DOJ: ${employee.doj}). The manager needs to confirm what assets (laptop, accessories, etc.) should be assigned to this employee and reply so IT can proceed. No response has been received.`
+        );
         saveState(employee.employeeId, snapshotEmployee(employee));
         console.log(`[Index] Asset allocation request sent on DOJ for ${employee.name}`);
       }

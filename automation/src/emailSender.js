@@ -165,28 +165,32 @@ async function sendDocumentRejection(employee, docType, reason) {
 
 // Template 2b: Follow-up reminder to employee (sent at 24h / 48h after rejection)
 async function sendDocumentReminder(employee, docType, attemptNumber, reason) {
-  const { name, personalEmail, contacts } = employee;
+  const { name, personalEmail, contacts, doj } = employee;
   const recruiterEmail = (contacts && contacts.recruiterEmail) || process.env.HR_EMAIL;
   const co = esc(process.env.COMPANY_NAME || '');
-  const urgency = attemptNumber >= 3 ? 'FINAL REMINDER' : `Reminder ${attemptNumber}`;
+  const urgency = attemptNumber >= 3 ? 'Final Reminder' : `Reminder ${attemptNumber}`;
+  const dojFormatted = doj ? new Date(doj).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
   const extra = attemptNumber >= 3
-    ? `<p style="color:#c62828;font-weight:bold;">This is your final reminder. If the document is not received within 24 hours, your onboarding coordinator will be notified and further action may be required.</p>`
+    ? `<p style="color:#c62828;font-weight:bold;">This is your final reminder. If the document is not received within 24 hours, your recruiter will be notified and your onboarding may be delayed.</p>`
     : '';
   return sendEmail({
     to: personalEmail,
-    subject: `${urgency} — ${esc(docType)} Still Pending`,
+    subject: `${urgency} — ${esc(docType)} still pending for your onboarding (DOJ: ${dojFormatted})`,
     html: `
       <p>Dear ${esc(name)},</p>
-      <p>We have not yet received your <strong>${esc(docType)}</strong>.</p>
-      ${reason ? `<blockquote style="border-left:4px solid #e53935;padding:8px 16px;color:#555;">${esc(reason)}</blockquote>` : ''}
-      <p>Please email a clear, legible copy directly to your recruiter at:<br/>
-      <strong><a href="mailto:${esc(recruiterEmail)}">${esc(recruiterEmail)}</a></strong></p>
+      <div style="margin:16px 0;padding:12px 16px;background:#fff8e1;border-left:4px solid #ffa000;border-radius:2px;">
+        <p style="margin:0 0 4px;font-weight:bold;color:#333;">Why are you receiving this?</p>
+        <p style="margin:0;color:#555;">Your <strong>${esc(docType)}</strong> was either not submitted or did not pass verification. This document is required to complete your pre-onboarding and proceed with your joining on <strong>${dojFormatted}</strong>.</p>
+        ${reason ? `<p style="margin:8px 0 0;color:#c62828;font-size:13px;"><strong>Reason flagged:</strong> ${esc(reason)}</p>` : ''}
+      </div>
+      <p><strong>What to do:</strong> Reply to this email with a clear, legible copy of your <strong>${esc(docType)}</strong> attached.</p>
       <ul>
-        <li>The document must be clearly legible — not blurry or cropped</li>
+        <li>Document must be clearly legible — not blurry or cropped</li>
         <li>All required fields must be fully visible</li>
         <li>Accepted formats: PDF, JPG, PNG</li>
       </ul>
       ${extra}
+      <p>If you have any trouble, contact your recruiter: <a href="mailto:${esc(recruiterEmail)}">${esc(recruiterEmail)}</a></p>
       <p>Regards,<br/>${co} HR</p>
     `,
   });
@@ -194,44 +198,52 @@ async function sendDocumentReminder(employee, docType, attemptNumber, reason) {
 
 // Template 2c: Pre-onboarding form reminder to joinee (24h / 48h / 72h)
 async function sendPreOnboardingReminder(employee, attemptNumber) {
-  const { name, personalEmail, contacts } = employee;
+  const { name, personalEmail, contacts, doj } = employee;
   const recruiterEmail = (contacts && contacts.recruiterEmail) || process.env.HR_EMAIL;
   const co = esc(process.env.COMPANY_NAME || '');
   const formLink = employee.isFresher
     ? (process.env.PREONBOARDING_FORM_FRESHER_LINK || process.env.PREONBOARDING_FORM_LINK || '#')
     : (process.env.PREONBOARDING_FORM_EXPERIENCED_LINK || process.env.PREONBOARDING_FORM_LINK || '#');
   const urgency = attemptNumber >= 3 ? 'Final Reminder' : `Reminder ${attemptNumber}`;
+  const dojFormatted = doj ? new Date(doj).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
   const finalWarning = attemptNumber >= 3
-    ? `<p style="color:#c62828;font-weight:bold;">This is your final reminder. Please complete the form immediately. If not filled, your recruiter will be notified.</p>`
+    ? `<p style="color:#c62828;font-weight:bold;">This is your final reminder. If the form is not filled, your recruiter will be notified and your onboarding preparation may be delayed.</p>`
     : '';
   return sendEmail({
     to: personalEmail,
-    subject: `${urgency} — Please Fill Your Pre-Onboarding Form`,
+    subject: `${urgency} — Pre-Onboarding Form not filled | Your joining is on ${dojFormatted}`,
     html: `
       <p>Dear ${esc(name)},</p>
-      <p>We noticed you have not yet filled in your pre-onboarding form. Please complete it at your earliest convenience so we can prepare for your joining.</p>
+      <div style="margin:16px 0;padding:12px 16px;background:#fff8e1;border-left:4px solid #ffa000;border-radius:2px;">
+        <p style="margin:0 0 4px;font-weight:bold;color:#333;">Why are you receiving this?</p>
+        <p style="margin:0;color:#555;">You have been selected to join <strong>${co}</strong> on <strong>${dojFormatted}</strong>. Before your joining, you need to fill a pre-onboarding form so HR can prepare your documents, credentials, and workspace. This form has not been filled yet.</p>
+      </div>
+      <p><strong>What to do:</strong> Click the button below and complete the form. It takes less than 5 minutes.</p>
       <p style="margin:16px 0;">
         <a href="${formLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Fill Pre-Onboarding Form</a>
       </p>
       ${finalWarning}
-      <p>If you face any issues, please reach out to your recruiter at <a href="mailto:${esc(recruiterEmail)}">${esc(recruiterEmail)}</a>.</p>
+      <p>If you face any issues, contact your recruiter: <a href="mailto:${esc(recruiterEmail)}">${esc(recruiterEmail)}</a></p>
       <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
 
-// Template 3: 24-hour no-response alert to recruiter
+// Template 3: No-response priority notice to recruiter when joinee hasn't filled pre-onboarding form
 async function sendNoResponseAlert(employee, recruiterEmail) {
-  const { name, employeeId, personalEmail } = employee;
+  const { name, employeeId, personalEmail, doj } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
+  const dojFormatted = doj ? new Date(doj).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
   return sendEmail({
     to: recruiterEmail,
-    subject: `ALERT — ${esc(name)} (${esc(employeeId)}) Has Not Responded in 24 Hours`,
+    subject: `Respond on Priority — ${esc(name)} (${esc(employeeId)}) has not filled the pre-onboarding form`,
     html: `
       <p>Hi,</p>
-      <p>This is an automated alert. <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) has not responded to the pre-onboarding request for more than <strong>24 hours</strong>.</p>
-      <p><strong>Personal Email:</strong> ${esc(personalEmail)}</p>
-      <p>Please follow up directly with the candidate to ensure they complete the required steps before their Date of Joining.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
+      <p><strong>Respond on Priority.</strong></p>
+      <p><strong>${esc(name)}</strong> (ID: ${esc(employeeId)}, DOJ: ${dojFormatted}) has not filled the pre-onboarding form even after multiple reminders. It has been more than <strong>24 hours</strong> since the last reminder was sent to <strong>${esc(personalEmail)}</strong>.</p>
+      <p><strong>What needs to happen:</strong> Please contact ${esc(name)} directly and ask them to complete the pre-onboarding form immediately. The form must be submitted before the Date of Joining so the onboarding checklist can proceed.</p>
+      <p>If the candidate has already submitted the form or if there is an issue with their email, please let the HR team know so the system can be updated.</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -388,15 +400,23 @@ async function sendBGVRequest(employee, recruiterEmail) {
 
 // Template 8: HR induction attendance confirmation
 async function sendHRInductionConfirmation(employee, recruiterEmail) {
-  const { name, employeeId } = employee;
+  const { name, employeeId, doj } = employee;
   const co = esc(process.env.COMPANY_NAME || '');
+  const dojFormatted = doj ? new Date(doj).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+  const driveFolderId = employee.driveFolderId;
+  const folderLink = driveFolderId ? `https://drive.google.com/drive/folders/${driveFolderId}` : null;
   return sendEmail({
     to: recruiterEmail,
-    subject: `Confirmation Required — HR Induction for ${esc(name)} (${esc(employeeId)})`,
+    subject: `Action Required — HR Induction confirmation for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi,</p>
-      <p>Please confirm that the HR induction session for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) has been completed.</p>
-      <p>Reply with <strong>"Confirmed"</strong> to mark this step complete in the onboarding checklist.</p>
+      <div style="margin:16px 0;padding:12px 16px;background:#fff8e1;border-left:4px solid #ffa000;border-radius:2px;">
+        <p style="margin:0 0 4px;font-weight:bold;color:#333;">What this email is about</p>
+        <p style="margin:0;color:#555;"><strong>${esc(name)}</strong> (ID: ${esc(employeeId)}, DOJ: ${dojFormatted}) has joined. The HR Induction session needs to be conducted. Once the session is done, you must upload a screenshot of the meeting to the <strong>HR_Induction_Screenshot</strong> subfolder in ${esc(name)}'s Drive folder. The onboarding checklist will only turn green after the screenshot is uploaded — not just after this reply.</p>
+      </div>
+      <p><strong>Step 1:</strong> Reply to this email with <strong>"Confirmed"</strong> once the HR induction is done.</p>
+      <p><strong>Step 2:</strong> Upload a screenshot of the induction meeting to the <strong>HR_Induction_Screenshot</strong> folder in Drive.</p>
+      ${folderLink ? `<p style="margin:16px 0;"><a href="${folderLink}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open ${esc(name)}'s Drive Folder</a></p>` : ''}
       <p>Regards,<br/>${co} HR</p>
     `,
   });
@@ -440,31 +460,36 @@ async function sendPeriodicReviewReminder(employee, recruiterEmail, managerEmail
   if (managerEmail) {
     await sendEmail({
       to: managerEmail,
-      subject: `Reminder — ${dayMark}-Day Project Review for ${esc(name)} (${esc(employeeId)})`,
+      subject: `Action Required — ${dayMark}-Day Project Review for ${esc(name)} (${esc(employeeId)})`,
       html: `
         <p>Hi,</p>
-        <p>The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is due.</p>
-        <p>Please schedule and conduct the review. After the call:</p>
-        <ol>
-          <li>Fill in the <strong>${esc(monthTab)}</strong> tab in the tracking sheet below</li>
-          <li>Reply to this email confirming the review was completed</li>
-        </ol>
+        <div style="margin:16px 0;padding:12px 16px;background:#fff8e1;border-left:4px solid #ffa000;border-radius:2px;">
+          <p style="margin:0 0 4px;font-weight:bold;color:#333;">What this email is about</p>
+          <p style="margin:0;color:#555;">It has been <strong>${dayMark} days</strong> since <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) joined ${co}. The <strong>${dayMark}-day project review</strong> is now due. This is a structured check-in to assess progress, discuss any challenges, and set expectations for the next phase. Two steps are required after the call:</p>
+          <ol style="margin:8px 0 0;color:#555;">
+            <li>The recruiter fills their section in the <strong>${esc(monthTab)}</strong> tab of the tracking sheet</li>
+            <li>You (the manager) confirm the review call was completed by replying "Done" to a follow-up email — that is what closes this milestone</li>
+          </ol>
+        </div>
+        <p>Please schedule and conduct the review call at the earliest. The tracking sheet is linked below for reference:</p>
         ${sheetSection}
-        <p>If the call cannot happen soon, reply with the new proposed date.</p>
         <p>Regards,<br/>${co} HR</p>
       `,
     });
   }
 
-  // Separate simple email to new joinee — same style as 30-day
+  // Separate simple email to new joinee
   if (joineeEmail) {
     await sendEmail({
       to: joineeEmail,
-      subject: `${dayMark}-Day Project Review — ${esc(name)} (${esc(employeeId)})`,
+      subject: `${dayMark}-Day Review — ${esc(name)}, your manager will be scheduling a call`,
       html: `
-        <p>Hi,</p>
-        <p>It has been ${dayMark} days since <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) joined ${co}. Time for the <strong>${dayMark}-day project review!</strong></p>
-        <p>Please check your calendar for the review meeting invite and come prepared to discuss progress, challenges, and next steps.</p>
+        <p>Hi ${esc(name)},</p>
+        <div style="margin:16px 0;padding:12px 16px;background:#fff8e1;border-left:4px solid #ffa000;border-radius:2px;">
+          <p style="margin:0 0 4px;font-weight:bold;color:#333;">What this email is about</p>
+          <p style="margin:0;color:#555;">It has been <strong>${dayMark} days</strong> since you joined ${co}. As part of your onboarding, your manager will schedule a <strong>${dayMark}-day project review call</strong> with you. This is a check-in to discuss your progress, any challenges you are facing, and goals for the next phase.</p>
+        </div>
+        <p>Please check your calendar for the meeting invite from your manager and come prepared to discuss your progress and any questions you have.</p>
         <p>Regards,<br/>${co} HR</p>
       `,
     });
@@ -1120,18 +1145,28 @@ async function sendAdminSeatAllocationRequest(employee) {
   });
 }
 
-// Template 18: No-reply escalation — sent to HR when a stakeholder hasn't replied in 48h
-async function sendNoReplyEscalation(employee, recipientType, originalRecipient) {
-  const { name, employeeId } = employee;
+// Template 18: No-reply priority notice — sent to HR when a stakeholder hasn't replied
+// context: plain-text description of what the original email asked for (shown in the email body)
+async function sendNoReplyEscalation(employee, recipientType, originalRecipient, context) {
+  const { name, employeeId, doj } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
+  const dojFormatted = doj ? new Date(doj).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+  const contextBlock = context
+    ? `<div style="margin:16px 0;padding:12px 16px;background:#fff8e1;border-left:4px solid #ffa000;border-radius:2px;">
+        <p style="margin:0 0 4px;font-weight:bold;color:#333;">What was the original email about?</p>
+        <p style="margin:0;color:#555;">${esc(context)}</p>
+       </div>`
+    : '';
   return sendEmail({
     to: resolveHrEmail(employee),
-    subject: `ESCALATION — No Reply from ${esc(recipientType)} for ${esc(name)} (${esc(employeeId)})`,
+    subject: `Respond on Priority — ${esc(recipientType)} has not replied for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi HR Team,</p>
-      <p>This is an automated escalation notice.</p>
-      <p><strong>${esc(recipientType)}</strong> (<code>${esc(originalRecipient)}</code>) has <strong>not replied</strong> to the automated onboarding request sent <strong>48 hours ago</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}).</p>
-      <p>Please follow up manually with <strong>${esc(recipientType)}</strong> to ensure the required action is completed before the candidate's onboarding is impacted.</p>
-      <p>Regards,<br/>${esc(process.env.COMPANY_NAME)} HR</p>
+      <p><strong>Respond on Priority.</strong></p>
+      <p>The onboarding system sent an automated request to <strong>${esc(recipientType)}</strong> (<code>${esc(originalRecipient)}</code>) for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}, DOJ: ${dojFormatted}). There has been no response.</p>
+      ${contextBlock}
+      <p><strong>Action needed:</strong> Please contact <strong>${esc(originalRecipient)}</strong> directly, share the context above, and ensure the step is completed. If it was already done, confirm so the checklist can be updated.</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }
@@ -1220,7 +1255,7 @@ async function sendOnboardingCompletionReport(employee) {
     </tr>`;
   }).join('');
 
-  // ── Escalation count from activity log ───────────────────────────────────
+  // ── Priority follow-up count from activity log ───────────────────────────
   let escalationCount = 0;
   try {
     const { readLog } = require('./activityLog');
@@ -1229,8 +1264,8 @@ async function sendOnboardingCompletionReport(employee) {
   } catch { /* non-fatal */ }
 
   const escalationNote = escalationCount > 0
-    ? `<p style="margin:0 0 8px;color:#6B7280;font-size:13px;">${escalationCount} escalation(s) were raised during onboarding. Review the activity log for details.</p>`
-    : `<p style="margin:0 0 8px;color:#2D7D46;font-size:13px;">No escalations were raised during onboarding.</p>`;
+    ? `<p style="margin:0 0 8px;color:#6B7280;font-size:13px;">${escalationCount} priority follow-up(s) were raised during onboarding. Review the activity log for details.</p>`
+    : `<p style="margin:0 0 8px;color:#2D7D46;font-size:13px;">No priority follow-ups were raised during onboarding.</p>`;
 
   const dojFormatted = doj ? new Date(doj).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
 
@@ -1257,8 +1292,8 @@ async function sendOnboardingCompletionReport(employee) {
           <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B7280;">Background Verification</p>
           <p style="margin:0 0 20px;font-size:15px;font-weight:700;color:${bgvColor};">${esc(bgvResult)}</p>
 
-          <!-- Escalations -->
-          <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B7280;">Escalations</p>
+          <!-- Priority Follow-ups -->
+          <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B7280;">Priority Follow-ups</p>
           ${escalationNote}
 
           <!-- Milestones -->
@@ -1330,28 +1365,28 @@ async function sendDayBeforeReminder(employee, dayMark) {
 
   const labels = {
     25: {
-      joineeSubject: `Reminder — Your 25-Day Catchup Call is Tomorrow`,
-      joineeBody: `Just a heads-up — your <strong>25-day catchup call</strong> is scheduled for tomorrow. Your recruiter will reach out to connect with you. Please be available and feel free to note down any feedback or questions you'd like to discuss.`,
-      internalSubject: `Reminder — 25-Day Catchup Call for ${esc(name)} is Tomorrow`,
-      internalBody: `This is a reminder that the <strong>25-day catchup call</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is scheduled for tomorrow. Please ensure the call is arranged and confirmed with the employee.`,
+      joineeSubject: `Heads-up — Your 25-Day Catchup Call is Tomorrow`,
+      joineeBody: `Your <strong>25-day catchup call</strong> is scheduled for tomorrow. Your recruiter will reach out to connect with you. Please be available and come prepared with any feedback, questions, or concerns you'd like to share about your first 25 days.`,
+      internalSubject: `Tomorrow — 25-Day Catchup Call for ${esc(name)} (${esc(employee.employeeId)})`,
+      internalBody: `The <strong>25-day catchup call</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow.<br/><br/><strong>What needs to happen:</strong> The recruiter should connect with the employee, collect their feedback on the first 25 days, and note any concerns. After the call, the employee will receive an onboarding feedback form email (this is automated). No manual action is needed after the call unless there are concerns to flag.`,
     },
     30: {
-      joineeSubject: `Reminder — Your 30-Day Review is Tomorrow`,
-      joineeBody: `Just a heads-up — your <strong>30-day project review</strong> is scheduled for tomorrow. Your manager will connect with you to discuss your progress, challenges, and goals. Please check your calendar for the invite and come prepared.`,
-      internalSubject: `Reminder — 30-Day Review for ${esc(name)} is Tomorrow`,
-      internalBody: `This is a reminder that the <strong>30-day project review</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow. Please ensure the review call is scheduled and the tracking sheet is ready to be filled after the call.`,
+      joineeSubject: `Heads-up — Your 30-Day Review is Tomorrow`,
+      joineeBody: `Your <strong>30-day project review</strong> is scheduled for tomorrow. Your manager will connect with you to discuss how the first month has gone — your progress, any challenges, and goals going forward. Please check your calendar for the invite and come prepared.`,
+      internalSubject: `Tomorrow — 30-Day Review for ${esc(name)} (${esc(employee.employeeId)})`,
+      internalBody: `The <strong>30-day project review</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow.<br/><br/><strong>What needs to happen after the call:</strong><ol><li>Recruiter fills the <strong>Tracking - Month -1</strong> tab in the tracking sheet (the "Filled by Recruiter" section)</li><li>Once filled, the system will automatically email the manager to confirm — manager replies "Done" to close the milestone</li></ol>Please ensure the review call is scheduled and the tracking sheet is ready.`,
     },
     60: {
-      joineeSubject: `Reminder — Your 60-Day Review is Tomorrow`,
-      joineeBody: `Just a heads-up — your <strong>60-day review</strong> is scheduled for tomorrow. Your manager and recruiter will discuss your project progress and set goals for the next phase. Please check your calendar and come prepared.`,
-      internalSubject: `Reminder — 60-Day Review for ${esc(name)} is Tomorrow`,
-      internalBody: `This is a reminder that the <strong>60-day review</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow. Please ensure the review call is arranged and the tracking sheet is ready.`,
+      joineeSubject: `Heads-up — Your 60-Day Review is Tomorrow`,
+      joineeBody: `Your <strong>60-day project review</strong> is scheduled for tomorrow. Your manager will connect with you to discuss your progress over the last two months and set goals for the next phase. Please check your calendar and come prepared.`,
+      internalSubject: `Tomorrow — 60-Day Review for ${esc(name)} (${esc(employee.employeeId)})`,
+      internalBody: `The <strong>60-day project review</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow.<br/><br/><strong>What needs to happen after the call:</strong><ol><li>Recruiter fills the <strong>Tracking - Month -2</strong> tab in the tracking sheet (the "Filled by Recruiter" section)</li><li>Once filled, the system will automatically email the manager to confirm — manager replies "Done" to close the milestone</li></ol>Please ensure the review call is arranged and the tracking sheet is ready.`,
     },
     90: {
-      joineeSubject: `Reminder — Your 90-Day Review is Tomorrow`,
-      joineeBody: `Just a heads-up — your <strong>90-day probation review</strong> is scheduled for tomorrow. This is your final probation review — your manager and recruiter will assess your progress and confirm probation clearance. Please check your calendar and come prepared.`,
-      internalSubject: `Reminder — 90-Day Review for ${esc(name)} is Tomorrow`,
-      internalBody: `This is a reminder that the <strong>90-day probation review</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow. Please ensure the review call is arranged and the tracking sheet is ready.`,
+      joineeSubject: `Heads-up — Your 90-Day Probation Review is Tomorrow`,
+      joineeBody: `Your <strong>90-day probation review</strong> is scheduled for tomorrow. This is your final probation review — your manager will assess your overall progress and confirm probation clearance. Please check your calendar and come well prepared.`,
+      internalSubject: `Tomorrow — 90-Day Probation Review for ${esc(name)} (${esc(employee.employeeId)})`,
+      internalBody: `The <strong>90-day probation review</strong> for <strong>${esc(name)}</strong> (${esc(employee.employeeId)}) is tomorrow. This is the final review before probation confirmation.<br/><br/><strong>What needs to happen after the call:</strong><ol><li>Recruiter fills the <strong>Tracking - Month -3</strong> tab in the tracking sheet (the "Filled by Recruiter" section)</li><li>Once filled, the system will automatically email the manager to confirm — manager replies "Done" to close the milestone</li><li>After the 90-day milestone is closed, the 5-month pre-probation verification will be triggered automatically</li></ol>Please ensure the review call is arranged and the tracking sheet is ready.`,
     },
   };
 
@@ -1373,7 +1408,7 @@ async function sendDayBeforeReminder(employee, dayMark) {
     promises.push(sendEmail({
       to: internalTo,
       subject: l.internalSubject,
-      html: `<p>Hi,</p><p>${l.internalBody}</p><p>Regards,<br/>${co} HR Automation</p>`,
+      html: `<p>Hi,</p>${l.internalBody}<p>Regards,<br/>${co} HR Automation</p>`,
     }));
   }
 
@@ -1514,6 +1549,62 @@ async function sendDOJScreenshotRequest(employee) {
   });
 }
 
+// Recruiter sheet reminder — sent daily until recruiter fills the review tab (Part 1)
+async function sendRecruiterSheetReminder(employee, recruiterEmail, dayMark, sheetUrl) {
+  const { name, employeeId } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
+  const monthTab = dayMark === 30 ? 'Tracking - Month -1' : dayMark === 60 ? 'Tracking - Month -2' : 'Tracking - Month -3';
+  const sheetSection = sheetUrl
+    ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Tracking Sheet — ${esc(monthTab)}</a></p>`
+    : '';
+  return sendEmail({
+    to: recruiterEmail,
+    subject: `Reminder — Fill the ${dayMark}-Day Review Sheet for ${esc(name)} (${esc(employeeId)})`,
+    html: `
+      <p>Hi,</p>
+      <div style="margin:16px 0;padding:12px 16px;background:#fff8e1;border-left:4px solid #ffa000;border-radius:2px;">
+        <p style="margin:0 0 4px;font-weight:bold;color:#333;">What this reminder is about</p>
+        <p style="margin:0;color:#555;">The <strong>${dayMark}-day project review</strong> for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) was triggered ${dayMark} days after their joining. The review tracking sheet has a section <strong>"Filled by Recruiter"</strong> in the <strong>${esc(monthTab)}</strong> tab that you need to fill. The onboarding checklist cannot move forward until this is done. Once you fill it, the system will automatically email the manager to confirm the review.</p>
+      </div>
+      <p><strong>What to do:</strong> Open the tracking sheet, go to the <strong>${esc(monthTab)}</strong> tab, and fill in the "Filled by Recruiter" section.</p>
+      ${sheetSection}
+      <p style="font-size:13px;color:#888;">You will continue to receive this reminder every day until the sheet is updated.</p>
+      <p>Regards,<br/>${co} HR</p>
+    `,
+  });
+}
+
+// Manager confirmation request — sent after recruiter fills the sheet (Part 2)
+// Manager must reply "Done" to mark the milestone fully complete.
+async function sendManagerConfirmationRequest(employee, managerEmail, dayMark) {
+  const { name, employeeId } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
+  const monthTab = dayMark === 30 ? 'Tracking - Month -1' : dayMark === 60 ? 'Tracking - Month -2' : 'Tracking - Month -3';
+  const sheetUrl = employee.projectIntroSheetId
+    ? `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`
+    : null;
+  const sheetSection = sheetUrl
+    ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Tracking Sheet — ${esc(monthTab)}</a></p>`
+    : '';
+  return sendEmail({
+    to: managerEmail,
+    subject: `Action Required — Confirm ${dayMark}-Day Review for ${esc(name)} (${esc(employeeId)})`,
+    html: `
+      <p>Hi,</p>
+      <div style="margin:16px 0;padding:12px 16px;background:#fff8e1;border-left:4px solid #ffa000;border-radius:2px;">
+        <p style="margin:0 0 4px;font-weight:bold;color:#333;">What this email is about</p>
+        <p style="margin:0;color:#555;">The recruiter has filled in their section of the <strong>${dayMark}-day review tracking sheet</strong> (tab: <strong>${esc(monthTab)}</strong>) for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}). The final step is for you (the reporting manager) to confirm that the ${dayMark}-day review call was actually conducted. Your reply is what closes this milestone in the onboarding checklist.</p>
+      </div>
+      <p>You can review what the recruiter filled in the tracking sheet:</p>
+      ${sheetSection}
+      <p style="padding:10px 16px;background:#fffde7;border-left:4px solid #ffa000;">
+        <strong>Reply to this email with "Done"</strong> once you have confirmed the ${dayMark}-day review call was completed.
+      </p>
+      <p>Regards,<br/>${co} HR</p>
+    `,
+  });
+}
+
 module.exports = {
   sendEmail,
   sendPreOnboardingForm,
@@ -1547,4 +1638,6 @@ module.exports = {
   sendDOJScreenshotRequest,
   sendDocumentCrossCheckAlert,
   sendDayBeforeReminder,
+  sendRecruiterSheetReminder,
+  sendManagerConfirmationRequest,
 };

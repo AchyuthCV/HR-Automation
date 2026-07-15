@@ -9,6 +9,8 @@ const {
   sendPhaseCompletionSummary,
   sendReviewSummaryRequest,
   sendNoReplyEscalation,
+  sendRecruiterSheetReminder,
+  sendManagerConfirmationRequest,
 } = require('./emailSender');
 const {
   mark30DayDone,
@@ -191,30 +193,18 @@ function schedule30DayCatchup(employee, recruiterEmail, managerEmail, contacts, 
       console.warn(`[Cron] 30-day calendar event failed for ${name} — email still sent. (${err.message})`)
     );
 
-    // t43: send 30-day technical review email to manager + new joiner only
+    // Part 1: send review email to manager + joinee, then poll sheet daily until recruiter fills it
     const { send30DayTechnicalReview } = require('./emailSender');
     await send30DayTechnicalReview(employee).catch(err =>
       console.warn(`[Cron] 30-day technical review email failed for ${name}: ${err.message}`)
     );
     console.log(`[Cron] 30-day technical review email sent for ${name} (${employeeId})`);
-    if (markTaskFn) markTaskFn('t43');
 
     if (employee._auth) await mark30DayDone(employee._auth, employee).catch(() => {});
 
-    // Daily manager reminder until 30-day review sheet tab is filled
-    if (managerEmail && employee.projectIntroSheetId) {
-      scheduleManagerSheetReminder(
-        employee, managerEmail,
-        `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`,
-        '30-Day Review (Tracking - Month -1)', 't43', null
-      );
-    }
+    // Poll sheet daily — remind recruiter until they fill it, then fire Part 2
+    scheduleRecruiterSheetPoller(employee, recruiterEmail, managerEmail, 30, 't43', markTaskFn);
 
-    // Schedule 48h no-reply escalation for the 30-day review and persist the timer handle
-    employee.replyTimers = employee.replyTimers || {};
-    employee.replyTimers['30dayReview'] = scheduleReplyDeadline(
-      employee, 'Recruiter / Manager (30-Day Review)', recruiterEmail, 48
-    );
     if (employee._saveState) employee._saveState();
   });
 }
@@ -232,33 +222,13 @@ function schedule60DayReview(employee, recruiterEmail, managerEmail, contacts, m
     if (employee._auth) await createReviewEvent(employee._auth, employee, 60).catch(err =>
       console.warn(`[Cron] 60-day calendar event failed for ${name} — email still sent. (${err.message})`)
     );
-    if (markTaskFn) markTaskFn('t46');
 
     if (employee._auth) await mark60DayDone(employee._auth, employee).catch(() => {});
 
-    // Daily manager reminder until 60-day review sheet tab is filled
-    if (managerEmail && employee.projectIntroSheetId) {
-      scheduleManagerSheetReminder(
-        employee, managerEmail,
-        `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`,
-        '60-Day Review (Tracking - Month -2)', 't46', null
-      );
-    }
+    // Poll sheet daily — remind recruiter until they fill it, then fire Part 2
+    scheduleRecruiterSheetPoller(employee, recruiterEmail, managerEmail, 60, 't46', markTaskFn);
 
-    // t47: escalate and mark if review_complete reply hasn't arrived within 48h
-    // Use scheduleReplyDeadline so the timer is persisted in replyTimers + survives restart
-    employee.replyTimers = employee.replyTimers || {};
-    employee.replyTimers['60dayNoReply'] = scheduleReplyDeadline(
-      employee, 'Recruiter / Manager (60-Day Review)', recruiterEmail, 48
-    );
     if (employee._saveState) employee._saveState();
-    // Also mark t47 when the 48h window expires (best-effort, same fire time)
-    scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `60-Day No-Reply Mark — ${name}`, async () => {
-      if (!isTaskDone(employee.checklist, 't46')) {
-        if (markTaskFn) markTaskFn('t47');
-        console.log(`[Cron] 60-day no-reply: t47 marked for ${name}`);
-      }
-    });
   });
 }
 
@@ -275,33 +245,13 @@ function schedule90DayReview(employee, recruiterEmail, managerEmail, contacts, m
     if (employee._auth) await createReviewEvent(employee._auth, employee, 90).catch(err =>
       console.warn(`[Cron] 90-day calendar event failed for ${name} — email still sent. (${err.message})`)
     );
-    if (markTaskFn) markTaskFn('t49');
 
     if (employee._auth) await mark90DayDone(employee._auth, employee).catch(() => {});
 
-    // Daily manager reminder until 90-day review sheet tab is filled
-    if (managerEmail && employee.projectIntroSheetId) {
-      scheduleManagerSheetReminder(
-        employee, managerEmail,
-        `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`,
-        '90-Day Review (Tracking - Month -3)', 't49', null
-      );
-    }
+    // Poll sheet daily — remind recruiter until they fill it, then fire Part 2
+    scheduleRecruiterSheetPoller(employee, recruiterEmail, managerEmail, 90, 't49', markTaskFn);
 
-    // t50: escalate and mark if review_complete reply hasn't arrived within 48h
-    // Use scheduleReplyDeadline so the timer is persisted in replyTimers + survives restart
-    employee.replyTimers = employee.replyTimers || {};
-    employee.replyTimers['90dayNoReply'] = scheduleReplyDeadline(
-      employee, 'Recruiter / Manager (90-Day Review)', recruiterEmail, 48
-    );
     if (employee._saveState) employee._saveState();
-    // Also mark t50 when the 48h window expires (best-effort, same fire time)
-    scheduleOnce(new Date(Date.now() + 48 * 60 * 60 * 1000), `90-Day No-Reply Mark — ${name}`, async () => {
-      if (!isTaskDone(employee.checklist, 't49')) {
-        if (markTaskFn) markTaskFn('t50');
-        console.log(`[Cron] 90-day no-reply: t50 marked for ${name}`);
-      }
-    });
   });
 }
 
@@ -357,7 +307,8 @@ function schedule5MonthProbation(employee, managerEmail) {
     // Schedule 48h escalation if no reply arrives
     employee.replyTimers = employee.replyTimers || {};
     employee.replyTimers['probationNoReply'] = scheduleReplyDeadline(
-      employee, 'HR / Manager (Pre-Probation)', managerEmail, 48
+      employee, 'HR / Manager (Pre-Probation)', managerEmail, 48,
+      `The system sent a pre-probation verification email to the manager asking them to review ${employee.name}'s probation period, make a decision (confirm or extend), and reply with the outcome. No reply has been received.`
     );
     if (employee._saveState) employee._saveState();
   });
@@ -466,18 +417,17 @@ function scheduleDocumentReminders(employee, docType, reason, recruiterEmail) {
   };
 }
 
-// Schedule a 48h reply-deadline escalation for any stakeholder who hasn't replied
-// Returns a task handle with .stop() — same pattern as scheduleNoResponseAlert
-function scheduleReplyDeadline(employee, recipientType, recipientEmail, delayHours) {
+// Schedule a reply-deadline priority notice for any stakeholder who hasn't replied.
+// context: short plain-text description of what the original email asked them to do.
+function scheduleReplyDeadline(employee, recipientType, recipientEmail, delayHours, context) {
   const hours = delayHours || config.replyDeadlines.stakeholderReplyHours;
   const fireDate = new Date(Date.now() + hours * 60 * 60 * 1000);
   const { name, employeeId } = employee;
 
   const task = scheduleOnce(fireDate, `Reply Deadline — ${recipientType} — ${name}`, async () => {
-    await sendNoReplyEscalation(employee, recipientType, recipientEmail);
-    console.log(`[Cron] No-reply escalation sent to HR for ${recipientType} re: ${name} (${employeeId})`);
+    await sendNoReplyEscalation(employee, recipientType, recipientEmail, context);
+    console.log(`[Cron] No-reply priority notice sent to HR for ${recipientType} re: ${name} (${employeeId})`);
   });
-  // Stamp expiry and recipient so the state snapshot can restore with the correct escalation target
   if (task) {
     task._expiresAt = fireDate.toISOString();
     task._recipientEmail = recipientEmail;
@@ -636,11 +586,93 @@ function startDataRetentionCron() {
   console.log(`[Cron] Data retention cron scheduled (purge logs older than ${retentionDays} days at 2 AM daily)`);
 }
 
-// Check daily whether manager has filled the sheet (project intro or review tab).
-// Sends a reminder email to manager every 24h until the sheet is filled.
-// checkFilledFn: async () => boolean — returns true when the sheet is filled.
-// stopTaskId: task ID to check — if done, stop reminders.
-// label: short label for logging (e.g. 'project intro', '30-day review').
+// Poll the review sheet tab daily to detect when recruiter has filled their section.
+// Sends daily reminders to recruiter until the sheet is filled (Part 1).
+// Once filled: marks the review task green, then emails manager to confirm "Done" (Part 2).
+// dayMark: 30 | 60 | 90
+// partOneTaskId: 't43' | 't46' | 't49' — marked green when recruiter fills sheet
+// markTaskFn: function(taskId) to update checklist
+function scheduleRecruiterSheetPoller(employee, recruiterEmail, managerEmail, dayMark, partOneTaskId, markTaskFn) {
+  const { name, employeeId } = employee;
+  const monthTab = dayMark === 30 ? 'Tracking - Month -1' : dayMark === 60 ? 'Tracking - Month -2' : 'Tracking - Month -3';
+  let jobHandle = null;
+  let stopped = false;
+
+  const sheetUrl = employee.projectIntroSheetId
+    ? `https://docs.google.com/spreadsheets/d/${employee.projectIntroSheetId}`
+    : null;
+
+  const isSheetFilled = async () => {
+    if (!employee._auth || !employee.projectIntroSheetId) return false;
+    try {
+      const { google } = require('googleapis');
+      const sheets = google.sheets({ version: 'v4', auth: employee._auth });
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: employee.projectIntroSheetId,
+        range: `'${monthTab}'!B14:B16`,
+      });
+      const rows = (res.data.values || []);
+      return rows.some(r => r && r[0] && String(r[0]).trim().length > 0);
+    } catch (err) {
+      console.warn(`[Cron] Sheet poll failed for ${name} (${dayMark}-day): ${err.message}`);
+      return false;
+    }
+  };
+
+  const check = async () => {
+    if (stopped) return;
+    if (isTaskDone(employee.checklist, partOneTaskId)) {
+      stopped = true;
+      if (jobHandle) { try { jobHandle.stop(); } catch (_) {} }
+      return;
+    }
+
+    const filled = await isSheetFilled();
+
+    if (filled) {
+      stopped = true;
+      if (jobHandle) { try { jobHandle.stop(); } catch (_) {} }
+      // Part 1 complete — mark review task green
+      if (markTaskFn) markTaskFn(partOneTaskId);
+      if (employee._saveState) employee._saveState();
+      console.log(`[Cron] Recruiter filled ${dayMark}-day sheet for ${name} — ${partOneTaskId} marked done`);
+      // Part 2 — email manager to confirm review is done
+      if (managerEmail) {
+        await sendManagerConfirmationRequest(employee, managerEmail, dayMark).catch(err =>
+          console.warn(`[Cron] Manager confirmation request failed for ${name}: ${err.message}`)
+        );
+        console.log(`[Cron] Manager confirmation request sent for ${name} (${dayMark}-day)`);
+      }
+      return;
+    }
+
+    // Sheet not filled yet — remind recruiter
+    if (recruiterEmail) {
+      await sendRecruiterSheetReminder(employee, recruiterEmail, dayMark, sheetUrl).catch(err =>
+        console.warn(`[Cron] Recruiter sheet reminder failed for ${name}: ${err.message}`)
+      );
+      console.log(`[Cron] Recruiter sheet reminder (${dayMark}-day) sent for ${name}`);
+    }
+  };
+
+  // First check 24h after the initial review email fires, then daily at 9 AM IST
+  const msDelay = 24 * 60 * 60 * 1000;
+  setTimeout(async () => {
+    await check();
+    if (!stopped) {
+      jobHandle = cron.schedule('0 9 * * *', check, { timezone: config.timezone || 'Asia/Kolkata' });
+    }
+  }, msDelay);
+
+  return {
+    stop() {
+      stopped = true;
+      if (jobHandle) { try { jobHandle.stop(); } catch (_) {} }
+    },
+  };
+}
+
+// Keep the old export name for any callers outside the review flow (e.g. project intro sheet)
 function scheduleManagerSheetReminder(employee, managerEmail, sheetUrl, label, stopTaskId, checkFilledFn) {
   const { name, employeeId } = employee;
   let jobHandle = null;
@@ -651,44 +683,30 @@ function scheduleManagerSheetReminder(employee, managerEmail, sheetUrl, label, s
     if (isTaskDone(employee.checklist, stopTaskId)) {
       stopped = true;
       if (jobHandle) { try { jobHandle.stop(); } catch (_) {} }
-      console.log(`[Cron] Manager sheet reminder (${label}) stopping — ${stopTaskId} done for ${name}`);
       return;
     }
-
     let filled = false;
     if (typeof checkFilledFn === 'function') {
       try { filled = await checkFilledFn(); } catch (_) {}
     }
-
     if (filled) {
       stopped = true;
       if (jobHandle) { try { jobHandle.stop(); } catch (_) {} }
-      console.log(`[Cron] Manager filled ${label} sheet for ${name} — stopping reminders`);
       return;
     }
-
     const { sendEmail } = require('./emailSender');
     const co = process.env.COMPANY_NAME || '';
     await sendEmail({
       to: managerEmail,
       subject: `Reminder — Please Fill ${label} Sheet for ${name} (${employeeId})`,
-      html: `
-        <p>Hi,</p>
-        <p>This is a reminder to fill in the <strong>${label}</strong> tracking sheet for <strong>${name}</strong> (${employeeId}).</p>
-        <p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Sheet</a></p>
-        <p>Please fill in the relevant section as soon as possible. You will continue to receive this reminder every day until the sheet is updated.</p>
-        <p>Regards,<br/>${co} HR</p>
-      `,
+      html: `<p>Hi,</p><p>This is a reminder to fill in the <strong>${label}</strong> tracking sheet for <strong>${name}</strong> (${employeeId}).</p>${sheetUrl ? `<p style="margin:16px 0;"><a href="${sheetUrl}" style="background:#1a73e8;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">Open Sheet</a></p>` : ''}<p>Regards,<br/>${co} HR</p>`,
     }).catch(err => console.warn(`[Cron] Manager sheet reminder email failed for ${name}: ${err.message}`));
-    console.log(`[Cron] Manager sheet reminder (${label}) sent to manager for ${name}`);
   };
 
-  // Fire 24h after initial email, then every 24h
   const msDelay = 24 * 60 * 60 * 1000;
   setTimeout(async () => {
     await check();
     if (!stopped) {
-      // Schedule daily at 9 AM IST
       jobHandle = cron.schedule('0 9 * * *', check, { timezone: config.timezone || 'Asia/Kolkata' });
     }
   }, msDelay);
@@ -716,6 +734,7 @@ module.exports = {
   scheduleBGVInitiate,
   scheduleBGVRequest,
   scheduleManagerSheetReminder,
+  scheduleRecruiterSheetPoller,
   schedulePreOnboardingReminders,
   cancelAllJobs,
   startDailyHealthCheck,
