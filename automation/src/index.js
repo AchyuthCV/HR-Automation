@@ -441,18 +441,19 @@ function migrateChecklist(checklist) {
 
 // ─── Document → required field mapping ────────────────────────────────────────
 const DOC_TASK_MAP = {
-  aadhaar:            't12',
-  pan:                't12',
-  offerLetter:        't13',
-  meetingScreenshot:  't34',
-  passportPhoto:      't56',
-  payslip:            't57',
-  relievingLetter:    't58',
-  marksheet10th:      't59',
-  marksheet12th:      't60',
-  degreeCertificate:  't61',
-  postgradCertificate:'t62',
-  addressProof:       't67',
+  aadhaar:               't12',
+  pan:                   't12',
+  offerLetter:           't13',
+  inductionScreenshot:   't34',
+  projectIntroScreenshot:'t37',
+  passportPhoto:         't56',
+  payslip:               't57',
+  relievingLetter:       't58',
+  marksheet10th:         't59',
+  marksheet12th:         't60',
+  degreeCertificate:     't61',
+  postgradCertificate:   't62',
+  addressProof:          't67',
 };
 
 // Optional documents — auto-marked N/A if not uploaded within grace period
@@ -489,11 +490,10 @@ async function fireInductionAndProjectIntro(auth, employee) {
   }
 
   // t27/t28: Send HR induction calendar invite to employee + recruiter
+  // t27/t28 stay pending (yellow on dashboard) until recruiter uploads induction screenshot
   const calLockKey = `${employee.employeeId}:t27`;
   if (!isTaskDone(checklist, 't27') && !_triggerLocks.has(calLockKey)) {
     _triggerLocks.add(calLockKey);
-    markAndLog(employee, 't27');
-    markAndLog(employee, 't28');
     saveState(employee.employeeId, snapshotEmployee(employee));
     await sendInductionCalendarInvite(employee);
     await createHRInductionEvent(auth, employee).catch(err => {
@@ -501,9 +501,11 @@ async function fireInductionAndProjectIntro(auth, employee) {
       activityLog.log(employee, 'calendar_event_failed', `HR induction: ${err.message}`);
     });
     await markHRInductionScheduled(auth, employee).catch(() => {});
+    console.log(`[Index] HR induction invite sent for ${employee.name} — awaiting screenshot upload to mark done`);
   }
 
   // t29/t30/t31/t32: Create project intro sheet, send invite + sheet link to manager + employee
+  // t29/t32 stay pending (yellow on dashboard) until recruiter uploads project intro screenshot
   const introLockKey = `${employee.employeeId}:t29`;
   if (!isTaskDone(checklist, 't29') && !_triggerLocks.has(introLockKey)) {
     _triggerLocks.add(introLockKey);
@@ -511,10 +513,8 @@ async function fireInductionAndProjectIntro(auth, employee) {
       console.warn(`[Index] Project intro sheet creation failed for ${employee.name}: ${err.message}`);
       return null;
     });
-    markAndLog(employee, 't29');
     markAndLog(employee, 't30');
     markAndLog(employee, 't31');
-    markAndLog(employee, 't32');
     saveState(employee.employeeId, snapshotEmployee(employee));
 
     await sendProjectIntroInvite(employee, sheetUrl);
@@ -822,16 +822,34 @@ async function triggerNextStep(auth, employee, docType) {
     saveState(employee.employeeId, snapshotEmployee(employee));
   }
 
-  // After meeting screenshot → confirm phase 3 DOJ tasks
-  if (docType === 'meetingScreenshot') {
+  // HR induction screenshot uploaded → mark t27/t28/t34 done
+  if (docType === 'inductionScreenshot') {
+    markAndLog(employee, 't27');
+    markAndLog(employee, 't28');
     markAndLog(employee, 't34');
+    await uploadChecklist(auth, employee.driveFolderId, checklist);
+    console.log(`[Index] HR induction screenshot verified for ${employee.name} — t27/t28/t34 marked done`);
+  }
+
+  // Project intro screenshot uploaded → mark t29/t32/t37 done
+  if (docType === 'projectIntroScreenshot') {
+    markAndLog(employee, 't29');
+    markAndLog(employee, 't32');
     markAndLog(employee, 't37');
+    await uploadChecklist(auth, employee.driveFolderId, checklist);
+    console.log(`[Index] Project intro screenshot verified for ${employee.name} — t29/t32/t37 marked done`);
+  }
+
+  // Once BOTH screenshots are in → complete DOJ phase and fire post-DOJ tasks
+  if (
+    (docType === 'inductionScreenshot' || docType === 'projectIntroScreenshot') &&
+    isTaskDone(checklist, 't34') && isTaskDone(checklist, 't37')
+  ) {
     markAndLog(employee, 't42');
     await uploadChecklist(auth, employee.driveFolderId, checklist);
 
     // Schedule all timed milestones if not already done
     if (!employee.milestonesScheduled) {
-      // Pass markTask wrapper so cron callbacks can update the checklist
       const markTaskForEmployee = (taskId) => markAndLog(employee, taskId);
       scheduleAllMilestones(employee, contacts, markTaskForEmployee);
       employee.milestonesScheduled = true;
@@ -850,10 +868,9 @@ async function triggerNextStep(auth, employee, docType) {
       await uploadChecklist(auth, employee.driveFolderId, checklist);
     }
 
-    // t36: Send seat allocation request to Admin on DOJ
+    // t36: Send seat allocation confirmation request to Admin
     employee.replyTimers = employee.replyTimers || {};
     if (!isTaskDone(checklist, 't36')) {
-      // Mark and persist before sending to prevent duplicate emails on concurrent poll cycles
       markAndLog(employee, 't36');
       saveState(employee.employeeId, snapshotEmployee(employee));
       await sendAdminSeatAllocationRequest(employee).catch(err =>

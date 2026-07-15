@@ -33,7 +33,7 @@ module.exports = {
   },
 
   // ─── Drive folder structure ─────────────────────────────────────────────────
-  driveSubfolders: ['Aadhaar', 'PAN', 'Address_Proof', 'Offer_Letter', 'Passport_Photo', 'Passport', 'UAN', 'Payslip', 'Relieving_Letter', 'Marksheet_10th', 'Marksheet_12th', 'Degree_Certificate', 'Postgrad_Certificate', 'BGV', 'Meeting_Screenshots', 'Reports'],
+  driveSubfolders: ['Aadhaar', 'PAN', 'Address_Proof', 'Offer_Letter', 'Passport_Photo', 'Passport', 'UAN', 'Payslip', 'Relieving_Letter', 'Marksheet_10th', 'Marksheet_12th', 'Degree_Certificate', 'Postgrad_Certificate', 'BGV', 'HR_Induction_Screenshot', 'Project_Intro_Screenshot', 'Reports'],
 
   // ─── Drive push channel TTL ─────────────────────────────────────────────────
   drivePushChannelTtlDays: 6,

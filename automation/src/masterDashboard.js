@@ -42,8 +42,8 @@ const MILESTONE_TASKS = [
   't19',  // Manager allocation confirmed
   't22',  // IT allocation confirmed
   't26',  // BGV done
-  't28',  // HR induction scheduled
-  't32',  // Project intro scheduled
+  't34',  // HR induction screenshot confirmed
+  't37',  // Project intro screenshot confirmed
   't42',  // DOJ phase complete
   't63',  // Day 25 catchup email sent
   't43',  // 30-day catchup transcribed
@@ -67,6 +67,8 @@ const COLOUR = {
   rowOdd:     { red: 1,    green: 1,    blue: 1    },
   overdue:    { red: 1,    green: 0.60, blue: 0.30 },  // orange
   overdueText:{ red: 0.45, green: 0.12, blue: 0.00 },
+  inProgress:    { red: 1,    green: 0.95, blue: 0.40 },  // yellow — invite sent, awaiting screenshot
+  inProgressText:{ red: 0.35, green: 0.25, blue: 0.00 },
 };
 
 function nowIST() {
@@ -110,6 +112,11 @@ function milestoneStatus(employee, milestoneIdx) {
   const done = isTaskDone(employee.checklist, taskKey);
   if (done) return 'done';
 
+  // HR Induction (t34) — yellow if invite was sent (t27 marked) but screenshot not yet uploaded
+  if (taskKey === 't34' && isTaskDone(employee.checklist, 't27')) return 'inProgress';
+  // Project Intro (t37) — yellow if invite was sent (t29 marked) but screenshot not yet uploaded
+  if (taskKey === 't37' && isTaskDone(employee.checklist, 't29')) return 'inProgress';
+
   // t10 (re-upload reminder) — only relevant if actually triggered
   if (taskKey === 't10') {
     return isTaskDone(employee.checklist, 't10') ? 'done' : 'na';
@@ -127,8 +134,8 @@ function milestoneStatus(employee, milestoneIdx) {
     t19:  3,  // manager confirmed within 3 days
     t22:  3,  // IT assets within 3 days
     t26:  5,  // BGV within 5 days
-    t28:  7,  // HR induction within 7 days
-    t32:  7,  // project intro within 7 days
+    t34:  1,  // HR induction screenshot — expected on DOJ
+    t37:  1,  // Project intro screenshot — expected on DOJ
     t42:  0,  // DOJ phase complete on DOJ
     t63: 25,  // day 25 catchup
     t43: 30,  // 30-day review
@@ -241,10 +248,11 @@ async function updateMasterDashboard(auth, employees) {
 
     const milestoneValues = MILESTONES.map((_, i) => {
       const s = milestoneStatus(emp, i);
-      if (s === 'done')    return '✓';
-      if (s === 'overdue') return '!';
-      if (s === 'notok')   return '✗';
-      if (s === 'na')      return '—';
+      if (s === 'done')       return '✓';
+      if (s === 'inProgress') return '◑';
+      if (s === 'overdue')    return '!';
+      if (s === 'notok')      return '✗';
+      if (s === 'na')         return '—';
       return '○';
     });
 
@@ -360,9 +368,10 @@ async function updateMasterDashboard(auth, employees) {
       const colIdx = m + 6;
       const status = milestoneStatus(employees[i], m);
       let cellBg, cellFg;
-      if (status === 'done')    { cellBg = COLOUR.done;    cellFg = COLOUR.doneText;    }
-      else if (status === 'overdue') { cellBg = COLOUR.overdue; cellFg = COLOUR.overdueText; }
-      else if (status === 'notok')   { cellBg = COLOUR.notOk;   cellFg = COLOUR.notOkText;   }
+      if (status === 'done')         { cellBg = COLOUR.done;       cellFg = COLOUR.doneText;       }
+      else if (status === 'inProgress') { cellBg = COLOUR.inProgress; cellFg = COLOUR.inProgressText; }
+      else if (status === 'overdue') { cellBg = COLOUR.overdue;    cellFg = COLOUR.overdueText;    }
+      else if (status === 'notok')   { cellBg = COLOUR.notOk;      cellFg = COLOUR.notOkText;      }
       else { cellBg = COLOUR.pending; cellFg = COLOUR.pendingText; }
 
       requests.push({

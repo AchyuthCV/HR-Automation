@@ -64,12 +64,12 @@ Check definitions:
 - "aletheaCompanyName": The name "Alethea" or "Alethea Communications Technologies" is visible anywhere — in the letterhead, logo, body, or footer.
 Only set valid=true if ALL four checks pass.`,
 
-  meetingScreenshot: `You are an HR automation assistant verifying a project introduction meeting screenshot to confirm that a new employee attended their project intro meeting on their Day of Joining.
+  inductionScreenshot: `You are an HR automation assistant verifying a screenshot of an HR Induction meeting to confirm that the new employee attended their HR induction session on their Date of Joining.
 
 Analyse the screenshot and respond ONLY with a JSON object in this exact format:
 {
   "valid": true/false,
-  "docType": "Meeting Screenshot",
+  "docType": "HR Induction Screenshot",
   "checks": {
     "isMeetingOrVideoCall": true/false,
     "participantsOrNamesVisible": true/false,
@@ -81,10 +81,32 @@ Analyse the screenshot and respond ONLY with a JSON object in this exact format:
 
 Check definitions:
 - "isMeetingOrVideoCall": The image shows a video call, meeting room, or virtual meeting interface (Google Meet, Zoom, Teams, etc.) OR a physical meeting/induction session photo. Set true if ANY meeting evidence is visible.
-- "participantsOrNamesVisible": At least one participant name, tile, or person is visible in the screenshot. Set true even if only one name/face is visible — we don't require the employee's specific name since they may not have turned on camera.
-- "meetingContextEvident": There is some indication this is a work meeting — could be a meeting platform UI, a presentation, office setting, people gathered, or meeting title visible anywhere.
+- "participantsOrNamesVisible": At least one participant name, tile, or person is visible. Set true even if only one name/face is visible.
+- "meetingContextEvident": There is some indication this is a work meeting — meeting platform UI, a presentation, office setting, people gathered, or meeting title visible anywhere.
 
-Be LENIENT: This is just attendance confirmation, not document verification. If the screenshot reasonably shows someone was in a meeting or video call, set valid=true. Only set valid=false if the image is clearly not a meeting (e.g. a selfie, document scan, random photo).`,
+Be LENIENT: This is just attendance confirmation. If the screenshot reasonably shows someone was in a meeting or video call, set valid=true. Only set valid=false if the image is clearly not a meeting (e.g. a selfie, document scan, random photo).`,
+
+  projectIntroScreenshot: `You are an HR automation assistant verifying a screenshot of a Project Introduction meeting to confirm that the new employee attended their project intro session on their Date of Joining.
+
+Analyse the screenshot and respond ONLY with a JSON object in this exact format:
+{
+  "valid": true/false,
+  "docType": "Project Intro Screenshot",
+  "checks": {
+    "isMeetingOrVideoCall": true/false,
+    "participantsOrNamesVisible": true/false,
+    "meetingContextEvident": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+
+Check definitions:
+- "isMeetingOrVideoCall": The image shows a video call, meeting room, or virtual meeting interface (Google Meet, Zoom, Teams, etc.) OR a physical meeting/induction session photo. Set true if ANY meeting evidence is visible.
+- "participantsOrNamesVisible": At least one participant name, tile, or person is visible. Set true even if only one name/face is visible.
+- "meetingContextEvident": There is some indication this is a work meeting — meeting platform UI, a presentation, office setting, people gathered, or meeting title visible anywhere.
+
+Be LENIENT: This is just attendance confirmation. If the screenshot reasonably shows someone was in a meeting or video call, set valid=true. Only set valid=false if the image is clearly not a meeting (e.g. a selfie, document scan, random photo).`,
 
   passportPhoto: `You are verifying a passport-size photograph for HR records. Check ALL of the following and respond with a JSON object:
 {
@@ -337,7 +359,9 @@ function detectDocTypeFromFilename(filename) {
   if (lower.includes('aadhaar') || lower.includes('aadhar') || lower.includes('uid')) return 'aadhaar';
   if (lower.includes('pan') || lower.includes('pancard') || lower.includes('pan_card')) return 'pan';
   if (lower.includes('offer') || lower.includes('appointment') || lower.includes('offer_letter')) return 'offerLetter';
-  if (lower.includes('meeting') || lower.includes('screenshot') || lower.includes('induction') || lower.includes('intro')) return 'meetingScreenshot';
+  if (lower.includes('induction')) return 'inductionScreenshot';
+  if (lower.includes('project_intro') || lower.includes('project intro') || lower.includes('intro_screenshot')) return 'projectIntroScreenshot';
+  if (lower.includes('meeting') || lower.includes('screenshot')) return 'inductionScreenshot';
   if (lower.includes('passport') || lower.includes('photo') || lower.includes('headshot') || lower.includes('profile')) return 'passportPhoto';
   if (lower.includes('payslip') || lower.includes('pay_slip') || lower.includes('salary') || lower.includes('salary_slip')) return 'payslip';
   if (lower.includes('relieving') || lower.includes('relieve') || lower.includes('experience') || lower.includes('relieving_letter')) return 'relievingLetter';
@@ -365,7 +389,7 @@ async function detectDocTypeFromContent(auth, fileId, mimeType) {
     const result_raw = await callWithRetry(() => model.generateContent([
       `Look at this document and identify what type of HR document it is. Respond ONLY with a JSON object in this exact format:
 {
-  "docType": one of: "aadhaar", "pan", "offerLetter", "meetingScreenshot", "passportPhoto", "payslip", "relievingLetter", "marksheet10th", "marksheet12th", "degreeCertificate", "postgradCertificate", "addressProof", or null if none match,
+  "docType": one of: "aadhaar", "pan", "offerLetter", "inductionScreenshot", "projectIntroScreenshot", "passportPhoto", "payslip", "relievingLetter", "marksheet10th", "marksheet12th", "degreeCertificate", "postgradCertificate", "addressProof", or null if none match,
   "confidence": "high" / "medium" / "low"
 }
 
@@ -373,7 +397,8 @@ Document type descriptions:
 - aadhaar: Indian Aadhaar card — has 12-digit UID number, name, photo, address, and "Aadhaar" branding or UIDAI logo
 - pan: Indian PAN card — has 10-character alphanumeric PAN number, name, date of birth, and Income Tax Department branding
 - offerLetter: Employment offer/appointment letter — has company name, candidate name, role, and signature. May be titled "Appointment Letter" or "Offer Letter"
-- meetingScreenshot: Screenshot of a video call or physical meeting — shows meeting UI (Zoom, Teams, Meet) or people in a meeting room
+- inductionScreenshot: Screenshot of an HR Induction meeting — video call or physical meeting showing HR induction session
+- projectIntroScreenshot: Screenshot of a Project Introduction meeting — video call or physical meeting for project intro
 - passportPhoto: Passport-size portrait photograph — plain background, face clearly visible, no document text
 - payslip: Salary slip or payslip — shows employee name, salary components (basic, HRA, deductions), net pay, and month/year
 - relievingLetter: Relieving letter or experience letter from a previous employer — confirms last working day and employment period
@@ -417,7 +442,8 @@ const SUBFOLDER_DOCTYPE_MAP = {
   'Marksheet_12th':       'marksheet12th',
   'Degree_Certificate':   'degreeCertificate',
   'Postgrad_Certificate': 'postgradCertificate',
-  'Meeting_Screenshots':  'meetingScreenshot',
+  'HR_Induction_Screenshot':   'inductionScreenshot',
+  'Project_Intro_Screenshot':  'projectIntroScreenshot',
 };
 
 // Detect document type — subfolder is authoritative; content analysis is next; filename is last resort

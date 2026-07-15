@@ -1475,23 +1475,31 @@ async function sendDOJScreenshotRequest(employee) {
         </div>
         <div style="background:#fff;border:1px solid #E5E5E0;border-top:none;padding:24px 26px;border-radius:0 0 6px 6px;">
           <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#1C1C1E;">
-            Today is <strong>${esc(name)}'s</strong> Date of Joining. Once the <strong>HR Induction</strong> and
-            <strong>Project Intro Meeting</strong> are done, please upload a screenshot of either meeting
-            to their Drive folder to confirm attendance.
+            Today is <strong>${esc(name)}'s</strong> Date of Joining. Once each meeting is done, please upload a screenshot to the respective subfolder in their Drive folder.
           </p>
-          <p style="margin:0 0 8px;font-size:13px;color:#4A5A6A;">The screenshot can be from Google Meet, Zoom, Teams, or a photo of a physical meeting. Any image that shows the meeting took place is accepted.</p>
-          <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#1C1C1E;">Name the file with one of these keywords so the system recognises it:</p>
-          <p style="margin:0 0 20px;font-size:13px;color:#4A5A6A;font-family:monospace;background:#F5F5F5;padding:10px 14px;border-radius:4px;">
-            meeting_screenshot.jpg &nbsp;|&nbsp; induction_photo.jpg &nbsp;|&nbsp; intro_meeting.png
-          </p>
+          <table style="width:100%;border-collapse:collapse;margin:0 0 16px;font-size:13px;">
+            <tr style="background:#F5F5F5;">
+              <td style="padding:10px 14px;border:1px solid #E5E5E0;font-weight:600;color:#1C1C1E;">Meeting</td>
+              <td style="padding:10px 14px;border:1px solid #E5E5E0;font-weight:600;color:#1C1C1E;">Upload to subfolder</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 14px;border:1px solid #E5E5E0;color:#1C1C1E;">HR Induction</td>
+              <td style="padding:10px 14px;border:1px solid #E5E5E0;font-family:monospace;color:#0D7F7F;">HR_Induction_Screenshot</td>
+            </tr>
+            <tr style="background:#F5F5F5;">
+              <td style="padding:10px 14px;border:1px solid #E5E5E0;color:#1C1C1E;">Project Intro Meeting</td>
+              <td style="padding:10px 14px;border:1px solid #E5E5E0;font-family:monospace;color:#0D7F7F;">Project_Intro_Screenshot</td>
+            </tr>
+          </table>
+          <p style="margin:0 0 16px;font-size:13px;color:#4A5A6A;">The screenshot can be from Google Meet, Zoom, Teams, or a photo of a physical meeting. Any image that shows the meeting took place is accepted. Both screenshots are required to complete the Day of Joining milestone.</p>
           ${folderUrl ? `
           <a href="${folderUrl}" style="display:inline-block;background:#0D7F7F;color:#fff;text-decoration:none;padding:11px 22px;border-radius:4px;font-size:14px;font-weight:600;">
             Open ${esc(name)}'s Drive Folder
           </a>
           ` : ''}
           <p style="margin:20px 0 0;font-size:12px;color:#9CA3AF;line-height:1.6;">
-            Upload the screenshot directly into the employee's root Drive folder (not a subfolder).<br>
-            The system will automatically confirm attendance and complete the Day of Joining milestone.
+            Upload each screenshot into its respective subfolder — not the root folder.<br>
+            The system will automatically confirm attendance once both screenshots are uploaded.
           </p>
           <hr style="border:none;border-top:1px solid #E5E5E0;margin:20px 0;">
           <p style="margin:0;font-size:13px;color:#6B7280;">Regards,<br/>${co} HR</p>
