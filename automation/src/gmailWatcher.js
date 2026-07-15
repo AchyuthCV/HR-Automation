@@ -156,15 +156,17 @@ async function fetchMessageBody(auth, messageId) {
   }
   extractBody(msg.payload);
 
-  // Extract PDF attachments (for BGV reports)
+  // Extract attachments — PDFs (BGV reports) and images (document re-uploads)
+  const ATTACHMENT_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.heic', '.webp'];
   const attachments = [];
   function extractAttachments(part) {
-    if (part.filename && part.filename.toLowerCase().endsWith('.pdf') && part.body) {
+    const fname = (part.filename || '').toLowerCase();
+    if (part.filename && ATTACHMENT_EXTS.some(ext => fname.endsWith(ext)) && part.body) {
       attachments.push({
         filename: part.filename,
         attachmentId: part.body.attachmentId || null,
-        data: part.body.data || null, // inline base64 data if small enough
-        mimeType: part.mimeType || 'application/pdf',
+        data: part.body.data || null,
+        mimeType: part.mimeType || 'application/octet-stream',
       });
     }
     for (const sub of part.parts || []) extractAttachments(sub);
@@ -209,9 +211,9 @@ async function callWithRetry(fn, maxRetries = 4) {
 // ─── Classify reply with Gemini ───────────────────────────────────────────────
 // Returns { replyType, employeeId, data } or null if not an automation reply
 async function classifyReply(message) {
-  // Allow classification even with empty body if a PDF attachment is present (e.g. BGV report)
-  const hasPdfAttachment = message.attachments && message.attachments.some(a => a.filename && a.filename.toLowerCase().endsWith('.pdf'));
-  if (!message.body && !hasPdfAttachment) return null;
+  // Allow classification even with empty body if any attachment is present
+  const hasAttachment = message.attachments && message.attachments.length > 0;
+  if (!message.body && !hasAttachment) return null;
 
   const genAI = getGenAI();
   if (!genAI) {
@@ -246,10 +248,11 @@ Reply type definitions — use the email SUBJECT as the primary signal, then bod
 - "catchup_complete": Confirms a 30-day catchup call was completed
 - "review_complete": Confirms a 60-day or 90-day performance review was completed
 - "pre_probation_result": Confirms probation period outcome
+- "doc_reupload": New joinee replies to a document rejection email with corrected document(s) attached — subject contains "Could Not Be Verified" or "Action Required" or "Re-upload" AND there are image or PDF attachments. Extract the document type from the subject into data.docType.
 - "doc_manually_approved": Recruiter replies "Confirmed" to a document rejection/verification email to manually approve a document that the joinee sent directly to the recruiter. Subject will contain "Could Not Be Verified" or "Still Pending" and the body contains "confirmed", "approved", "ok", "looks good" or similar positive acknowledgement. Extract the document type from the subject (e.g. Aadhaar, PAN, Offer Letter, etc.) into data.docType.
 - "unknown": Related to onboarding but does not clearly match any above type
 
-IMPORTANT: If FROM contains "greythr" OR body contains "greythr.com" or "self-service account" or "payslips" and "leaves" → classify as "greythr_welcome" and extract the joinee name from the greeting line into data.notes. If the subject contains "Pre-Onboarding Form" and the body mentions preferred times for meetings → classify as "meeting_time_preference" and extract inductionTime and projectIntroTime into data. If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". If subject contains "BGV" or "Background Verification" or "Initiate BGV" → classify as "bgv_report" (even if body is just "Please find attached"). If subject contains "Confirm Access to Your Official Email" → classify as "official_email_access_confirmed" or "official_email_access_failed" based on whether the body is positive or negative. If subject contains "25th Day Catchup" → classify as "catchup25_complete". If subject contains "Could Not Be Verified" or "Still Pending" and body is a positive confirmation → classify as "doc_manually_approved". Subject is the strongest signal.
+IMPORTANT: If FROM contains "greythr" OR body contains "greythr.com" or "self-service account" or "payslips" and "leaves" → classify as "greythr_welcome" and extract the joinee name from the greeting line into data.notes. If the subject contains "Pre-Onboarding Form" and the body mentions preferred times for meetings → classify as "meeting_time_preference" and extract inductionTime and projectIntroTime into data. If the subject contains "Asset & Seat Allocation" → classify as "manager_allocation". If subject contains "IT Asset" → classify as "it_allocation". If subject contains "BGV" or "Background Verification" or "Initiate BGV" → classify as "bgv_report" (even if body is just "Please find attached"). If subject contains "Confirm Access to Your Official Email" → classify as "official_email_access_confirmed" or "official_email_access_failed" based on whether the body is positive or negative. If subject contains "25th Day Catchup" → classify as "catchup25_complete". If subject contains "Could Not Be Verified" or "Action Required" or "Re-upload" AND there are attachments in ATTACHMENTS → classify as "doc_reupload" (joinee re-sending corrected document). If subject contains "Could Not Be Verified" or "Still Pending" and body is a positive confirmation with NO attachments → classify as "doc_manually_approved". Subject is the strongest signal.
 Simple acknowledgements ("ok", "noted", "will do", "thanks") should be classified with isOnboardingReply=false unless they contain substantive information.
 
 Respond ONLY with a JSON object in this exact format:

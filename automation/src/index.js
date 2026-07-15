@@ -1428,6 +1428,83 @@ async function handleReply(auth, classified, rawMsg) {
       return;
     }
 
+    case 'doc_reupload': {
+      // Joinee replied to a rejection email with corrected document attached.
+      // Download each attachment, upload to correct Drive subfolder, verify.
+      const attachments = (rawMsg && rawMsg.attachments) || [];
+      if (attachments.length === 0) {
+        console.warn(`[DocReupload] No attachments found in reply from ${employee.name} — skipping`);
+        break;
+      }
+      const { google } = require('googleapis');
+      const drive = google.drive({ version: 'v3', auth });
+
+      // Determine docType from classified data or subject
+      const rawDocLabel = (classified.data && classified.data.docType) || '';
+      const DOC_LABEL_TO_SUBFOLDER = {
+        'aadhaar': 'Aadhaar', 'aadhar': 'Aadhaar',
+        'pan': 'PAN', 'pan card': 'PAN',
+        'offer letter': 'Offer_Letter', 'appointment letter': 'Offer_Letter',
+        'passport photo': 'Passport_Photo', 'passport size photo': 'Passport_Photo',
+        'address proof': 'Address_Proof',
+        '10th': 'Marksheet_10th', '10th marksheet': 'Marksheet_10th',
+        '12th': 'Marksheet_12th', '12th marksheet': 'Marksheet_12th',
+        'degree': 'Degree_Certificate', 'degree certificate': 'Degree_Certificate',
+        'post graduation': 'Postgrad_Certificate', 'postgrad': 'Postgrad_Certificate',
+        'relieving': 'Relieving_Letter', 'relieving letter': 'Relieving_Letter',
+        'payslip': 'Payslip', 'pay slip': 'Payslip',
+      };
+      const subfolder = DOC_LABEL_TO_SUBFOLDER[rawDocLabel.toLowerCase()] || null;
+
+      console.log(`[DocReupload] Processing ${attachments.length} attachment(s) from ${employee.name} — docType: ${rawDocLabel || 'unknown'}`);
+
+      for (const att of attachments) {
+        try {
+          // Download attachment from Gmail
+          let buffer;
+          if (att.data) {
+            buffer = Buffer.from(att.data, 'base64');
+          } else if (att.attachmentId) {
+            buffer = await downloadAttachment(auth, rawMsg.id, att.attachmentId);
+          } else {
+            console.warn(`[DocReupload] No data/attachmentId for ${att.filename} — skipping`);
+            continue;
+          }
+
+          // Upload to Drive in the correct subfolder
+          const targetSubfolder = subfolder || 'Aadhaar'; // fallback — engine will re-classify from content
+          const subfolderRes = await drive.files.list({
+            q: `name='${targetSubfolder}' and '${employee.driveFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+            fields: 'files(id)',
+          });
+          const targetFolderId = subfolderRes.data.files && subfolderRes.data.files[0] && subfolderRes.data.files[0].id;
+          if (!targetFolderId) {
+            console.warn(`[DocReupload] Subfolder '${targetSubfolder}' not found for ${employee.name}`);
+            continue;
+          }
+
+          const { Readable } = require('stream');
+          const stream = Readable.from(buffer);
+          const uploadRes = await drive.files.create({
+            requestBody: { name: att.filename, parents: [targetFolderId] },
+            media: { mimeType: att.mimeType, body: stream },
+            fields: 'id, name, mimeType',
+          });
+          const uploadedFile = uploadRes.data;
+          console.log(`[DocReupload] Uploaded ${uploadedFile.name} to ${targetSubfolder} for ${employee.name}`);
+
+          // Run verification — same path as any Drive upload
+          await handleNewFile(auth, employee, uploadedFile, targetSubfolder).catch(err =>
+            console.error(`[DocReupload] handleNewFile error for ${uploadedFile.name}: ${err.message}`)
+          );
+        } catch (err) {
+          console.error(`[DocReupload] Error processing attachment ${att.filename}: ${err.message}`);
+        }
+      }
+      saveState(employee.employeeId, snapshotEmployee(employee));
+      break;
+    }
+
     case 'doc_manually_approved': {
       // Recruiter replied "Confirmed" to a document rejection email after reviewing
       // the document the joinee sent directly. Map the label back to internal docType key.
