@@ -29,12 +29,10 @@ function isValidEmail(email) {
 // Timing-safe secret comparison to prevent timing attacks
 function safeCompare(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  if (a.length !== b.length) {
-    // Still run crypto.timingSafeEqual on equal-length copies to avoid length leak
-    crypto.timingSafeEqual(Buffer.from(a), Buffer.from(a));
-    return false;
-  }
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  const len = Math.max(a.length, b.length);
+  const ba = Buffer.from(a.padEnd(len));
+  const bb = Buffer.from(b.padEnd(len));
+  return crypto.timingSafeEqual(ba, bb) && a.length === b.length;
 }
 
 // ─── Per-endpoint in-memory rate limiter (no extra dep needed) ────────────────
