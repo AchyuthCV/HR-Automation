@@ -1878,6 +1878,7 @@ async function main() {
   // ─── Critical env var check — fail fast before any API calls ────────────────
   const REQUIRED_VARS = [
     ['GMAIL_USER',         'Gmail address used to send all automated emails'],
+    ['GMAIL_APP_PASSWORD', 'Gmail App Password for nodemailer (Settings → Security → App passwords)'],
     ['COMPANY_NAME',       'Company name shown in every email subject and body'],
     ['HR_EMAIL',           'HR team email — receives escalations and reports'],
   ];

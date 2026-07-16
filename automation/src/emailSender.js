@@ -1,7 +1,6 @@
 require('dotenv').config();
 const { google } = require('googleapis');
-const path = require('path');
-const fs   = require('fs');
+const nodemailer = require('nodemailer');
 
 // Resolve HR email for a specific employee — uses per-employee hrEmail from recruiter form,
 // falling back to the global HR_EMAIL env var.
@@ -19,50 +18,33 @@ function esc(str) {
     .replace(/'/g, '&#39;');
 }
 
-// Build an OAuth2 client from credentials.json + token.json (same as the rest of the engine)
-function getGmailAuth() {
-  const credsPath  = path.join(__dirname, '..', 'credentials.json');
-  const tokenPath  = path.join(__dirname, '..', 'token.json');
-  const creds = JSON.parse(fs.readFileSync(credsPath));
-  const { client_id, client_secret, redirect_uris } = creds.installed || creds.web;
-  const auth = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
-  auth.setCredentials(JSON.parse(fs.readFileSync(tokenPath)));
-  return auth;
+// Nodemailer transporter using Gmail App Password (SMTP)
+function getTransporter() {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+  });
 }
 
-// Encode subject for RFC 2047 so special chars (—, é, etc.) survive email transit
-function encodeSubject(subject) {
-  return `=?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`;
-}
-
-// Send via Gmail API using OAuth — no app password or 2FA required
+// Send via nodemailer + Gmail App Password
 async function sendEmail({ to, subject, html }, retries = 3) {
   const sender = process.env.GMAIL_USER;
   const fromName = process.env.COMPANY_NAME ? `${process.env.COMPANY_NAME} HR` : 'HR Team';
 
-  // RFC 2822 raw message
-  const raw = [
-    `From: "${fromName}" <${sender}>`,
-    `To: ${to}`,
-    `Subject: ${encodeSubject(subject)}`,
-    `MIME-Version: 1.0`,
-    `Content-Type: text/html; charset=UTF-8`,
-    ``,
-    html,
-  ].join('\r\n');
-
-  const encoded = Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const auth  = getGmailAuth();
-      const gmail = google.gmail({ version: 'v1', auth });
-      const res = await gmail.users.messages.send({
-        userId: 'me',
-        requestBody: { raw: encoded },
+      const transporter = getTransporter();
+      const info = await transporter.sendMail({
+        from: `"${fromName}" <${sender}>`,
+        to,
+        subject,
+        html,
       });
-      console.log(`[Email] Sent to ${to} — ${subject} (${res.data.id})`);
-      return res.data;
+      console.log(`[Email] Sent to ${to} — ${subject} (${info.messageId})`);
+      return info;
     } catch (err) {
       if (attempt === retries) {
         console.error(`[Email] Failed after ${retries} attempts — ${subject} to ${to}: ${err.message}`);
