@@ -1263,7 +1263,7 @@ async function handleReply(auth, classified, rawMsg) {
           }).catch(() => {});
         }
         // If asset allocation email was never sent (contacts missing at t14 time), send it now
-        const assetNeeded = !employee.assetRequired || String(employee.assetRequired).trim().toLowerCase() !== 'no';
+        const assetNeeded = !employee.assetRequired || !String(employee.assetRequired).trim().toLowerCase().startsWith('no');
         if (!isTaskDone(employee.checklist, 't17') && employee.contacts && employee.contacts.managerEmail && assetNeeded) {
           await sendAssetAllocationRequest(employee, employee.contacts.managerEmail).catch(err =>
             console.warn(`[Index] Asset allocation request failed for ${employee.name}: ${err.message}`)
@@ -1805,7 +1805,7 @@ async function onboardEmployee(auth, employee) {
 
       // Asset allocation request to manager (t17) + IT request (t20)
       // If assetRequired is "No" in recruiter form — skip both emails, auto-mark all tasks done
-      const assetNeeded = !employee.assetRequired || String(employee.assetRequired).trim().toLowerCase() !== 'no';
+      const assetNeeded = !employee.assetRequired || !String(employee.assetRequired).trim().toLowerCase().startsWith('no');
       if (!assetNeeded) {
         if (!isTaskDone(employee.checklist, 't17')) {
           markAndLog(employee, 't17');
