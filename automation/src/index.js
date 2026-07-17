@@ -54,7 +54,9 @@ const {
   markITConfirmed,
   markBGVDone,
   markHRInductionScheduled,
+  markHRInductionDone,
   markProjectIntroScheduled,
+  markProjectIntroDone,
   markOnboardingComplete,
   mark25DayCatchupDone,
   mark30DayDone,
@@ -841,6 +843,7 @@ async function triggerNextStep(auth, employee, docType) {
     markAndLog(employee, 't28');
     markAndLog(employee, 't34');
     await uploadChecklist(auth, employee.driveFolderId, checklist);
+    await markHRInductionDone(auth, employee).catch(() => {});
     console.log(`[Index] HR induction screenshot verified for ${employee.name} — t27/t28/t34 marked done`);
   }
 
@@ -850,6 +853,7 @@ async function triggerNextStep(auth, employee, docType) {
     markAndLog(employee, 't32');
     markAndLog(employee, 't37');
     await uploadChecklist(auth, employee.driveFolderId, checklist);
+    await markProjectIntroDone(auth, employee).catch(() => {});
     console.log(`[Index] Project intro screenshot verified for ${employee.name} — t29/t32/t37 marked done`);
   }
 
@@ -1371,7 +1375,7 @@ async function handleReply(auth, classified, rawMsg) {
       markAndLog(employee, 't33');
       markAndLog(employee, 't34');
       activityLog.log(employee, 'induction_confirmed');
-      await markHRInductionScheduled(auth, employee).catch(() => {});
+      await markHRInductionDone(auth, employee).catch(() => {});
       if (employee.replyTimers && employee.replyTimers.induction) {
         employee.replyTimers.induction.stop && employee.replyTimers.induction.stop();
         delete employee.replyTimers.induction;

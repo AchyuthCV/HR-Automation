@@ -291,10 +291,18 @@ async function markBGVDone(auth, employee) {
 }
 
 async function markHRInductionScheduled(auth, employee) {
+  await updateMilestone(auth, employee, 8, STATUS.IN_PROGRESS);
+}
+
+async function markHRInductionDone(auth, employee) {
   await updateMilestone(auth, employee, 8, STATUS.DONE);
 }
 
 async function markProjectIntroScheduled(auth, employee) {
+  await updateMilestone(auth, employee, 9, STATUS.IN_PROGRESS);
+}
+
+async function markProjectIntroDone(auth, employee) {
   await updateMilestone(auth, employee, 9, STATUS.DONE);
 }
 
@@ -397,7 +405,9 @@ module.exports = {
   markITConfirmed,
   markBGVDone,
   markHRInductionScheduled,
+  markHRInductionDone,
   markProjectIntroScheduled,
+  markProjectIntroDone,
   markOnboardingComplete,
   mark25DayCatchupDone,
   mark30DayDone,
