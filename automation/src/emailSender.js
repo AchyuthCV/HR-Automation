@@ -550,10 +550,10 @@ async function sendVerificationReport(employee, verificationResults) {
 
   return sendEmail({
     to: recruiterEmail,
-    subject: `Document Verification Report — ${name}`,
+    subject: `Document Verification Report — ${esc(name)}`,
     html: `
       <p>Hi,</p>
-      <p>Here is the automated document verification report for <strong>${name}</strong> (ID: ${employeeId}):</p>
+      <p>Here is the automated document verification report for <strong>${esc(name)}</strong> (ID: ${esc(employeeId)}):</p>
       <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">
         <thead>
           <tr style="background:#1a73e8;color:#fff;">
@@ -1110,19 +1110,20 @@ async function send25DayCatchupEmail(employee) {
 // Template 18b: Admin seat allocation request — sent on DOJ to Admin/HR asking for seat confirmation
 async function sendAdminSeatAllocationRequest(employee) {
   const { name, employeeId, doj } = employee;
+  const co = esc(process.env.COMPANY_NAME || '');
   return sendEmail({
     to: resolveHrEmail(employee),
-    subject: `Action Required — Seat Allocation Confirmation for ${name} (${employeeId})`,
+    subject: `Action Required — Seat Allocation Confirmation for ${esc(name)} (${esc(employeeId)})`,
     html: `
       <p>Hi Admin Team,</p>
-      <p><strong>${name}</strong> (ID: ${employeeId}) is joining on <strong>${doj}</strong>. Please confirm that a workstation / seat has been allocated and is ready.</p>
+      <p><strong>${esc(name)}</strong> (ID: ${esc(employeeId)}) is joining on <strong>${esc(doj)}</strong>. Please confirm that a workstation / seat has been allocated and is ready.</p>
       <ul>
-        <li>Name: ${name}</li>
-        <li>Employee ID: ${employeeId}</li>
-        <li>Date of Joining: ${doj}</li>
+        <li>Name: ${esc(name)}</li>
+        <li>Employee ID: ${esc(employeeId)}</li>
+        <li>Date of Joining: ${esc(doj)}</li>
       </ul>
       <p>Please reply to this email confirming the seat allocation so the onboarding checklist can be updated.</p>
-      <p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>
+      <p>Regards,<br/>${co} HR</p>
     `,
   });
 }

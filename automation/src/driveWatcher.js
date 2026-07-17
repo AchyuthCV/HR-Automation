@@ -218,7 +218,7 @@ async function uploadInstructions(auth, folderId, employeeName) {
     `• Always include the keyword in your filename so the system can identify it`,
     `  (see examples above). Wrong filename = unrecognised document.`,
     ``,
-    `If you have any questions contact HR at ${process.env.HR_EMAIL || 'hr@aletheatech.com'}.`,
+    process.env.HR_EMAIL ? `If you have any questions contact HR at ${process.env.HR_EMAIL}.` : `If you have any questions, please contact HR.`,
     ``,
     `— ${process.env.COMPANY_NAME || 'Alethea'} HR Automation`,
   ].join('\n');

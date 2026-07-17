@@ -14,6 +14,8 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 
+const escHtml = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
 // Lazy — only instantiated when GEMINI_API_KEY is present, so module load never crashes
 let _genAI = null;
 function getGenAI() {
@@ -363,7 +365,7 @@ async function processGmailPush(auth, pushData, onReplyClassified) {
               <li><strong>From:</strong> ${full.from}</li>
               <li><strong>Subject:</strong> ${full.subject}</li>
             </ul>
-            <blockquote style="border-left:4px solid #ffa000;padding:8px 16px;background:#fffde7;color:#555;">${(full.body || '').slice(0, 500).replace(/</g, '&lt;')}</blockquote>
+            <blockquote style="border-left:4px solid #ffa000;padding:8px 16px;background:#fffde7;color:#555;">${escHtml((full.body || '').slice(0, 500))}</blockquote>
             <p>If this is an onboarding reply, you can manually mark the relevant task via the status dashboard.</p>
             <p>Regards,<br/>${process.env.COMPANY_NAME} HR Automation</p>
           `,

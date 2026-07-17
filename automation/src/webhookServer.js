@@ -13,6 +13,11 @@ const { getChangedFiles, loadPushChannels } = require('./driveWatcher');
 const { processGmailPush } = require('./gmailWatcher');
 const config = require('./config');
 
+// HTML escape for values embedded in server-rendered pages
+function esc(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 // ─── Input validation helpers ─────────────────────────────────────────────────
 // employeeId: alphanumeric + hyphen/underscore, 1-32 chars
 function isValidEmployeeId(id) {
@@ -679,11 +684,9 @@ app.get('/status/:employeeId', statusLimiter, (req, res) => {
       }
 
       // Mark-done button for incomplete tasks (only when MARK_TASK_SECRET is configured)
+      // Secret is sent as a header by JS, never embedded in page HTML
       const markBtn = (!t.done && markTaskEnabled)
-        ? `<form method="POST" action="/mark-task/${emp.employeeId}/${t._id}" style="display:inline;margin-left:8px;">
-            <input type="hidden" name="secret" value="${process.env.MARK_TASK_SECRET}"/>
-            <button type="submit" style="font-size:11px;padding:2px 8px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:3px;cursor:pointer;">Mark done</button>
-           </form>`
+        ? `<button type="button" onclick="markDone('${emp.employeeId}','${t._id}')" style="font-size:11px;padding:2px 8px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:3px;cursor:pointer;margin-left:8px;">Mark done</button>`
         : '';
 
       return `<tr>
@@ -730,8 +733,8 @@ app.get('/status/:employeeId', statusLimiter, (req, res) => {
 </head>
 <body>
   <div class="back"><a href="/status" style="color:#1a73e8;">&larr; All Employees</a></div>
-  <h1>${emp.name}</h1>
-  <div class="meta">ID: ${emp.employeeId} &nbsp;|&nbsp; DOJ: ${emp.doj} &nbsp;|&nbsp; ${emp.personalEmail}${officialEmailBadge}</div>
+  <h1>${esc(emp.name)}</h1>
+  <div class="meta">ID: ${esc(emp.employeeId)} &nbsp;|&nbsp; DOJ: ${esc(emp.doj)} &nbsp;|&nbsp; ${esc(emp.personalEmail)}${officialEmailBadge}</div>
   <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
   <div class="pct">${pct}% complete &mdash; ${done} of ${total} tasks done</div>
   <h2>Checklist</h2>
@@ -741,6 +744,18 @@ app.get('/status/:employeeId', statusLimiter, (req, res) => {
     <thead><tr style="background:#f5f5f5;"><th style="padding:6px 8px;text-align:left;">Time (UTC)</th><th style="padding:6px 12px;text-align:left;">Event</th><th style="padding:6px 8px;text-align:left;">Detail</th></tr></thead>
     <tbody>${eventRows}</tbody>
   </table>
+  <script>
+    function markDone(empId, taskId) {
+      const secret = prompt('Enter admin secret:');
+      if (!secret) return;
+      fetch('/mark-task/' + empId + '/' + taskId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-mark-task-secret': secret },
+        body: JSON.stringify({})
+      }).then(r => r.json()).then(d => { alert(d.message || d.error); location.reload(); })
+        .catch(() => alert('Request failed'));
+    }
+  </script>
 </body>
 </html>`);
 });
@@ -962,7 +977,7 @@ app.get('/status', statusLimiter, (_req, res) => {
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
       <div>
         <div class="title">Onboarding Dashboard</div>
-        <div class="subtitle">Alethea Communications Technologies &nbsp;·&nbsp; Auto-refreshes every 30s</div>
+        <div class="subtitle">${esc(process.env.COMPANY_NAME || 'HR')} &nbsp;·&nbsp; Auto-refreshes every 30s</div>
       </div>
       <div style="font-size:12px;color:#9CA3AF;">Uptime: ${Math.floor(process.uptime() / 60)}m</div>
     </div>

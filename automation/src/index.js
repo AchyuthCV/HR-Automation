@@ -215,7 +215,18 @@ function persistEmployeeToFile(data) {
 function loadEmployees() {
   const registryPath = EMPLOYEES_FILE;
   if (fs.existsSync(registryPath)) {
-    return JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+    let raw;
+    try {
+      raw = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+    } catch (err) {
+      console.error('[FATAL] employees.json is missing or contains invalid JSON:', err.message);
+      process.exit(1);
+    }
+    if (!Array.isArray(raw)) {
+      console.error('[FATAL] employees.json must be a JSON array. Got:', typeof raw);
+      process.exit(1);
+    }
+    return raw;
   }
 
   // Single-employee fallback from .env — useful for initial testing
