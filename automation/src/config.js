@@ -33,7 +33,7 @@ module.exports = {
   },
 
   // ─── Drive folder structure ─────────────────────────────────────────────────
-  driveSubfolders: ['Aadhaar', 'PAN', 'Address_Proof', 'Offer_Letter', 'Passport_Photo', 'Passport', 'UAN', 'Payslip', 'Relieving_Letter', 'Marksheet_10th', 'Marksheet_12th', 'Degree_Certificate', 'Postgrad_Certificate', 'BGV', 'HR_Induction_Screenshot', 'Project_Intro_Screenshot', 'Reports'],
+  driveSubfolders: ['Aadhaar', 'PAN', 'Current_Address_Proof', 'Permanent_Address_Proof', 'Offer_Letter', 'Passport_Photo', 'Passport', 'UAN', 'Payslip', 'Relieving_Letter', 'Marksheet_10th', 'Marksheet_12th', 'Degree_Certificate', 'Postgrad_Certificate', 'BGV', 'HR_Induction_Screenshot', 'Project_Intro_Screenshot', 'Reports'],
 
   // ─── Drive push channel TTL ─────────────────────────────────────────────────
   drivePushChannelTtlDays: 6,
@@ -52,7 +52,8 @@ module.exports = {
     marksheet12th:     ['12th', '12_th', 'twelfth', 'hsc', 'diploma', 'intermediate', 'marksheet_12'],
     degreeCertificate: ['degree', 'graduation', 'consolidated', 'btech', 'be_', 'bsc', 'bcom', 'ba_', 'bca', 'bba'],
     postgradCertificate: ['postgrad', 'post_grad', 'mtech', 'msc', 'mba', 'mca', 'phd', 'masters', 'pg_'],
-    addressProof:        ['address', 'address_proof', 'electricity', 'rent', 'rental', 'receipt', 'lease'],
+    currentAddressProof:   ['current_address', 'current_address_proof', 'present_address', 'electricity', 'wifi', 'rent', 'rental', 'receipt', 'lease', 'pg_rent'],
+    permanentAddressProof: ['permanent_address', 'permanent_address_proof', 'hometown', 'native'],
   },
 
   // ─── Optional documents — auto-marked N/A if not uploaded within this many days ──

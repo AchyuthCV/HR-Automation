@@ -312,7 +312,8 @@ function buildDefaultChecklist() {
         t60: { label: '12th/Diploma marksheet verified', done: false },
         t61: { label: 'Graduation degree certificate verified', done: false },
         t62: { label: 'Post graduation certificate verified (or marked N/A — not applicable)', done: false },
-        t67: { label: 'Address proof verified (Aadhaar / PAN / electricity bill / rental agreement)', done: false },
+        t67: { label: 'Current address proof verified (PG rent slip / wifi bill / electricity bill / rent agreement)', done: false },
+        t68: { label: 'Permanent address proof verified (Aadhaar / utility bill / rental agreement)', done: false },
         t12: { label: 'Document verification marked complete in Checklist1', done: false },
         t14: { label: 'Mail sent to HR to create official email ID and greythr login', done: false },
         t15: { label: 'HR responds with official email ID and greythr confirmation', done: false },
@@ -467,7 +468,8 @@ const DOC_TASK_MAP = {
   marksheet12th:         't60',
   degreeCertificate:     't61',
   postgradCertificate:   't62',
-  addressProof:          't67',
+  currentAddressProof:   't67',
+  permanentAddressProof: 't68',
 };
 
 // Optional documents — auto-marked N/A if not uploaded within grace period
@@ -672,9 +674,9 @@ async function handleNewFile(auth, employee, file, subfolderHint) {
     const taskId = DOC_TASK_MAP[docType];
     if (taskId) markAndLog(employee, taskId);
 
-    // Aadhaar and PAN both contain address — auto-satisfy address proof requirement
-    if ((docType === 'aadhaar' || docType === 'pan') && !isTaskDone(employee.checklist, 't67')) {
-      markAndLog(employee, 't67');
+    // Aadhaar auto-satisfies permanent address proof
+    if (docType === 'aadhaar' && !isTaskDone(employee.checklist, 't68')) {
+      markAndLog(employee, 't68');
     }
 
     // Cancel any pending no-response timer for this doc type
@@ -1481,7 +1483,8 @@ async function handleReply(auth, classified, rawMsg) {
         'pan': 'PAN', 'pan card': 'PAN',
         'offer letter': 'Offer_Letter', 'appointment letter': 'Offer_Letter',
         'passport photo': 'Passport_Photo', 'passport size photo': 'Passport_Photo',
-        'address proof': 'Address_Proof',
+        'current address proof': 'Current_Address_Proof',
+        'permanent address proof': 'Permanent_Address_Proof',
         '10th': 'Marksheet_10th', '10th marksheet': 'Marksheet_10th',
         '12th': 'Marksheet_12th', '12th marksheet': 'Marksheet_12th',
         'degree': 'Degree_Certificate', 'degree certificate': 'Degree_Certificate',
@@ -1566,7 +1569,8 @@ async function handleReply(auth, classified, rawMsg) {
         'pg certificate':             'postgradCertificate',
         'passport size photo':        'passportPhoto',
         'passport photo':             'passportPhoto',
-        'address proof':              'addressProof',
+        'current address proof':      'currentAddressProof',
+        'permanent address proof':    'permanentAddressProof',
       };
       const rawDocType = (data.docType || '').toLowerCase().trim();
       const internalDocType = DOC_LABEL_MAP[rawDocType] || rawDocType;

@@ -212,15 +212,30 @@ Only set valid=true if ALL four checks pass.`,
 }
 Only set valid=true if ALL four checks pass.`,
 
-  addressProof: `You are verifying a current address proof document submitted by a new employee. The document may be one of three types: an electricity bill, a rental agreement (including e-Stamp / registered rent agreement), or a rent receipt (handwritten or printed). Check ALL of the following and respond with a JSON object:
+  currentAddressProof: `You are verifying a current/present address proof document submitted by a new employee. Valid document types are: PG rent slip, wifi bill, electricity bill, or rent agreement. Check ALL of the following and respond with a JSON object:
 {
   "valid": true/false,
-  "docType": "Address Proof",
+  "docType": "Current Address Proof",
   "checks": {
     "legible": true/false,
     "nameVisible": true/false,
     "addressVisible": true/false,
     "isValidDocumentType": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Only set valid=true if ALL four checks pass.`,
+
+  permanentAddressProof: `You are verifying a permanent address proof document submitted by a new employee. The only valid document is an Aadhaar card. Check ALL of the following and respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "Permanent Address Proof",
+  "checks": {
+    "legible": true/false,
+    "nameVisible": true/false,
+    "addressVisible": true/false,
+    "isAadhaar": true/false
   },
   "failureReasons": ["list any failed checks in plain English"],
   "summary": "one sentence summary"
@@ -369,7 +384,9 @@ function detectDocTypeFromFilename(filename) {
   if (lower.includes('12th') || lower.includes('12_th') || lower.includes('twelfth') || lower.includes('hsc') || lower.includes('puc') || lower.includes('diploma') || lower.includes('intermediate') || lower.includes('marksheet_12')) return 'marksheet12th';
   if (lower.includes('postgrad') || lower.includes('post_grad') || lower.includes('mtech') || lower.includes('msc') || lower.includes('mba') || lower.includes('mca') || lower.includes('phd') || lower.includes('masters') || lower.includes('pg_')) return 'postgradCertificate';
   if (lower.includes('degree') || lower.includes('graduation') || lower.includes('consolidated') || lower.includes('btech') || lower.includes('bsc') || lower.includes('bcom') || lower.includes('bca') || lower.includes('bba')) return 'degreeCertificate';
-  if (lower.includes('address') || lower.includes('electricity') || lower.includes('rent') || lower.includes('rental') || lower.includes('receipt') || lower.includes('lease') || lower.includes('utility')) return 'addressProof';
+  if (lower.includes('current_address') || lower.includes('present_address') || lower.includes('current_addr')) return 'currentAddressProof';
+  if (lower.includes('permanent_address') || lower.includes('permanent_addr') || lower.includes('hometown')) return 'permanentAddressProof';
+  if (lower.includes('address') || lower.includes('electricity') || lower.includes('wifi') || lower.includes('rent') || lower.includes('rental') || lower.includes('receipt') || lower.includes('lease') || lower.includes('utility') || lower.includes('pg_rent')) return 'currentAddressProof';
   return null;
 }
 
@@ -389,7 +406,7 @@ async function detectDocTypeFromContent(auth, fileId, mimeType) {
     const result_raw = await callWithRetry(() => model.generateContent([
       `Look at this document and identify what type of HR document it is. Respond ONLY with a JSON object in this exact format:
 {
-  "docType": one of: "aadhaar", "pan", "offerLetter", "inductionScreenshot", "projectIntroScreenshot", "passportPhoto", "payslip", "relievingLetter", "marksheet10th", "marksheet12th", "degreeCertificate", "postgradCertificate", "addressProof", or null if none match,
+  "docType": one of: "aadhaar", "pan", "offerLetter", "inductionScreenshot", "projectIntroScreenshot", "passportPhoto", "payslip", "relievingLetter", "marksheet10th", "marksheet12th", "degreeCertificate", "postgradCertificate", "currentAddressProof", "permanentAddressProof", or null if none match,
   "confidence": "high" / "medium" / "low"
 }
 
@@ -406,7 +423,8 @@ Document type descriptions:
 - marksheet12th: 12th standard marksheet or diploma — HSC / PUC / Intermediate / Diploma result with subject marks and board/institution
 - degreeCertificate: Graduation degree certificate or consolidated marksheet — BE/BTech/BSc/BBA/BCA/BCom or similar, issued by a university
 - postgradCertificate: Post-graduation certificate — MTech/MBA/MSc/MCA/PhD or similar, issued by a university
-- addressProof: Current residential address proof — can be an electricity/utility bill (shows account holder name, address, bill period, utility company), a rental/lease agreement (contract between landlord and tenant with property address and signatures, may include government e-Stamp), or a rent receipt (handwritten or printed receipt for rent paid, showing tenant name, address, amount, and landlord signature)
+- currentAddressProof: Current/present address proof — can be a PG rent slip, wifi bill, electricity bill, or rent agreement showing the employee's current residential address
+- permanentAddressProof: Permanent address proof — Aadhaar card only (shows 12-digit UID, name, address, and UIDAI branding)
 
 Respond with null docType if the document does not match any of the above.`,
       { inlineData: { data: base64, mimeType: mediaType } },
