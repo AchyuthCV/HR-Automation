@@ -166,7 +166,7 @@ async function uploadInstructions(auth, folderId, employeeName) {
     `   → Name the file with "degree" or "graduation"  e.g. degree_john.pdf`,
     ``,
     `8. Current Address Proof (where you currently live)`,
-    `   → Accepted: PG rent slip, wifi bill, electricity bill, rent agreement`,
+    `   → Accepted: Aadhaar card, PG rent slip, wifi bill, electricity bill, rent agreement`,
     `   → Upload into the "Current_Address_Proof" folder`,
     `   → Name the file with "current_address"  e.g. current_address_john.pdf`,
     ``,
