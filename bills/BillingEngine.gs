@@ -15,7 +15,7 @@
 // ── CONFIG ──────────────────────────────────────────────────
 // Set your Gemini API key here (get one from https://aistudio.google.com/app/apikey)
 var GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
-var GEMINI_MODEL   = 'gemini-2.0-flash-lite';
+var GEMINI_MODEL   = 'gemini-3.1-flash-lite';
 var BILLING_EMAIL  = 'billing.ai@aletheatech.com';
 
 // Sheet layout (1-indexed, as seen in the sheet)
@@ -28,7 +28,7 @@ var BILLING_EMAIL  = 'billing.ai@aletheatech.com';
 var CARD_START_ROW = 18;  // first card data row (1-indexed)
 var CARD_END_ROW   = 19;  // last card data row (inclusive)
 var CASH_START_ROW = 25;  // first cash data row
-var CASH_END_ROW   = 53;  // last cash data row
+var CASH_END_ROW   = 54;  // last cash data row
 
 // Config cell: where employee pastes their Bills folder ID
 var CONFIG_SHEET   = 'Config';
@@ -184,6 +184,22 @@ function processBills() {
     msg += '\n\nWarnings:\n' + errors.join('\n');
   }
   SpreadsheetApp.getUi().alert(msg);
+}
+
+// ── TEST FUNCTION — run this from Apps Script to check API key ──
+function testGeminiKey() {
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+            GEMINI_MODEL + ':generateContent?key=' + GEMINI_API_KEY;
+  var payload = {
+    contents: [{ parts: [{ text: 'Reply with just the word: OK' }] }]
+  };
+  var response = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  SpreadsheetApp.getUi().alert('Gemini response:\n\n' + response.getContentText().slice(0, 500));
 }
 
 // ── GEMINI PDF EXTRACTION ────────────────────────────────────
