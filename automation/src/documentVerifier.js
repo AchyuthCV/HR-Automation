@@ -212,7 +212,7 @@ Only set valid=true if ALL four checks pass.`,
 }
 Only set valid=true if ALL four checks pass.`,
 
-  currentAddressProof: `You are verifying a current/present address proof document submitted by a new employee. Valid document types are: PG rent slip, wifi bill, electricity bill, or rent agreement. Check ALL of the following and respond with a JSON object:
+  currentAddressProof: `You are verifying a current/present address proof document submitted by a new employee. Valid document types are: Aadhaar card, PG rent slip, wifi bill, electricity bill, or rent agreement. Check ALL of the following and respond with a JSON object:
 {
   "valid": true/false,
   "docType": "Current Address Proof",
@@ -423,7 +423,7 @@ Document type descriptions:
 - marksheet12th: 12th standard marksheet or diploma — HSC / PUC / Intermediate / Diploma result with subject marks and board/institution
 - degreeCertificate: Graduation degree certificate or consolidated marksheet — BE/BTech/BSc/BBA/BCA/BCom or similar, issued by a university
 - postgradCertificate: Post-graduation certificate — MTech/MBA/MSc/MCA/PhD or similar, issued by a university
-- currentAddressProof: Current/present address proof — can be a PG rent slip, wifi bill, electricity bill, or rent agreement showing the employee's current residential address
+- currentAddressProof: Current/present address proof — can be an Aadhaar card, PG rent slip, wifi bill, electricity bill, or rent agreement showing the employee's current residential address
 - permanentAddressProof: Permanent address proof — Aadhaar card only (shows 12-digit UID, name, address, and UIDAI branding)
 
 Respond with null docType if the document does not match any of the above.`,
