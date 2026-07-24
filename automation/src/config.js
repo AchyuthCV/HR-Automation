@@ -54,6 +54,7 @@ module.exports = {
     postgradCertificate: ['postgrad', 'post_grad', 'mtech', 'msc', 'mba', 'mca', 'phd', 'masters', 'pg_'],
     currentAddressProof:   ['current_address', 'current_address_proof', 'present_address', 'electricity', 'wifi', 'rent', 'rental', 'receipt', 'lease', 'pg_rent'],
     permanentAddressProof: ['permanent_address', 'permanent_address_proof', 'hometown', 'native'],
+    uan:                   ['uan', 'umang', 'epfo', 'universal_account', 'pf_account'],
   },
 
   // ─── Optional documents — auto-marked N/A if not uploaded within this many days ──

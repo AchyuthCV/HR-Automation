@@ -314,6 +314,7 @@ function buildDefaultChecklist() {
         t62: { label: 'Post graduation certificate verified (or marked N/A — not applicable)', done: false },
         t67: { label: 'Current address proof verified (PG rent slip / wifi bill / electricity bill / rent agreement)', done: false },
         t68: { label: 'Permanent address proof verified (Aadhaar / utility bill / rental agreement)', done: false },
+        t69: { label: 'UAN verified (Universal Account Number — uploaded within 3 days of DOJ)', done: false },
         t12: { label: 'Document verification marked complete in Checklist1', done: false },
         t14: { label: 'Mail sent to HR to create official email ID and greythr login', done: false },
         t15: { label: 'HR responds with official email ID and greythr confirmation', done: false },
@@ -470,6 +471,7 @@ const DOC_TASK_MAP = {
   postgradCertificate:   't62',
   currentAddressProof:   't67',
   permanentAddressProof: 't68',
+  uan:                   't69',
 };
 
 // Optional documents — auto-marked N/A if not uploaded within grace period
@@ -1491,6 +1493,7 @@ async function handleReply(auth, classified, rawMsg) {
         'post graduation': 'Postgrad_Certificate', 'postgrad': 'Postgrad_Certificate',
         'relieving': 'Relieving_Letter', 'relieving letter': 'Relieving_Letter',
         'payslip': 'Payslip', 'pay slip': 'Payslip',
+        'uan': 'UAN', 'universal account number': 'UAN',
       };
       const subfolder = DOC_LABEL_TO_SUBFOLDER[rawDocLabel.toLowerCase()] || null;
 
@@ -1759,6 +1762,25 @@ async function onboardEmployee(auth, employee) {
         }
       }, graceMs);
     }
+
+    // Step 7b: UAN is mandatory — send a reminder email if not uploaded within 3 days of DOJ
+    setTimeout(async () => {
+      if (!isTaskDone(employee.checklist, 't69')) {
+        console.log(`[Index] UAN not uploaded within 3 days for ${employee.name} — sending reminder`);
+        const { sendEmail } = await import('./emailSender.js');
+        await sendEmail({
+          to: employee.contacts.personalEmail,
+          cc: process.env.HR_EMAIL,
+          subject: `Action Required: UAN not yet uploaded — ${employee.name}`,
+          html: `<p>Hi ${employee.name.split(' ')[0]},</p>
+<p>We noticed that your <strong>UAN (Universal Account Number)</strong> has not been uploaded yet.</p>
+<p>Please generate your UAN via the <strong>UMANG app</strong> and upload a screenshot or PDF to your Drive folder under the <strong>UAN</strong> subfolder.</p>
+<p>This is required within 3 days of your Date of Joining. Please upload it at the earliest.</p>
+<p>Regards,<br/>${process.env.COMPANY_NAME} HR</p>`,
+        }).catch(err => console.warn(`[Index] UAN reminder email failed: ${err.message}`));
+        activityLog.log(employee, 'uan_reminder_sent', 'UAN not uploaded — reminder sent to employee');
+      }
+    }, graceMs);
 
     console.log(`[Index] Onboarding initiated for ${employee.name}\n`);
   } else {

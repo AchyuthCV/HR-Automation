@@ -250,6 +250,26 @@ Check definitions:
     3. Rent receipt — a receipt (printed or handwritten) acknowledging rent payment, showing tenant name, address, amount, and landlord signature.
   Set false if the document is clearly something else (Aadhaar, PAN, marksheet, etc.).
 Only set valid=true if ALL four checks pass.`,
+
+  uan: `You are verifying a UAN (Universal Account Number) document submitted by a new employee. This should be a screenshot or PDF from the UMANG app or EPFO portal showing the employee's UAN. Respond with a JSON object:
+{
+  "valid": true/false,
+  "docType": "UAN",
+  "checks": {
+    "legible": true/false,
+    "uanVisible": true/false,
+    "nameVisible": true/false,
+    "isUANDocument": true/false
+  },
+  "failureReasons": ["list any failed checks in plain English"],
+  "summary": "one sentence summary"
+}
+Check definitions:
+- "legible": The document/screenshot is clearly readable.
+- "uanVisible": A 12-digit UAN number is visible on the document.
+- "nameVisible": The employee's name is visible anywhere on the document.
+- "isUANDocument": The document is recognisably a UAN card, UMANG app screenshot, or EPFO portal page showing UAN details.
+Only set valid=true if ALL four checks pass.`,
 };
 
 // Extraction prompts — run after successful verification to pull structured data from the doc
@@ -386,6 +406,7 @@ function detectDocTypeFromFilename(filename) {
   if (lower.includes('degree') || lower.includes('graduation') || lower.includes('consolidated') || lower.includes('btech') || lower.includes('bsc') || lower.includes('bcom') || lower.includes('bca') || lower.includes('bba')) return 'degreeCertificate';
   if (lower.includes('current_address') || lower.includes('present_address') || lower.includes('current_addr')) return 'currentAddressProof';
   if (lower.includes('permanent_address') || lower.includes('permanent_addr') || lower.includes('hometown')) return 'permanentAddressProof';
+  if (lower.includes('uan') || lower.includes('umang') || lower.includes('epfo') || lower.includes('universal_account')) return 'uan';
   if (lower.includes('address') || lower.includes('electricity') || lower.includes('wifi') || lower.includes('rent') || lower.includes('rental') || lower.includes('receipt') || lower.includes('lease') || lower.includes('utility') || lower.includes('pg_rent')) return 'currentAddressProof';
   return null;
 }
@@ -425,6 +446,7 @@ Document type descriptions:
 - postgradCertificate: Post-graduation certificate — MTech/MBA/MSc/MCA/PhD or similar, issued by a university
 - currentAddressProof: Current/present address proof — can be an Aadhaar card, PG rent slip, wifi bill, electricity bill, or rent agreement showing the employee's current residential address
 - permanentAddressProof: Permanent address proof — Aadhaar card only (shows 12-digit UID, name, address, and UIDAI branding)
+- uan: UAN (Universal Account Number) document — a screenshot or PDF from the UMANG app or EPFO portal showing a 12-digit UAN number
 
 Respond with null docType if the document does not match any of the above.`,
       { inlineData: { data: base64, mimeType: mediaType } },
