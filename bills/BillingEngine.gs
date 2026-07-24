@@ -19,11 +19,10 @@ var GEMINI_MODEL   = 'gemini-3.1-flash-lite';
 var BILLING_EMAIL  = 'billing.ai@aletheatech.com';
 
 // Sheet layout (1-indexed, as seen in the sheet)
-// Card section data rows: 18 to 19  (columns B,C,D,E,F,G,H,I,J,K,L)
-// Cash section data rows: 25 to 53  (columns B,C,D,E,F,G,H,I,J,K,L)
-// Columns: B=Date, C=Description, D=TransactionID, E=ReceiptNr(?), F=ExpenseType, G=CostCategory, H=AssetYN, I–K unused, L=Amount
-// For Card: B=Date, C=Description, D=TransactionID, H=ReceiptNr, L=Amount
-// For Cash: B=Date, C=Description, H=ReceiptNr, L=Amount
+// Card section data rows: 18 to 19  (columns B,C,D,H,I,J,K,L)
+// Cash section data rows: 25 to 54  (columns B,C,H,I,J,K,L)
+// For Card: B=Date, C=Description, D=TransactionID(XX8001), H=ReceiptNr, I=ExpenseType, J=CostCategory, K=AssetYN, L=Amount
+// For Cash: B=Date, C=Description, H=ReceiptNr, I=ExpenseType, J=CostCategory, K=AssetYN, L=Amount
 
 var CARD_START_ROW = 18;  // first card data row (1-indexed)
 var CARD_END_ROW   = 19;  // last card data row (inclusive)
@@ -42,6 +41,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Billing')
     .addItem('Process New Bills', 'processBills')
+    .addItem('Fix Missing Receipt Numbers', 'fixMissingReceiptNumbers')
     .addItem('Setup Config Sheet', 'setupConfigSheet')
     .addToUi();
 }
@@ -212,7 +212,7 @@ function extractBillWithGemini(file, mimeType) {
     '{\n' +
     '  "date": "YYYY-MM-DD or null if not found",\n' +
     '  "description": "Short merchant name only, max 4 words",\n' +
-    '  "receipt_nr": "Receipt or invoice number as printed, or null",\n' +
+    '  "receipt_nr": "The bill/invoice/receipt number printed on the document. Look for labels like: Bill No, Bill Number, Invoice No, Invoice Number, Receipt No, Receipt Number, Token No, Coupon No, Order No, Bill #. Extract the alphanumeric code next to these labels. Return null only if no such number exists.",\n' +
     '  "amount": "Total amount paid as a number (no currency symbol), or null",\n' +
     '  "payment_method": "card or upi or cash or unknown"\n' +
     '}\n\n' +
@@ -497,4 +497,103 @@ function parseDateString(str) {
 // "MELTING CAKES L L P" → "Melting Cakes L L P"
 function toTitleCase(str) {
   return str.toLowerCase().replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+}
+
+// ── FIX MISSING RECEIPT NUMBERS ─────────────────────────────
+// Run from: Billing > Fix Missing Receipt Numbers
+// Re-reads all PDF receipts from the Drive folder and fills in
+// any Receipt Nr cells that are currently empty in the active month tab.
+// Matches rows by date + amount so it doesn't duplicate or overwrite.
+function fixMissingReceiptNumbers() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var configSheet = ss.getSheetByName(CONFIG_SHEET);
+  if (!configSheet) {
+    SpreadsheetApp.getUi().alert('Please run "Billing > Setup Config Sheet" first.');
+    return;
+  }
+  var folderId = configSheet.getRange(FOLDER_ID_CELL).getValue().toString().trim();
+  if (!folderId) {
+    SpreadsheetApp.getUi().alert('Please enter your Bills Drive Folder ID in Config!B2.');
+    return;
+  }
+
+  var tab = ss.getActiveSheet();
+  var tabName = tab.getName();
+  if (!/^[A-Z][a-z]{2} \d{4}$/.test(tabName)) {
+    SpreadsheetApp.getUi().alert(
+      'Please click on the month tab you want to fix (e.g. "Jul 2026") and then run this again.');
+    return;
+  }
+
+  var fixedCount = 0;
+  var skipped = 0;
+  var errors = [];
+
+  try {
+    var folder = DriveApp.getFolderById(folderId);
+    var files = folder.getFiles();
+
+    while (files.hasNext()) {
+      var file = files.next();
+      var fileName = file.getName();
+      var mimeType = file.getMimeType();
+      if (!isSupportedFile(mimeType, fileName)) continue;
+
+      try {
+        var bill = extractBillWithGemini(file, mimeType);
+        Logger.log(fileName + ' → receipt_nr: ' + (bill ? bill.receipt_nr : 'null'));
+
+        if (!bill || !bill.receipt_nr || !bill.date) {
+          skipped++;
+          continue;
+        }
+
+        // Only care about bills that belong to the active month tab
+        if (getMonthTab(bill.date) !== tabName) continue;
+
+        var dateFormatted = formatDate(bill.date);
+        var billAmount = parseFloat(bill.amount) || 0;
+
+        // Search both card and cash sections for a row with same date + amount + empty receipt_nr
+        var sections = [
+          { start: CARD_START_ROW, end: CARD_END_ROW },
+          { start: CASH_START_ROW, end: CASH_END_ROW }
+        ];
+
+        var filled = false;
+        for (var s = 0; s < sections.length && !filled; s++) {
+          var startRow = sections[s].start;
+          var endRow   = sections[s].end;
+          // Read B:L (columns B through L = 11 columns, indices 0-10)
+          var rangeData = tab.getRange('B' + startRow + ':L' + endRow).getValues();
+
+          for (var i = 0; i < rangeData.length; i++) {
+            var rowDate      = (rangeData[i][0] || '').toString().trim();    // B
+            var rowReceiptNr = (rangeData[i][6] || '').toString().trim();    // H = B+6
+            var rowAmount    = parseFloat(rangeData[i][10]) || 0;            // L = B+10
+
+            if (rowDate === dateFormatted &&
+                Math.abs(rowAmount - billAmount) < 0.01 &&
+                rowReceiptNr === '') {
+              tab.getRange('H' + (startRow + i)).setValue(bill.receipt_nr);
+              Logger.log('Filled H' + (startRow + i) + ' = ' + bill.receipt_nr + ' (' + fileName + ')');
+              fixedCount++;
+              filled = true;
+              break;
+            }
+          }
+        }
+
+        if (!filled) skipped++;
+      } catch (e) {
+        errors.push('Error on ' + fileName + ': ' + e.message);
+      }
+    }
+  } catch (e) {
+    errors.push('Drive folder error: ' + e.message);
+  }
+
+  var msg = 'Done!\n\nReceipt numbers filled: ' + fixedCount + '\nSkipped (no match or no number): ' + skipped;
+  if (errors.length > 0) msg += '\n\nWarnings:\n' + errors.join('\n');
+  SpreadsheetApp.getUi().alert(msg);
 }
